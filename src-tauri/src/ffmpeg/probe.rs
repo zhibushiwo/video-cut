@@ -3,6 +3,7 @@
 use std::path::Path;
 use std::process::Command;
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;
@@ -27,6 +28,16 @@ async fn run_ffprobe(app: &AppHandle, args: &[&str], input: &str) -> Result<Stri
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+/// 合并检测所需的完整事实（DESIGN §3.3 九项比对）。
+/// `info` 以 flatten 方式序列化，前端可直接作为 MediaInfo 使用。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MergeFileFacts {
+    #[serde(flatten)]
+    pub info: MediaInfo,
+    pub video_time_base: String,
+}
+
 /// 解析媒体信息（DESIGN §6.5：`-print_format json -show_format -show_streams`）。
 pub async fn probe_media(app: &AppHandle, input: &str) -> Result<MediaInfo, String> {
     let out = run_ffprobe(
@@ -44,6 +55,36 @@ pub async fn probe_media(app: &AppHandle, input: &str) -> Result<MediaInfo, Stri
     let v: Value =
         serde_json::from_str(&out).map_err(|e| format!("ffprobe 输出解析失败：{e}"))?;
     parse_media_json(&v)
+}
+
+/// 解析合并检测事实（异步命令入口用）。
+pub async fn probe_merge_facts(app: &AppHandle, input: &str) -> Result<MergeFileFacts, String> {
+    let out = run_ffprobe(
+        app,
+        &["-print_format", "json", "-show_format", "-show_streams"],
+        input,
+    )
+    .await?;
+    let v: Value =
+        serde_json::from_str(&out).map_err(|e| format!("ffprobe 输出解析失败：{e}"))?;
+    parse_merge_facts(&v)
+}
+
+/// 同步版本：任务作业线程内做最终校验用。
+pub fn probe_merge_facts_sync(ffprobe: &Path, input: &str) -> Result<MergeFileFacts, String> {
+    let out = Command::new(ffprobe)
+        .args(["-v", "error", "-print_format", "json", "-show_format", "-show_streams", input])
+        .output()
+        .map_err(|e| format!("无法启动 ffprobe：{e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "ffprobe 失败：{}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    let v: Value = serde_json::from_str(&String::from_utf8_lossy(&out.stdout))
+        .map_err(|e| format!("ffprobe 输出解析失败：{e}"))?;
+    parse_merge_facts(&v)
 }
 
 /// 扫描关键帧时间点（秒，升序）。只解码关键帧，长视频仍需数秒（DESIGN §6.5）。
@@ -147,6 +188,25 @@ pub fn parse_media_json(v: &Value) -> Result<MediaInfo, String> {
         audio,
         subtitle_count,
         rotation: parse_rotation(video_json),
+    })
+}
+
+pub fn parse_merge_facts(v: &Value) -> Result<MergeFileFacts, String> {
+    let info = parse_media_json(v)?;
+    let video_time_base = v
+        .get("streams")
+        .and_then(Value::as_array)
+        .and_then(|ss| {
+            ss.iter()
+                .find(|s| s.get("codec_type").and_then(Value::as_str) == Some("video"))
+        })
+        .and_then(|s| s.get("time_base"))
+        .and_then(Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    Ok(MergeFileFacts {
+        info,
+        video_time_base,
     })
 }
 

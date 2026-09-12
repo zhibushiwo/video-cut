@@ -32,6 +32,11 @@ pub fn submit_task(
             }
             submit_cut(app, &state, input, segments, output_dir)
         }
+        VideoTask::Merge {
+            inputs,
+            output,
+            force_transcode,
+        } => super::merge::submit_merge(app, &state, inputs, output, force_transcode),
         _ => Err("该任务类型尚未实现".into()),
     }
 }

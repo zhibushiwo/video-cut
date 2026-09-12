@@ -112,3 +112,21 @@ export interface TaskProgressPayload {
   speed: string | null;
   etaSeconds: number | null;
 }
+
+/** 合并检测事实：MediaInfo + 视频流 time_base（Rust 端 flatten 序列化） */
+export interface MergeFileFacts extends MediaInfo {
+  videoTimeBase: string;
+}
+
+/** 合并参数一致性检测结果（DESIGN §3.3 九项比对） */
+export interface MergeComparison {
+  files: MergeFileFacts[];
+  compatible: boolean;
+  differences: string[];
+}
+
+/** 首帧缩略图结果 */
+export interface FileThumbnail {
+  input: string;
+  thumbPath: string;
+}

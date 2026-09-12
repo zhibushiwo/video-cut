@@ -153,6 +153,119 @@ pub fn proxy_args(input: &str, output: &str) -> Vec<String> {
     .collect()
 }
 
+/// 参数统一转码（DESIGN §6.3④）：scale + fps + format，libx264 + aac 192k。
+#[allow(dead_code)] // M2 起由 commands/merge.rs 使用
+pub fn normalize_args(
+    input: &str,
+    width: u32,
+    height: u32,
+    fps: f64,
+    pix_fmt: &str,
+    output: &str,
+) -> Vec<String> {
+    let vf = format!("scale={width}:{height}:flags=lanczos,fps={fps:.3},format={pix_fmt}");
+    [
+        "-hide_banner",
+        "-nostats",
+        "-loglevel",
+        "error",
+        "-progress",
+        "pipe:1",
+        "-stats_period",
+        "0.2",
+        "-i",
+        input,
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a:0?",
+        "-vf",
+        &vf,
+        "-c:v",
+        "libx264",
+        "-preset",
+        "medium",
+        "-crf",
+        "20",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-y",
+        output,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// 合并 concat 列表内容（DESIGN §6.3③）：正斜杠 + 单引号包裹 + 单引号双写转义。
+pub fn concat_list_content(paths: &[String]) -> String {
+    let mut s = String::new();
+    for p in paths {
+        let normalized = p.replace('\\', "/");
+        let escaped = normalized.replace('\'', "'\\''");
+        s.push_str(&format!("file '{escaped}'\n"));
+    }
+    s
+}
+
+/// 无损合并（concat demuxer + stream copy，DESIGN §6.3③）。
+pub fn concat_args(list_file: &str, output: &str) -> Vec<String> {    [
+        "-hide_banner",
+        "-nostats",
+        "-loglevel",
+        "error",
+        "-progress",
+        "pipe:1",
+        "-stats_period",
+        "0.2",
+        "-f",
+        "concat",
+        "-safe",
+        "0",
+        "-fflags",
+        "+genpts",
+        "-i",
+        list_file,
+        "-map",
+        "0",
+        "-c",
+        "copy",
+        "-y",
+        output,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// 首帧缩略图提取（合并列表辨识用）：取 ~1s 处一帧，缩到 160px 宽。
+pub fn thumbnail_args(input: &str, output: &str) -> Vec<String> {
+    [
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        "1",
+        "-i",
+        input,
+        "-map",
+        "0:v:0",
+        "-frames:v",
+        "1",
+        "-vf",
+        "scale=160:-2",
+        "-q:v",
+        "4",
+        "-y",
+        output,
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,5 +323,58 @@ mod tests {
         assert!(ffmpeg.exists(), "ffmpeg sidecar 不存在：{}", ffmpeg.display());
         let ffprobe = resolve_sidecar("ffprobe").unwrap();
         assert!(ffprobe.exists());
+    }
+
+    #[test]
+    fn concat_args_follows_design_template() {
+        let args = concat_args("list.txt", "out.mp4");
+        assert_eq!(
+            args,
+            vec![
+                "-hide_banner",
+                "-nostats",
+                "-loglevel",
+                "error",
+                "-progress",
+                "pipe:1",
+                "-stats_period",
+                "0.2",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-fflags",
+                "+genpts",
+                "-i",
+                "list.txt",
+                "-map",
+                "0",
+                "-c",
+                "copy",
+                "-y",
+                "out.mp4",
+            ]
+        );
+    }
+
+    #[test]
+    fn concat_list_escapes_quotes_and_backslashes() {
+        let content = concat_list_content(&[
+            "D:\\videos\\我的 视频.mp4".to_string(),
+            "D:/music/it's a song.mp4".to_string(),
+        ]);
+        assert_eq!(
+            content,
+            "file 'D:/videos/我的 视频.mp4'\nfile 'D:/music/it'\\''s a song.mp4'\n"
+        );
+    }
+
+    #[test]
+    fn normalize_args_builds_filter_chain() {
+        let args = normalize_args("in.mkv", 1920, 1080, 29.97, "yuv420p", "out.mp4");
+        let vf_pos = args.iter().position(|a| a == "-vf").unwrap();
+        assert_eq!(args[vf_pos + 1], "scale=1920:1080:flags=lanczos,fps=29.970,format=yuv420p");
+        assert!(args.iter().any(|a| a == "libx264"));
+        assert!(args.iter().any(|a| a == "192k"));
     }
 }

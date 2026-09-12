@@ -3,13 +3,15 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
 
 use crate::ffmpeg::{command, probe};
 use crate::task::manager::{Job, TaskContext, TauriEmitter};
 use crate::task::worker;
 use crate::{AppTasks, EnvironmentInfo, MediaInfo, TaskSnapshot};
+
+use super::fnv1a;
 
 /// 检查内置 ffmpeg/ffprobe 可用性与版本（DESIGN §6.1、§13）。
 #[tauri::command]
@@ -35,6 +37,14 @@ pub async fn list_keyframes(app: AppHandle, input: String) -> Result<Vec<f64>, S
 pub struct ProxyStart {
     pub task_id: Option<String>,
     pub proxy_path: String,
+}
+
+/// 缩略图结果：输入路径 → 缓存图路径。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileThumbnail {
+    pub input: String,
+    pub thumb_path: String,
 }
 
 /// 生成预览代理（DESIGN §3.7、§6.3⑧）。已有缓存时直接复用。
@@ -124,6 +134,61 @@ pub fn cancel_task(state: State<'_, AppTasks>, task_id: String) -> bool {
     state.0.cancel(&task_id)
 }
 
+/// 批量提取首帧缩略图（合并列表辨识用）。带缓存；整体跑在阻塞线程池，不卡 UI。
+#[tauri::command]
+pub async fn generate_thumbnails(
+    app: AppHandle,
+    inputs: Vec<String>,
+) -> Result<Vec<FileThumbnail>, String> {
+    tauri::async_runtime::spawn_blocking(move || generate_thumbnails_sync(&app, &inputs))
+        .await
+        .map_err(|e| format!("缩略图任务失败：{e}"))?
+}
+
+fn generate_thumbnails_sync(
+    app: &AppHandle,
+    inputs: &[String],
+) -> Result<Vec<FileThumbnail>, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("无法定位缓存目录：{e}"))?
+        .join("thumbs");
+    std::fs::create_dir_all(&cache_dir).map_err(|e| format!("无法创建缓存目录：{e}"))?;
+    let ffmpeg = command::resolve_sidecar("ffmpeg")?;
+
+    let mut out = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        let path = cache_dir.join(format!("{:016x}.jpg", fnv1a(input.as_bytes())));
+        if !path.exists() {
+            let status = std::process::Command::new(&ffmpeg)
+                .args(command::thumbnail_args(
+                    input,
+                    &path.to_string_lossy(),
+                ))
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map_err(|e| format!("无法启动 ffmpeg：{e}"))?;
+            if !status.success() || !path.exists() {
+                return Err(format!("生成缩略图失败：{}", file_display(input)));
+            }
+        }
+        out.push(FileThumbnail {
+            input: input.clone(),
+            thumb_path: path_to_string(&path),
+        });
+    }
+    Ok(out)
+}
+
+fn file_display(p: &str) -> &str {
+    std::path::Path::new(p)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(p)
+}
+
 /// 返回当前任务列表快照。
 #[tauri::command]
 pub fn list_tasks(state: State<'_, AppTasks>) -> Vec<TaskSnapshot> {
@@ -132,14 +197,4 @@ pub fn list_tasks(state: State<'_, AppTasks>) -> Vec<TaskSnapshot> {
 
 fn path_to_string(p: &PathBuf) -> String {
     p.to_string_lossy().into_owned()
-}
-
-/// FNV-1a 64：为源文件路径生成稳定缓存名（跨进程/跨版本一致）。
-fn fnv1a(bytes: &[u8]) -> u64 {
-    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
-    for &b in bytes {
-        h ^= b as u64;
-        h = h.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    h
 }

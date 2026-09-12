@@ -8,7 +8,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type {
   EnvironmentInfo,
+  FileThumbnail,
   MediaInfo,
+  MergeComparison,
   TaskProgressPayload,
   TaskSnapshot,
   TaskStatusPayload,
@@ -34,6 +36,16 @@ export function checkEnvironment(): Promise<EnvironmentInfo> {
 
 export function probeMedia(input: string): Promise<MediaInfo> {
   return invoke("probe_media", { input });
+}
+
+/** 合并前参数一致性检测（DESIGN §3.3 九项比对） */
+export function checkMerge(inputs: string[]): Promise<MergeComparison> {
+  return invoke("check_merge", { inputs });
+}
+
+/** 批量提取首帧缩略图（带缓存） */
+export function generateThumbnails(inputs: string[]): Promise<FileThumbnail[]> {
+  return invoke("generate_thumbnails", { inputs });
 }
 
 export function listKeyframes(input: string): Promise<number[]> {
@@ -83,6 +95,17 @@ export async function pickVideo(): Promise<string | null> {
     filters: [{ name: "视频", extensions: VIDEO_EXTENSIONS }],
   });
   return typeof picked === "string" ? picked : null;
+}
+
+/** 系统文件对话框：选择多个视频 */
+export async function pickVideos(): Promise<string[]> {
+  const picked = await open({
+    multiple: true,
+    directory: false,
+    filters: [{ name: "视频", extensions: VIDEO_EXTENSIONS }],
+  });
+  if (Array.isArray(picked)) return picked;
+  return typeof picked === "string" ? [picked] : [];
 }
 
 /** 系统文件对话框：选择一个目录 */

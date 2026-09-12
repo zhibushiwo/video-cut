@@ -167,6 +167,8 @@ pub fn run() {
             commands::media::list_keyframes,
             commands::media::generate_proxy,
             commands::media::cancel_task,
+            commands::media::generate_thumbnails,
+            commands::merge::check_merge,
             commands::cut::submit_task,
         ])
         .run(tauri::generate_context!())
