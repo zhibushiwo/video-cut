@@ -15,6 +15,10 @@ dist-ssr
 # FFmpeg sidecar binaries（由 scripts/fetch-ffmpeg.ps1 下载，DESIGN §6.1）
 src-tauri/binaries/*.exe
 
+# 本地测试素材与可再生成的测试产物
+video/
+scripts/fixtures/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

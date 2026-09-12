@@ -3,6 +3,7 @@ import HomePage from "./pages/Home";
 import CutPage from "./pages/Cut";
 import MergePage from "./pages/Merge";
 import EditorPage from "./pages/Editor";
+import TaskProgress from "./components/TaskProgress";
 import { checkEnvironment } from "./services/tauri";
 import type { EnvironmentInfo, PageName } from "./types";
 
@@ -23,14 +24,15 @@ export default function App() {
       );
   }, []);
 
-  if (page === "home") {
-    return <HomePage env={env} onNavigate={setPage} />;
-  }
-  if (page === "cut") {
-    return <CutPage onBack={() => setPage("home")} />;
-  }
-  if (page === "merge") {
-    return <MergePage onBack={() => setPage("home")} />;
-  }
-  return <EditorPage tool={page} onBack={() => setPage("home")} />;
+  return (
+    <>
+      {page === "home" && <HomePage env={env} onNavigate={setPage} />}
+      {page === "cut" && <CutPage onBack={() => setPage("home")} />}
+      {page === "merge" && <MergePage onBack={() => setPage("home")} />}
+      {(page === "rotate" || page === "crop") && (
+        <EditorPage tool={page} onBack={() => setPage("home")} />
+      )}
+      <TaskProgress />
+    </>
+  );
 }

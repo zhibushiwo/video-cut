@@ -15,6 +15,9 @@ use crate::{TaskSnapshot, TaskStatus};
 /// 任务作业：执行期间通过 [`TaskContext`] 上报进度、检查取消、登记产物。
 pub type Job = Box<dyn FnOnce(&TaskContext) -> Result<(), String> + Send>;
 
+/// 立即终止任务的后台动作（如 kill ffmpeg 子进程），cancel 时触发。
+pub type Killer = Box<dyn FnOnce() + Send>;
+
 /// 事件推送抽象：生产环境发 Tauri 事件，测试环境收集断言。
 pub trait EventSink: Send + Sync {
     fn emit_status(&self, payload: &StatusPayload);
@@ -64,6 +67,14 @@ pub struct TaskHandle {
     pub error: Mutex<Option<String>>,
     pub outputs: Mutex<Vec<String>>,
     pub cancelled: AtomicBool,
+    killer: Mutex<Option<Killer>>,
+}
+
+impl TaskHandle {
+    /// 任务结束（正常/失败/取消）后清空 killer，避免残留闭包。
+    pub(crate) fn clear_killer(&self) {
+        *self.killer.lock().unwrap() = None;
+    }
 }
 
 impl TaskHandle {
@@ -111,6 +122,11 @@ impl TaskContext {
     #[allow(dead_code)] // M1 起由各任务作业调用
     pub fn add_output(&self, path: String) {
         self.handle.outputs.lock().unwrap().push(path);
+    }
+
+    /// 注册立即终止手段（kill 子进程）。运行中任务被取消时由 cancel() 触发。
+    pub fn set_killer(&self, killer: crate::task::manager::Killer) {
+        *self.handle.killer.lock().unwrap() = Some(killer);
     }
 
     pub(crate) fn emit_status(&self) {
@@ -195,6 +211,7 @@ impl TaskManager {
             error: Mutex::new(None),
             outputs: Mutex::new(Vec::new()),
             cancelled: AtomicBool::new(false),
+            killer: Mutex::new(None),
         });
         let mut inner = self.shared.inner.lock().unwrap();
         inner.order.push(id.clone());
@@ -212,20 +229,29 @@ impl TaskManager {
         id
     }
 
-    /// 取消任务：排队中直接置 Cancelled；运行中置标记，由作业侧响应（DESIGN §8.2）。
+    /// 取消任务：排队中直接置 Cancelled；运行中置标记并触发 killer（kill 子进程）。
     #[allow(dead_code)]
     pub fn cancel(&self, id: &str) -> bool {
-        let mut inner = self.shared.inner.lock().unwrap();
-        let Some(entry) = inner.tasks.get(id) else {
-            return false;
+        let (handle, sink, killer, pending) = {
+            let mut inner = self.shared.inner.lock().unwrap();
+            let Some(entry) = inner.tasks.get(id) else {
+                return false;
+            };
+            let handle = entry.handle.clone();
+            let sink = entry.sink.clone();
+            handle.cancelled.store(true, Ordering::Relaxed);
+            let pending = *handle.status.lock().unwrap() == TaskStatus::Pending;
+            let killer = handle.killer.lock().unwrap().take();
+            if pending {
+                *handle.status.lock().unwrap() = TaskStatus::Cancelled;
+                inner.queue.retain(|(qid, _)| qid != id);
+            }
+            (handle, sink, killer, pending)
         };
-        let handle = entry.handle.clone();
-        let sink = entry.sink.clone();
-        handle.cancelled.store(true, Ordering::Relaxed);
-        if *handle.status.lock().unwrap() == TaskStatus::Pending {
-            *handle.status.lock().unwrap() = TaskStatus::Cancelled;
-            inner.queue.retain(|(qid, _)| qid != id);
-            drop(inner);
+        if let Some(k) = killer {
+            k();
+        }
+        if pending {
             TaskContext::new(handle, sink).emit_status();
         }
         true
@@ -294,6 +320,7 @@ mod tests {
     #[derive(Default)]
     struct CollectSink {
         statuses: Mutex<Vec<(String, TaskStatus)>>,
+        progresses: Mutex<Vec<(String, f64)>>,
     }
 
     impl EventSink for CollectSink {
@@ -303,7 +330,9 @@ mod tests {
                 .unwrap()
                 .push((p.task_id.clone(), p.status));
         }
-        fn emit_progress(&self, _: &ProgressPayload) {}
+        fn emit_progress(&self, p: &ProgressPayload) {
+            self.progresses.lock().unwrap().push((p.task_id.clone(), p.percent));
+        }
     }
 
     fn wait_terminal(mgr: &TaskManager, ids: &[&str], timeout: Duration) -> Vec<TaskSnapshot> {
@@ -329,7 +358,7 @@ mod tests {
     #[test]
     fn tasks_run_and_reach_final_status() {
         let mgr = TaskManager::new(1);
-        let sink: Arc<dyn EventSink> = Arc::new(CollectSink::default());
+        let sink = Arc::new(CollectSink::default());
         let id1 = mgr.submit(
             sink.clone(),
             "test",
@@ -339,13 +368,21 @@ mod tests {
                 Ok(())
             }),
         );
-        let id2 = mgr.submit(sink, "test", "失败", Box::new(|_ctx| Err("boom".into())));
+        let id2 = mgr.submit(
+            sink.clone() as Arc<dyn EventSink>,
+            "test",
+            "失败",
+            Box::new(|_ctx| Err("boom".into())),
+        );
 
         let snaps = wait_terminal(&mgr, &[&id1, &id2], Duration::from_secs(5));
         let s1 = snaps.iter().find(|s| s.id == id1).unwrap();
         let s2 = snaps.iter().find(|s| s.id == id2).unwrap();
         assert_eq!(s1.status, TaskStatus::Completed);
-        assert_eq!(s1.progress, Some(0.5));
+        // 成功完成时进度被推满
+        assert_eq!(s1.progress, Some(1.0));
+        // 作业过程中上报过 0.5
+        assert!(sink.progresses.lock().unwrap().iter().any(|(id, p)| id == &id1 && *p == 0.5));
         assert_eq!(s2.status, TaskStatus::Failed);
         assert_eq!(s2.error.as_deref(), Some("boom"));
     }

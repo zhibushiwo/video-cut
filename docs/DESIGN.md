@@ -538,7 +538,7 @@ Pending ──▶ Probing ──▶ Running ──▶ Completed
 
 - `TaskManager` 持有 `Mutex<HashMap<TaskId, TaskHandle>>` + pending 队列，通过 `tauri::State` 注入；任务句柄存子进程 PID + 取消信号
 - **取消**：向子进程发 kill（Windows 下 kill 即终止），随后**删除该任务已产生的 `.part` 半成品**；任务内最后一个子进程退出后状态置 Cancelled
-- **半成品保护**：所有输出先写 `<name>.part`，ffmpeg 正常退出后 rename 为最终文件名——保证输出目录永远没有"看起来完整实际损坏"的文件
+- **半成品保护**：所有输出先写 `<name>.part.<原扩展名>`（如 `xxx.part.mp4`——保留真实扩展名供 ffmpeg 推断封装格式），ffmpeg 正常退出后 rename 为最终文件名——保证输出目录永远没有"看起来完整实际损坏"的文件
 - **并发控制**：全局并发上限 **2**（stream copy 是 IO 密集，重编码是 CPU/GPU 密集，统一限 2 足够；代理生成任务优先级最低，排队尾）
 - **磁盘空间预检**：Running 前按源文件大小估算输出体积（copy ≈ 源；编码按码率估算），可用空间不足直接 Failed 并提示
 - 事件通过 `app.emit()` 广播；前端 `TaskProgress` 组件订阅 `task-status` / `task-progress` 渲染
