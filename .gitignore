@@ -12,6 +12,9 @@ dist
 dist-ssr
 *.local
 
+# FFmpeg sidecar binaries（由 scripts/fetch-ffmpeg.ps1 下载，DESIGN §6.1）
+src-tauri/binaries/*.exe
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

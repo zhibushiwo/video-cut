@@ -1,0 +1,21 @@
+/* 应用级动效与局部样式（全局令牌见 global.css） */
+
+/* Home 关键帧标尺的播放头漂移——页面唯一的非交互动效，prefers-reduced-motion 时关闭 */
+@keyframes vc-playhead {
+  from {
+    left: 3%;
+  }
+  to {
+    left: 97%;
+  }
+}
+
+.vc-playhead {
+  animation: vc-playhead 48s linear infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vc-playhead {
+    animation: none;
+  }
+}

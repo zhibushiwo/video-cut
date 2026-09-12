@@ -1,1 +1,51 @@
 @import "tailwindcss";
+
+/*
+ * 设计令牌（DESIGN §9.1）
+ * 石墨底 + 语义信号色：signal 绿只表示"无损/就绪"，warn 琥珀只表示"重编码"。
+ * mono 字体只用于时间码与状态读数。
+ */
+@theme {
+  --color-ink: #101113;
+  --color-panel: #17181b;
+  --color-hairline: #2a2c31;
+  --color-paper: #e8e6e1;
+  --color-mute: #8b8e94;
+  --color-signal: #4cc38a;
+  --color-warn: #d9a03f;
+
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Code", "Consolas", ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: var(--color-ink);
+  color: var(--color-paper);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(76, 195, 138, 0.25);
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2a2c31;
+  border-radius: 5px;
+  border: 2px solid var(--color-ink);
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
