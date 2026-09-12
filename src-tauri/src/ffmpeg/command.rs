@@ -1,11 +1,13 @@
 //! FFmpeg 命令构建器：全项目唯一拼装 ffmpeg 参数的地方（DESIGN §6.2/§6.3）。
 
 use std::path::PathBuf;
+use std::process::Command;
+use std::sync::OnceLock;
 
 use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;
 
-use crate::EnvironmentInfo;
+use crate::{EnvironmentInfo, QualityPreset};
 
 // ---------- 二进制定位 ----------
 
@@ -266,6 +268,264 @@ pub fn thumbnail_args(input: &str, output: &str) -> Vec<String> {
     .collect()
 }
 
+// ---------- 编码器探测与质量档位（DESIGN §3.5、§10） ----------
+
+/// 试跑一个极短编码判断硬件编码器在本机是否可用（结果缓存，进程内只探测一次）。
+fn encoder_works(encoder: &str) -> bool {
+    let Ok(ffmpeg) = resolve_sidecar("ffmpeg") else {
+        return false;
+    };
+    Command::new(&ffmpeg)
+        .args([
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=black:s=320x240:d=0.1",
+            "-frames:v",
+            "3",
+            "-c:v",
+            encoder,
+            "-f",
+            "null",
+            "-",
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+fn first_working(candidates: &[&str]) -> Option<String> {
+    candidates
+        .iter()
+        .find(|c| encoder_works(c))
+        .map(|c| c.to_string())
+}
+
+/// 按像素格式选择编码器：10/12bit 优先 HEVC（硬编 → libx265），否则 H.264（硬编 → libx264）。
+/// 硬件探测结果缓存在 OnceLock，进程生命周期内只试跑一次（DESIGN §3.5、§14-M3-9）。
+pub fn resolve_encoder(pix_fmt: &str) -> String {
+    static H264: OnceLock<Option<String>> = OnceLock::new();
+    static HEVC: OnceLock<Option<String>> = OnceLock::new();
+    let high_depth = pix_fmt.contains("10le") || pix_fmt.contains("12le");
+    if high_depth {
+        HEVC.get_or_init(|| first_working(&["hevc_nvenc", "hevc_qsv", "hevc_amf"]))
+            .clone()
+            .unwrap_or_else(|| "libx265".to_string())
+    } else {
+        H264.get_or_init(|| first_working(&["h264_nvenc", "h264_qsv", "h264_amf"]))
+            .clone()
+            .unwrap_or_else(|| "libx264".to_string())
+    }
+}
+
+/// 质量档位 → 编码参数（集中映射，DESIGN §3.5：高质量/平衡/小体积）。
+pub fn encoder_quality_args(encoder: &str, quality: QualityPreset) -> Vec<String> {
+    let (cq, amf_quality, crf, preset): (&str, &str, &str, &str) = match quality {
+        QualityPreset::High => ("19", "quality", "16", "slow"),
+        QualityPreset::Balanced => ("24", "balanced", "20", "medium"),
+        QualityPreset::Small => ("28", "speed", "26", "fast"),
+    };
+    if encoder.ends_with("nvenc") {
+        vec!["-rc".into(), "vbr".into(), "-cq".into(), cq.into(), "-b:v".into(), "0".into()]
+    } else if encoder.ends_with("qsv") {
+        vec!["-global_quality".into(), cq.into()]
+    } else if encoder.ends_with("amf") {
+        vec!["-quality".into(), amf_quality.into()]
+    } else {
+        // libx264 / libx265
+        vec!["-crf".into(), crf.into(), "-preset".into(), preset.into()]
+    }
+}
+
+// ---------- 旋转（DESIGN §3.4、§6.3⑤⑥） ----------
+
+/// 元数据级旋转（无损 remux，DESIGN §6.3⑤）：只改显示矩阵，像素原样复制。
+/// `display_deg` 为绝对角度（0/90/180/270，正=顺时针）；翻转用独立开关。
+pub fn rotate_remux_args_deg(
+    display_deg: i32,
+    hflip: bool,
+    vflip: bool,
+    input: &str,
+    output: &str,
+) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        "-hide_banner".into(),
+        "-nostats".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-progress".into(),
+        "pipe:1".into(),
+        "-stats_period".into(),
+        "0.2".into(),
+        "-display_rotation".into(),
+        display_deg.to_string(),
+    ];
+    if hflip {
+        args.push("-display_hflip".into());
+    }
+    if vflip {
+        args.push("-display_vflip".into());
+    }
+    args.extend([
+        "-i".into(),
+        input.into(),
+        "-map".into(),
+        "0".into(),
+        "-c".into(),
+        "copy".into(),
+        "-avoid_negative_ts".into(),
+        "make_zero".into(),
+        "-y".into(),
+        output.into(),
+    ]);
+    args
+}
+
+/// 重编码变换的滤镜链（DESIGN §6.3⑥）：翻转先作用（源空间），再旋转。
+/// 返回空串表示无变换（调用方省略 -vf）。
+fn transform_filter(delta_deg: i32, hflip: bool, vflip: bool) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    if hflip {
+        parts.push("hflip");
+    }
+    if vflip {
+        parts.push("vflip");
+    }
+    match delta_deg.rem_euclid(360) {
+        90 => parts.push("transpose=1"),
+        180 => {
+            parts.push("hflip");
+            parts.push("vflip");
+        }
+        270 => parts.push("transpose=2"),
+        _ => {}
+    }
+    parts.join(",")
+}
+
+/// 重编码变换（高级选项）：transpose/hflip/vflip 逐帧变换，音频 copy。
+/// 滤镜链为空时不加 -vf。
+pub fn rotate_transcode_args(
+    delta_deg: i32,
+    hflip: bool,
+    vflip: bool,
+    input: &str,
+    output: &str,
+    encoder: &str,
+    quality: QualityPreset,
+) -> Vec<String> {
+    let vf = transform_filter(delta_deg, hflip, vflip);
+    let mut args: Vec<String> = vec![
+        "-hide_banner".into(),
+        "-nostats".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-progress".into(),
+        "pipe:1".into(),
+        "-stats_period".into(),
+        "0.2".into(),
+        "-i".into(),
+        input.into(),
+        "-map".into(),
+        "0:v:0".into(),
+        "-map".into(),
+        "0:a".into(),
+    ];
+    if !vf.is_empty() {
+        args.extend(["-vf".into(), vf]);
+    }
+    args.extend(["-c:v".into(), encoder.into()]);
+    args.extend(encoder_quality_args(encoder, quality));
+    args.extend(["-c:a".into(), "copy".into(), "-y".into(), output.into()]);
+    args
+}
+
+// ---------- 局部放大（DESIGN §3.5、§6.3⑦） ----------
+
+/// crop + scale(lanczos) 链。rect 必须已做偶数对齐与越界校验（submit 层负责）。
+pub fn crop_zoom_args(
+    input: &str,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    out_width: u32,
+    out_height: u32,
+    encoder: &str,
+    quality: QualityPreset,
+    output: &str,
+) -> Vec<String> {
+    let vf = format!(
+        "crop={width}:{height}:{x}:{y},scale={out_width}:{out_height}:flags=lanczos"
+    );
+    let mut args: Vec<String> = vec![
+        "-hide_banner".into(),
+        "-nostats".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-progress".into(),
+        "pipe:1".into(),
+        "-stats_period".into(),
+        "0.2".into(),
+        "-i".into(),
+        input.into(),
+        "-map".into(),
+        "0:v:0".into(),
+        "-map".into(),
+        "0:a".into(),
+        "-vf".into(),
+        vf,
+        "-c:v".into(),
+        encoder.into(),
+    ];
+    args.extend(encoder_quality_args(encoder, quality));
+    args.extend(["-c:a".into(), "copy".into(), "-y".into(), output.into()]);
+    args
+}
+
+// ---------- 精确剪切（DESIGN §3.2、§6.3②） ----------
+
+/// 精确剪切（重编码）：`-ss` 在 `-i` 后（输出侧 seek，解码到帧后精确开始）；
+/// 音频 copy 不转码；字幕流无法与重编码视频对齐，丢弃（UI 已提示）。
+pub fn precise_cut_args(
+    start_sec: f64,
+    duration_sec: f64,
+    input: &str,
+    output: &str,
+    encoder: &str,
+    quality: QualityPreset,
+) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        "-hide_banner".into(),
+        "-nostats".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-progress".into(),
+        "pipe:1".into(),
+        "-stats_period".into(),
+        "0.2".into(),
+        "-i".into(),
+        input.into(),
+        "-ss".into(),
+        fmt_sec(start_sec),
+        "-t".into(),
+        fmt_sec(duration_sec),
+        "-map".into(),
+        "0:v:0".into(),
+        "-map".into(),
+        "0:a".into(),
+        "-c:v".into(),
+        encoder.into(),
+    ];
+    args.extend(encoder_quality_args(encoder, quality));
+    args.extend(["-c:a".into(), "copy".into(), "-y".into(), output.into()]);
+    args
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -376,5 +636,115 @@ mod tests {
         assert_eq!(args[vf_pos + 1], "scale=1920:1080:flags=lanczos,fps=29.970,format=yuv420p");
         assert!(args.iter().any(|a| a == "libx264"));
         assert!(args.iter().any(|a| a == "192k"));
+    }
+
+    #[test]
+    fn rotate_remux_places_display_rotation_before_input() {
+        let args = rotate_remux_args_deg(90, false, false, "in.mp4", "out.mp4");
+        let rot_pos = args.iter().position(|a| a == "-display_rotation").unwrap();
+        assert_eq!(args[rot_pos + 1], "90");
+        let i_pos = args.iter().position(|a| a == "-i").unwrap();
+        assert!(rot_pos < i_pos, "-display_rotation 必须在 -i 之前");
+        // 无损：-c copy 且 -map 0
+        assert!(args.windows(2).any(|w| w[0] == "-c" && w[1] == "copy"));
+        assert!(args.contains(&"0".to_string()));
+    }
+
+    #[test]
+    fn rotate_remux_zero_resets_metadata() {
+        let args = rotate_remux_args_deg(0, false, false, "in.mp4", "out.mp4");
+        let rot_pos = args.iter().position(|a| a == "-display_rotation").unwrap();
+        assert_eq!(args[rot_pos + 1], "0");
+    }
+
+    #[test]
+    fn rotate_remux_flip_uses_dedicated_flag() {
+        let args = rotate_remux_args_deg(0, true, false, "in.mp4", "out.mp4");
+        assert!(args.contains(&"-display_hflip".to_string()));
+        assert!(!args.contains(&"-display_vflip".to_string()));
+    }
+
+    #[test]
+    fn rotate_transcode_uses_transpose_filter() {
+        let args = rotate_transcode_args(270, false, false, "in.mp4", "out.mp4", "libx264", QualityPreset::Balanced);
+        let vf_pos = args.iter().position(|a| a == "-vf").unwrap();
+        assert_eq!(args[vf_pos + 1], "transpose=2");
+        // 音频 copy
+        let ca = args.iter().position(|a| a == "-c:a").unwrap();
+        assert_eq!(args[ca + 1], "copy");
+    }
+
+    #[test]
+    fn rotate_transcode_composes_flip_then_rotate() {
+        let args = rotate_transcode_args(90, true, false, "in.mp4", "out.mp4", "libx264", QualityPreset::Balanced);
+        let vf_pos = args.iter().position(|a| a == "-vf").unwrap();
+        // 翻转先作用（源空间），再旋转
+        assert_eq!(args[vf_pos + 1], "hflip,transpose=1");
+    }
+
+    #[test]
+    fn rotate_transcode_flip_only_omits_vf_when_no_transform() {
+        let args = rotate_transcode_args(0, false, false, "in.mp4", "out.mp4", "libx264", QualityPreset::Balanced);
+        assert!(!args.contains(&"-vf".to_string()));
+    }
+
+    #[test]
+    fn crop_args_build_crop_scale_chain() {
+        let args = crop_zoom_args("in.mp4", 400, 200, 800, 800, 1920, 1080, "h264_nvenc", QualityPreset::High, "out.mp4");
+        let vf_pos = args.iter().position(|a| a == "-vf").unwrap();
+        assert_eq!(args[vf_pos + 1], "crop=800:800:400:200,scale=1920:1080:flags=lanczos");
+        let cv = args.iter().position(|a| a == "-c:v").unwrap();
+        assert_eq!(args[cv + 1], "h264_nvenc");
+        // nvenc 质量档位：vbr + cq
+        let rc = args.iter().position(|a| a == "-rc").unwrap();
+        assert_eq!(args[rc + 1], "vbr");
+        let cq = args.iter().position(|a| a == "-cq").unwrap();
+        assert_eq!(args[cq + 1], "19");
+    }
+
+    #[test]
+    fn precise_cut_seeks_after_input() {
+        let args = precise_cut_args(13.0, 7.0, "in.mp4", "out.mp4", "libx264", QualityPreset::Small);
+        let i_pos = args.iter().position(|a| a == "-i").unwrap();
+        let ss_pos = args.iter().position(|a| a == "-ss").unwrap();
+        assert!(ss_pos > i_pos, "精确剪切 -ss 必须在 -i 之后（输出侧 seek）");
+        assert_eq!(args[ss_pos + 1], "13.000");
+        let ca = args.iter().position(|a| a == "-c:a").unwrap();
+        assert_eq!(args[ca + 1], "copy");
+    }
+
+    #[test]
+    fn quality_args_per_encoder_family() {
+        assert_eq!(
+            encoder_quality_args("libx264", QualityPreset::Balanced),
+            vec!["-crf", "20", "-preset", "medium"]
+        );
+        assert_eq!(
+            encoder_quality_args("hevc_nvenc", QualityPreset::Small),
+            vec!["-rc", "vbr", "-cq", "28", "-b:v", "0"]
+        );
+        assert_eq!(
+            encoder_quality_args("h264_qsv", QualityPreset::High),
+            vec!["-global_quality", "19"]
+        );
+        assert_eq!(
+            encoder_quality_args("hevc_amf", QualityPreset::Balanced),
+            vec!["-quality", "balanced"]
+        );
+    }
+
+    #[test]
+    fn resolve_encoder_falls_back_to_software() {
+        // 本机若无任何硬编（试跑失败），应回退软件编码器；有硬编则返回硬编名
+        let enc = resolve_encoder("yuv420p");
+        assert!(
+            enc == "h264_nvenc" || enc == "h264_qsv" || enc == "h264_amf" || enc == "libx264",
+            "非法编码器：{enc}"
+        );
+        let enc10 = resolve_encoder("yuv420p10le");
+        assert!(
+            enc10 == "hevc_nvenc" || enc10 == "hevc_qsv" || enc10 == "hevc_amf" || enc10 == "libx265",
+            "10bit 应走 HEVC 路径：{enc10}"
+        );
     }
 }

@@ -17,7 +17,13 @@ import type { MediaInfo, Segment } from "../../types";
 import { audioSummary, needsProxy, videoSummary } from "../../utils/media";
 import { formatBitrate, formatBytes, formatTime } from "../../utils/time";
 
-export default function CutPage({ onBack }: { onBack: () => void }) {
+export default function CutPage({
+  onBack,
+  initialFiles,
+}: {
+  onBack: () => void;
+  initialFiles?: string[] | null;
+}) {
   const [inputPath, setInputPath] = useState<string | null>(null);
   const [info, setInfo] = useState<MediaInfo | null>(null);
   const [probeError, setProbeError] = useState<string | null>(null);
@@ -29,6 +35,7 @@ export default function CutPage({ onBack }: { onBack: () => void }) {
   const [segments, setSegments] = useState<Segment[]>([]);
   const [outputDir, setOutputDir] = useState("");
   const [snap, setSnap] = useState(true);
+  const [cutMode, setCutMode] = useState<"fast" | "precise">("fast");
   const [proxyPath, setProxyPath] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +98,14 @@ export default function CutPage({ onBack }: { onBack: () => void }) {
       .finally(() => setKfLoading(false));
   }, []);
 
+  // 拖拽导入：挂载时消费初始文件（仅一次）
+  const consumedInitialRef = useRef(false);
+  useEffect(() => {
+    if (consumedInitialRef.current) return;
+    consumedInitialRef.current = true;
+    if (initialFiles && initialFiles[0]) void loadFile(initialFiles[0]);
+  }, [initialFiles, loadFile]);
+
   const openFile = useCallback(async () => {
     const path = await pickVideo();
     if (path) void loadFile(path);
@@ -123,7 +138,7 @@ export default function CutPage({ onBack }: { onBack: () => void }) {
         input: inputPath,
         segments,
         outputDir,
-        mode: "fast",
+        mode: cutMode,
       });
     } catch (err) {
       setError(String(err));
@@ -270,6 +285,26 @@ export default function CutPage({ onBack }: { onBack: () => void }) {
               >
                 添加片段
               </button>
+              <div className="flex overflow-hidden rounded-md border border-hairline pb-0" role="group" aria-label="剪切模式">
+                <button
+                  type="button"
+                  onClick={() => setCutMode("fast")}
+                  className={`px-3 py-2 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal ${
+                    cutMode === "fast" ? "bg-signal/15 text-signal" : "text-mute hover:text-paper"
+                  }`}
+                >
+                  极速
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCutMode("precise")}
+                  className={`px-3 py-2 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal ${
+                    cutMode === "precise" ? "bg-warn/15 text-warn" : "text-mute hover:text-paper"
+                  }`}
+                >
+                  精确
+                </button>
+              </div>
               <label className="flex cursor-pointer items-center gap-1.5 pb-2 text-xs text-mute">
                 <input
                   type="checkbox"
@@ -283,6 +318,12 @@ export default function CutPage({ onBack }: { onBack: () => void }) {
                 <span className="pb-2 font-mono text-[11px] text-mute">正在扫描关键帧…</span>
               )}
             </div>
+
+            {cutMode === "precise" && (
+              <p className="text-xs leading-relaxed text-warn">
+                精确剪切将重新编码：速度慢、画质有损，字幕流会丢弃；音频保持原样。
+              </p>
+            )}
 
             <SegmentList
               segments={segments}
@@ -306,8 +347,14 @@ export default function CutPage({ onBack }: { onBack: () => void }) {
         >
           更改目录
         </button>
-        <span className="rounded border border-signal/30 bg-signal/10 px-1.5 py-0.5 text-xs text-signal">
-          无损
+        <span
+          className={`rounded border px-1.5 py-0.5 text-xs ${
+            cutMode === "fast"
+              ? "border-signal/30 bg-signal/10 text-signal"
+              : "border-warn/30 bg-warn/10 text-warn"
+          }`}
+        >
+          {cutMode === "fast" ? "无损" : "重编码"}
         </span>
         <button
           type="button"

@@ -1,6 +1,5 @@
-//! 剪切任务提交（DESIGN §3.2、§6.3①、§8.1）。
-//!
-//! 多片段 = 一个任务内串行执行 N 个 ffmpeg 子进程，进度按已完成片段数汇总。
+//! 剪切任务提交：极速（stream copy）与精确（重编码）双模式（DESIGN §3.2、§6.3①②）。
+//! 同时是四类任务的统一提交入口（§5.4）。
 
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
@@ -14,8 +13,9 @@ use crate::task::manager::{Job, TaskContext, TauriEmitter};
 use crate::task::worker;
 use crate::{AppTasks, CutMode, VideoTask};
 
+/// 统一任务入口：按类型分发（DESIGN §5.4）。crop 需要预校验选区，故为 async。
 #[tauri::command]
-pub fn submit_task(
+pub async fn submit_task(
     app: AppHandle,
     state: State<'_, AppTasks>,
     task: VideoTask,
@@ -26,18 +26,39 @@ pub fn submit_task(
             segments,
             output_dir,
             mode,
-        } => {
-            if mode != CutMode::Fast {
-                return Err("精确剪切将在后续版本提供，当前请使用极速剪切".into());
-            }
-            submit_cut(app, &state, input, segments, output_dir)
-        }
+        } => submit_cut(app, &state, input, segments, output_dir, mode),
         VideoTask::Merge {
             inputs,
             output,
             force_transcode,
         } => super::merge::submit_merge(app, &state, inputs, output, force_transcode),
-        _ => Err("该任务类型尚未实现".into()),
+        VideoTask::Rotate {
+            input,
+            rotate_deg,
+            hflip,
+            vflip,
+            output,
+            transcode,
+            quality,
+        } => super::rotate::submit_rotate(
+            app, &state, input, rotate_deg, hflip, vflip, output, transcode, quality,
+        ),
+        VideoTask::CropZoom {
+            input,
+            x,
+            y,
+            width,
+            height,
+            out_width,
+            out_height,
+            quality,
+            output,
+        } => {
+            let rect =
+                super::crop::validate_crop_rect(&app, &input, x, y, width, height, out_width, out_height)
+                    .await?;
+            super::crop::submit_crop(app, &state, input, rect, quality, output)
+        }
     }
 }
 
@@ -54,7 +75,9 @@ fn submit_cut(
     input: String,
     segments: Vec<crate::Segment>,
     output_dir: String,
+    mode: CutMode,
 ) -> Result<String, String> {
+    let precise = mode == CutMode::Precise;
     // ---------- 校验（DESIGN §13） ----------
     if !Path::new(&input).is_file() {
         return Err(format!("输入文件不存在：{input}"));
@@ -64,10 +87,7 @@ fn submit_cut(
     }
     for s in &segments {
         if !(s.start_sec >= 0.0 && s.end_sec > s.start_sec + 0.05) {
-            return Err(format!(
-                "片段区间无效：{} ~ {}",
-                s.start_sec, s.end_sec
-            ));
+            return Err(format!("片段区间无效：{} ~ {}", s.start_sec, s.end_sec));
         }
     }
     std::fs::create_dir_all(&output_dir).map_err(|e| format!("无法创建输出目录：{e}"))?;
@@ -102,17 +122,19 @@ fn submit_cut(
         })
         .collect();
 
-    let label = format!("剪切 {}（{} 个片段）", src.file_name().and_then(|n| n.to_str()).unwrap_or(&input), items.len());
+    let mode_label = if precise { "精确剪切（重编码）" } else { "剪切" };
+    let label = format!(
+        "{mode_label} {}（{} 个片段）",
+        src.file_name().and_then(|n| n.to_str()).unwrap_or(&input),
+        items.len()
+    );
     let total_segments = items.len();
 
     let job_input = input.clone();
     let job: Job = Box::new(move |ctx: &TaskContext| {
         // 磁盘空间预检（DESIGN §8.2）：估算 ≈ 源大小 × 片段时长占比
-        let source_size = std::fs::metadata(&job_input)
-            .map(|m| m.len())
-            .unwrap_or(0);
-        let total_duration =
-            probe::probe_duration_sync(&ffprobe, &job_input).unwrap_or(0.0);
+        let source_size = std::fs::metadata(&job_input).map(|m| m.len()).unwrap_or(0);
+        let total_duration = probe::probe_duration_sync(&ffprobe, &job_input).unwrap_or(0.0);
         if source_size > 0 && total_duration > 0.0 {
             let want_sec: f64 = items.iter().map(|it| it.dur).sum();
             let estimate = (source_size as f64 * (want_sec / total_duration).min(1.0)) as u64;
@@ -126,6 +148,15 @@ fn submit_cut(
             }
         }
 
+        // 精确模式：按源像素格式选编码器（10bit → HEVC 路径）
+        let encoder = if precise {
+            let facts = probe::probe_merge_facts_sync(&ffprobe, &job_input)
+                .map_err(|e| format!("{}：{e}", in_name_of(&job_input)))?;
+            Some(command::resolve_encoder(&facts.info.video.pix_fmt))
+        } else {
+            None
+        };
+
         for (i, item) in items.iter().enumerate() {
             if ctx.is_cancelled() {
                 let _ = std::fs::remove_file(&item.part);
@@ -134,23 +165,27 @@ fn submit_cut(
             let _ = std::fs::remove_file(&item.part);
 
             let last = Cell::new(Instant::now() - Duration::from_millis(250));
-            let result = worker::run_ffmpeg(
-                ctx,
-                &ffmpeg,
-                &command::cut_args(item.start, item.dur, &job_input, &item.part.to_string_lossy()),
-                item.dur,
-                &|local, _| {
-                    let now = Instant::now();
-                    if now.duration_since(last.get()) >= Duration::from_millis(200)
-                        || local >= 1.0
-                    {
-                        last.set(now);
-                        ctx.set_progress((i as f64 + local) / total_segments as f64);
-                    }
-                },
-            );
+            let args = if precise {
+                command::precise_cut_args(
+                    item.start,
+                    item.dur,
+                    &job_input,
+                    &item.part.to_string_lossy(),
+                    encoder.as_deref().unwrap_or("libx264"),
+                    crate::QualityPreset::Balanced,
+                )
+            } else {
+                command::cut_args(item.start, item.dur, &job_input, &item.part.to_string_lossy())
+            };
+            let r = worker::run_ffmpeg(ctx, &ffmpeg, &args, item.dur, &|local, _| {
+                let now = Instant::now();
+                if now.duration_since(last.get()) >= Duration::from_millis(200) || local >= 1.0 {
+                    last.set(now);
+                    ctx.set_progress((i as f64 + local) / total_segments as f64);
+                }
+            });
 
-            match result {
+            match r {
                 Ok(()) => {
                     let _ = std::fs::remove_file(&item.final_path);
                     std::fs::rename(&item.part, &item.final_path)
@@ -167,4 +202,11 @@ fn submit_cut(
     });
 
     Ok(state.0.submit(Arc::new(TauriEmitter(app)), "cut", &label, job))
+}
+
+fn in_name_of(p: &str) -> &str {
+    Path::new(p)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(p)
 }

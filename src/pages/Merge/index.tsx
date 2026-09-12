@@ -11,8 +11,14 @@ import type { MergeComparison } from "../../types";
 import { audioSummary, videoSummary } from "../../utils/media";
 import { formatBytes } from "../../utils/time";
 
-export default function MergePage({ onBack }: { onBack: () => void }) {
-  const [files, setFiles] = useState<string[]>([]);
+export default function MergePage({
+  onBack,
+  initialFiles,
+}: {
+  onBack: () => void;
+  initialFiles?: string[] | null;
+}) {
+  const [files, setFiles] = useState<string[]>(initialFiles ?? []);
   const [check, setCheck] = useState<MergeComparison | null>(null);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);

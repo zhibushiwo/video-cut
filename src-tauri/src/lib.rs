@@ -95,16 +95,6 @@ pub enum CutMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Rotation {
-    Cw90,
-    Ccw90,
-    R180,
-    HFlip,
-    VFlip,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum QualityPreset {
     High,
     Balanced,
@@ -128,12 +118,17 @@ pub enum VideoTask {
         output: String,
         force_transcode: bool,
     },
+    /// 旋转：rotate_deg 为相对源方向的增量（0/90/180/270，正=顺时针），
+    /// 翻转独立叠加。无损路径换算为绝对显示矩阵，重编码路径生成滤镜链。
     #[serde(rename_all = "camelCase")]
     Rotate {
         input: String,
-        rotation: Rotation,
+        rotate_deg: i32,
+        hflip: bool,
+        vflip: bool,
         output: String,
         transcode: bool,
+        quality: QualityPreset,
     },
     #[serde(rename_all = "camelCase")]
     CropZoom {

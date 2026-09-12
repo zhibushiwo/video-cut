@@ -4,6 +4,7 @@
  */
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type {
@@ -80,6 +81,29 @@ export function onTaskProgress(
   handler: (payload: TaskProgressPayload) => void,
 ): Promise<UnlistenFn> {
   return listen<TaskProgressPayload>("task-progress", (event) => handler(event.payload));
+}
+
+/** 拖拽导入：文件拖入窗口并松开时回调路径列表（已在 services 内过滤视频扩展名） */
+export function onVideoDropped(handler: (paths: string[]) => void): Promise<UnlistenFn> {
+  return getCurrentWebview().onDragDropEvent((event) => {
+    if (event.payload.type === "drop") {
+      const videos = event.payload.paths.filter((p) =>
+        VIDEO_EXTENSIONS.includes(p.split(".").pop()?.toLowerCase() ?? ""),
+      );
+      if (videos.length > 0) handler(videos);
+    }
+  });
+}
+
+/** 拖拽悬停状态（显示导入覆盖层） */
+export function onDragHover(handler: (over: boolean) => void): Promise<UnlistenFn> {
+  return getCurrentWebview().onDragDropEvent((event) => {
+    if (event.payload.type === "enter" || event.payload.type === "over") {
+      handler(true);
+    } else if (event.payload.type === "leave") {
+      handler(false);
+    }
+  });
 }
 
 /** 本地文件 → WebView 可播放的 asset 协议地址 */

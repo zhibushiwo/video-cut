@@ -47,7 +47,6 @@ export interface Segment {
 }
 
 export type CutMode = "fast" | "precise";
-export type Rotation = "cw_90" | "ccw_90" | "r_180" | "h_flip" | "v_flip";
 export type QualityPreset = "high" | "balanced" | "small";
 
 export type VideoTask =
@@ -62,9 +61,13 @@ export type VideoTask =
   | {
       type: "rotate";
       input: string;
-      rotation: Rotation;
+      /** 相对源方向的旋转增量（0/90/180/270，正=顺时针） */
+      rotateDeg: number;
+      hflip: boolean;
+      vflip: boolean;
       output: string;
       transcode: boolean;
+      quality: QualityPreset;
     }
   | {
       type: "crop_zoom";

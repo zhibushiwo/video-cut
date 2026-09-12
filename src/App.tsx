@@ -4,12 +4,19 @@ import CutPage from "./pages/Cut";
 import MergePage from "./pages/Merge";
 import EditorPage from "./pages/Editor";
 import TaskProgress from "./components/TaskProgress";
-import { checkEnvironment } from "./services/tauri";
+import {
+  checkEnvironment,
+  onDragHover,
+  onVideoDropped,
+} from "./services/tauri";
 import type { EnvironmentInfo, PageName } from "./types";
 
 export default function App() {
   const [page, setPage] = useState<PageName>("home");
   const [env, setEnv] = useState<EnvironmentInfo | null>(null);
+  const [dragOver, setDragOver] = useState(false);
+  /** 拖入的文件：随页面挂载消费一次 */
+  const [pending, setPending] = useState<string[] | null>(null);
 
   useEffect(() => {
     checkEnvironment()
@@ -24,15 +31,46 @@ export default function App() {
       );
   }, []);
 
+  // 拖拽导入：单文件进剪切，多文件进合并
+  useEffect(() => {
+    let unDrop: (() => void) | undefined;
+    let unHover: (() => void) | undefined;
+    void onVideoDropped((paths) => {
+      setDragOver(false);
+      setPending(paths);
+      setPage(paths.length >= 2 ? "merge" : "cut");
+    }).then((f) => {
+      unDrop = f;
+    });
+    void onDragHover(setDragOver).then((f) => {
+      unHover = f;
+    });
+    return () => {
+      unDrop?.();
+      unHover?.();
+    };
+  }, []);
+
+  const navigate = (p: PageName) => {
+    setPending(null);
+    setPage(p);
+  };
+
   return (
     <>
-      {page === "home" && <HomePage env={env} onNavigate={setPage} />}
-      {page === "cut" && <CutPage onBack={() => setPage("home")} />}
-      {page === "merge" && <MergePage onBack={() => setPage("home")} />}
+      {page === "home" && <HomePage env={env} onNavigate={navigate} />}
+      {page === "cut" && <CutPage onBack={() => navigate("home")} initialFiles={pending} />}
+      {page === "merge" && <MergePage onBack={() => navigate("home")} initialFiles={pending} />}
       {(page === "rotate" || page === "crop") && (
-        <EditorPage tool={page} onBack={() => setPage("home")} />
+        <EditorPage tool={page} onBack={() => navigate("home")} />
       )}
       <TaskProgress />
+      {dragOver && (
+        <div className="pointer-events-none fixed inset-0 z-40 flex flex-col items-center justify-center gap-2 border-4 border-dashed border-signal/60 bg-ink/70 backdrop-blur-sm">
+          <p className="text-lg font-medium text-paper">松开以导入视频</p>
+          <p className="text-xs text-mute">单个文件进入剪切，多个文件进入合并</p>
+        </div>
+      )}
     </>
   );
 }
