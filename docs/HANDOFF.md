@@ -131,6 +131,23 @@
 - **批量能力（M6-8 = 原 M4-4）**：SourceCards 卡片右上角圆形勾选（选中态边框 signal）→ 批量条（全选/清除/各建全段片段/RotateControls+旋转应用到片段）；applyBatchRot 计数在 updater 外算（StrictMode 双调用会翻倍——已踩）
 - **片段起点帧缩略图（M6-8）**：`thumbnail_args(input, start_sec, output)`；`generate_clip_thumbnails` 缓存 key = fnv1a("路径@时间两位小数")，单个失败跳过；前端 clipThumbs map（key 同构）+ requestedThumbsRef 去重，池卡优先用起点帧、回退源首帧
 
+## Code Review（2026-09-14，全量走读）
+
+**已修（`dc1b395` P1 / `0858e9b` P2）**：
+- P1 重编码路径 `-map 0:a` → `0:a?`（4 处，无音轨源不再失败）
+- P1 history append/clear 进程级写锁（终态回调多线程并发读改写会丢条目；锁中毒 into_inner 恢复）
+- P1 自动命名同名不覆盖：cut.rs 分片名存在即追加 `_YYYYMMDD_HHMMSS`；编辑页走 fileExists + withFileTimestamp（决策 #19 补齐到全部导出入口）
+- P2 补实现 §5.4 的 `clear_finished_tasks`（TaskManager::clear_finished 保留活跃任务）+ 任务面板「清空已完成」
+- P2 `generate_proxy` 进行中去重（pending_proxies 表 input→taskId，同源复用任务，收尾移除）
+
+**已知未修（评估过、暂不处理）**：
+- 调度线程 `cv.wait/spawn` 的 unwrap/expect 在锁中毒/线程创建失败时会静默瘫痪任务系统（概率极低；触发即全任务排队无提示）——如要加固，改为错误日志 + 任务失败事件
+- `resolve_encoder` 高位深判定只认 `10le/12le`，16bit/大端变体误走 H.264（输入极罕见）
+- ClipTimeline 拖入指示线按比例定位，与 minWidth 保底块的实际位置有视觉偏差（落点本身正确）
+- asset protocol scope `["**"]` + CSP null：自用可接受，公开发布前收窄
+- check_pipeline 每次全量 ffprobe（片段多时慢，可加 facts 缓存）；expand_video_inputs 无条数上限
+- 合并"自动统一"硬编码 libx264/平衡档，不跟随编码器锁定（与 DESIGN §9.9 范围一致；要吃硬编需先改 DESIGN）
+
 ## 待办
 
 1. **用户统一手测**：M7-1/2/3 bug 修复、第一批快改、工作台 2.0 全流程（含连播/批量/片段缩略图/拖出移除）、快捷键（剪切页与工作台各模式）、M4-8（主题色/缓存/关闭确认/重置与关于）；**M4-5 实机冒烟**——NSIS 包装干净环境，验证中文向导/新图标/全功能/SmartScreen
