@@ -45,6 +45,9 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [dur, setDur] = useState(0);
     const [vol, setVol] = useState(1);
     const [muted, setMuted] = useState(false);
+    // 倍速循环切换（M7-6）：0.5 → 1 → 1.5 → 2 → 0.5
+    const RATES = [0.5, 1, 1.5, 2];
+    const [rate, setRate] = useState(1);
 
     useImperativeHandle(ref, () => ({
       seek(t: number) {
@@ -61,6 +64,11 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         videoRef.current?.pause();
       },
     }));
+
+    useEffect(() => {
+      const v = videoRef.current;
+      if (v) v.playbackRate = rate;
+    }, [rate]);
 
     useEffect(() => {
       const v = videoRef.current;
@@ -184,6 +192,15 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               aria-label="音量"
               className="h-1 w-16 shrink-0 cursor-pointer accent-[#4cc38a]"
             />
+            <button
+              type="button"
+              onClick={() => setRate((r) => RATES[(RATES.indexOf(r) + 1) % RATES.length])}
+              aria-label="播放速度"
+              title="播放速度"
+              className="shrink-0 font-mono text-[11px] text-paper/80 transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+            >
+              {rate}x
+            </button>
           </div>
         )}
       </div>
