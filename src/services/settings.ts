@@ -12,6 +12,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   proxyMode: "auto",
   encoder: "auto",
   quality: "balanced",
+  toastAutoCloseSec: 0,
 };
 
 const STORE_FILE = "settings.json";
@@ -54,6 +55,10 @@ function sanitize(raw: unknown): AppSettings {
     quality: qualities.includes(r.quality as QualityPreset)
       ? (r.quality as QualityPreset)
       : DEFAULT_SETTINGS.quality,
+    toastAutoCloseSec:
+      typeof r.toastAutoCloseSec === "number" && Number.isFinite(r.toastAutoCloseSec)
+        ? Math.min(600, Math.max(0, Math.round(r.toastAutoCloseSec)))
+        : DEFAULT_SETTINGS.toastAutoCloseSec,
   };
 }
 

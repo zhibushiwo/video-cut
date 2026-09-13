@@ -82,6 +82,8 @@ export interface AppSettings {
   encoder: EncoderChoice;
   /** 重编码类任务的默认质量档位 */
   quality: QualityPreset;
+  /** 任务浮层自动关闭秒数；0 = 不关闭（M7-5） */
+  toastAutoCloseSec: number;
 }
 
 export type VideoTask =

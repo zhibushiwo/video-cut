@@ -110,7 +110,7 @@ export default function App() {
           initialFiles={pending}
         />
       )}
-      <TaskProgress />
+      <TaskProgress autoCloseSec={settings.toastAutoCloseSec} />
       {dragOver && (
         <div className="pointer-events-none fixed inset-0 z-40 flex flex-col items-center justify-center gap-2 border-4 border-dashed border-signal/60 bg-ink/70 backdrop-blur-sm">
           <p className="text-lg font-medium text-paper">松开以导入视频</p>

@@ -195,6 +195,24 @@ export default function SettingsPage({
           </select>
         </Row>
 
+        <Row title="任务浮层自动关闭" desc="任务完成/取消/失败后，右下角浮层在该秒数后自动消失。0 = 不关闭。">
+          <input
+            type="number"
+            min={0}
+            max={600}
+            value={settings.toastAutoCloseSec}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              onUpdate({
+                toastAutoCloseSec: Number.isFinite(n) ? Math.min(600, Math.max(0, Math.round(n))) : 0,
+              });
+            }}
+            className="w-20 rounded border border-hairline bg-panel px-2 py-1.5 text-right font-mono text-xs text-paper focus:border-signal focus:outline-none"
+            aria-label="任务浮层自动关闭秒数"
+          />
+          <span className="text-xs text-mute">秒</span>
+        </Row>
+
         <p className="py-4 text-xs text-mute/80">
           设置改动即时生效并保存到本机（不随视频文件移动）。
         </p>

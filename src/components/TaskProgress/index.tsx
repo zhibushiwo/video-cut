@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import {
   cancelTask,
@@ -18,12 +18,16 @@ interface TaskRow {
 
 /**
  * 全局任务面板（DESIGN §9.7）：右下角浮层，订阅 task-status / task-progress 事件。
- * 挂载在 App 顶层，任意页面可见。
+ * 挂载在 App 顶层，任意页面可见；autoCloseSec > 0 时终态任务到时自动消失（M7-5）。
  */
-export default function TaskProgress() {
+export default function TaskProgress({ autoCloseSec = 0 }: { autoCloseSec?: number }) {
   const [rows, setRows] = useState<Map<string, TaskRow>>(new Map());
   /** 复制日志按钮的短暂反馈 */
   const [copied, setCopied] = useState<Set<string>>(new Set());
+  // 自动关闭定时器；ref 读最新设置避免事件闭包过期
+  const autoCloseRef = useRef(autoCloseSec);
+  autoCloseRef.current = autoCloseSec;
+  const timersRef = useRef<Map<string, number>>(new Map());
 
   const copyLog = async (id: string, text: string) => {
     try {
@@ -107,6 +111,22 @@ export default function TaskProgress() {
           });
           return next;
         });
+        // 终态任务自动关闭（M7-5）
+        if (
+          (p.status === "completed" || p.status === "failed" || p.status === "cancelled") &&
+          autoCloseRef.current > 0 &&
+          !timersRef.current.has(p.taskId)
+        ) {
+          const t = window.setTimeout(() => {
+            timersRef.current.delete(p.taskId);
+            setRows((prev) => {
+              const next = new Map(prev);
+              next.delete(p.taskId);
+              return next;
+            });
+          }, autoCloseRef.current * 1000);
+          timersRef.current.set(p.taskId, t);
+        }
       }),
     );
 
@@ -124,6 +144,8 @@ export default function TaskProgress() {
 
     return () => {
       alive = false;
+      timersRef.current.forEach((t) => clearTimeout(t));
+      timersRef.current.clear();
       for (const p of unlisteners) {
         void p.then((un) => {
           if (typeof un === "function") un();
@@ -134,12 +156,19 @@ export default function TaskProgress() {
 
   if (rows.size === 0) return null;
 
-  const dismiss = (id: string) =>
+  const dismiss = (id: string) => {
+    // 手动关闭时清掉待触发的自动关闭定时器
+    const t = timersRef.current.get(id);
+    if (t !== undefined) {
+      clearTimeout(t);
+      timersRef.current.delete(id);
+    }
     setRows((prev) => {
       const next = new Map(prev);
       next.delete(id);
       return next;
     });
+  };
 
   return (
     <div className="fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2">
