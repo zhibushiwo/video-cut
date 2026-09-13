@@ -470,7 +470,7 @@ pub fn rotate_transcode_args(
         "-map".into(),
         "0:v:0".into(),
         "-map".into(),
-        "0:a".into(),
+        "0:a?".into(),
     ];
     if !vf.is_empty() {
         args.extend(["-vf".into(), vf]);
@@ -513,7 +513,7 @@ pub fn crop_zoom_args(
         "-map".into(),
         "0:v:0".into(),
         "-map".into(),
-        "0:a".into(),
+        "0:a?".into(),
         "-vf".into(),
         vf,
         "-c:v".into(),
@@ -554,7 +554,7 @@ pub fn precise_cut_args(
         "-map".into(),
         "0:v:0".into(),
         "-map".into(),
-        "0:a".into(),
+        "0:a?".into(),
         "-c:v".into(),
         encoder.into(),
     ];
@@ -653,7 +653,7 @@ pub fn pipeline_transcode_args(
     if let Some((start, dur)) = segment {
         args.extend(["-ss".into(), fmt_sec(start), "-t".into(), fmt_sec(dur)]);
     }
-    args.extend(["-map".into(), "0:v:0".into(), "-map".into(), "0:a".into()]);
+    args.extend(["-map".into(), "0:v:0".into(), "-map".into(), "0:a?".into()]);
 
     let mut vf_parts: Vec<String> = Vec::new();
     let transform = transform_filter(bake_deg, bake_hflip, bake_vflip);

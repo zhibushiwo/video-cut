@@ -125,11 +125,21 @@ fn submit_cut(
     let items: Vec<CutItem> = {
         // 提交级令牌：同名输出的并发任务不再互写半成品（DESIGN §8.2）
         let token = super::pipeline::temp_token(&input);
+        // 同名才追加时间戳（DESIGN §8.3 / 决策 #19）：上次导出的分片还在时不静默覆盖
+        let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
+        let part_name = |i: usize| -> String {
+            let base = format!("{stem}_part_{i:03}.{ext}");
+            if out_dir.join(&base).exists() {
+                format!("{stem}_part_{i:03}_{ts}.{ext}")
+            } else {
+                base
+            }
+        };
         segments
             .iter()
             .enumerate()
             .map(|(i, s)| {
-                let name = format!("{}_part_{:03}.{}", stem, i + 1, ext);
+                let name = part_name(i + 1);
                 CutItem {
                     final_path: out_dir.join(&name),
                     // 半成品保留真实扩展名（xxx.part.mp4），否则 ffmpeg 无法推断封装格式

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
 import { NO_ROTATE, RotateControls, type RotateState } from "../../components/RotateControls";
 import {
+  fileExists,
   fileSrc,
   generateProxy,
   onTaskStatus,
@@ -13,6 +14,7 @@ import {
 import type { AppSettings, MediaInfo, QualityPreset } from "../../types";
 import { needsProxy, wantsProxy } from "../../utils/media";
 import { resolveOutputDir } from "../../utils/paths";
+import { withFileTimestamp } from "../../utils/time";
 
 export type EditorTool = "rotate" | "crop";
 
@@ -136,6 +138,10 @@ export default function EditorPage({
     const stem = dot > 0 ? name.slice(0, dot) : name;
     const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "mp4";
     const dir = resolveOutputDir(src, settings.defaultOutputDir);
+    // 同名才追加时间戳（DESIGN 决策 #19）：上次导出还在时不静默覆盖
+    const baseName = `${stem}_${tool === "rotate" ? "rotated" : "zoomed"}.${ext}`;
+    const base = `${dir}\\${baseName}`;
+    const target = (await fileExists(base)) ? `${dir}\\${withFileTimestamp(baseName)}` : base;
     setSubmitting(true);
     setError(null);
     try {
@@ -146,7 +152,7 @@ export default function EditorPage({
           rotateDeg: rot.deg,
           hflip: rot.hflip,
           vflip: rot.vflip,
-          output: `${dir}\\${stem}_rotated.${ext}`,
+          output: target,
           transcode: rotateTranscode,
           quality,
           encoder: settings.encoder === "auto" ? null : settings.encoder,
@@ -167,7 +173,7 @@ export default function EditorPage({
           outWidth: null,
           outHeight: null,
           quality,
-          output: `${dir}\\${stem}_zoomed.${ext}`,
+          output: target,
           encoder: settings.encoder === "auto" ? null : settings.encoder,
         });
       }

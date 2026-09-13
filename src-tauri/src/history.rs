@@ -4,6 +4,7 @@
 use std::fs;
 use std::io;
 use std::path::Path;
+use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -12,6 +13,10 @@ use crate::TaskStatus;
 
 /// 历史上限：超过后丢弃最旧的（含被裁剪条目，写回时一次完成）。
 pub const MAX_ENTRIES: usize = 200;
+
+/// 写串行化锁：终态回调可能从多个任务线程并发到达，
+/// append 是"读改写全文件"，无锁会互相覆盖丢条目（code review P1）。
+static WRITE_LOCK: Mutex<()> = Mutex::new(());
 
 /// 单条历史记录（camelCase 与前端 HistoryEntry 对齐）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,7 +52,9 @@ pub fn load(path: &Path) -> Vec<HistoryEntry> {
 }
 
 /// 追加一条并裁剪到 [`MAX_ENTRIES`]；原子写（.tmp + rename），损坏不影响原文件。
+/// 与 [`clear`] 共用写锁，避免并发读改写互相覆盖。
 pub fn append(path: &Path, entry: HistoryEntry) -> io::Result<()> {
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut all = load(path);
     all.push(entry);
     if all.len() > MAX_ENTRIES {
@@ -57,8 +64,9 @@ pub fn append(path: &Path, entry: HistoryEntry) -> io::Result<()> {
     write_all(path, &all)
 }
 
-/// 清空历史。
+/// 清空历史。与 [`append`] 共用写锁。
 pub fn clear(path: &Path) -> io::Result<()> {
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     write_all(path, &[])
 }
 
