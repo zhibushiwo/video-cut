@@ -29,7 +29,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "externalBin": [
       "binaries/ffmpeg",
       "binaries/ffprobe"
@@ -40,6 +40,12 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "windows": {
+      "nsis": {
+        "languages": ["SimpChinese"],
+        "displayLanguageSelector": false
+      }
+    }
   }
 }
