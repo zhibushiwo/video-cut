@@ -103,12 +103,14 @@ export function onVideoDropped(handler: (paths: string[]) => void): Promise<Unli
   });
 }
 
-/** 拖拽悬停状态（显示导入覆盖层） */
+/** 拖拽悬停状态（显示导入覆盖层）。
+ * leave 与 drop 都要清遮罩：拖放松手 Tauri 只发 drop 不发 leave，
+ * 且拖入非视频文件时 onVideoDropped 因扩展名过滤不触发——两者都清才不残留。 */
 export function onDragHover(handler: (over: boolean) => void): Promise<UnlistenFn> {
   return getCurrentWebview().onDragDropEvent((event) => {
     if (event.payload.type === "enter" || event.payload.type === "over") {
       handler(true);
-    } else if (event.payload.type === "leave") {
+    } else {
       handler(false);
     }
   });
