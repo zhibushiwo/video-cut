@@ -27,6 +27,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import ClipTimeline, { type TimelineClip } from "../../components/ClipTimeline";
+import ProductPreview, { type ProductEntry } from "../../components/ProductPreview";
 import {
   NO_ROTATE,
   RotateControls,
@@ -257,6 +258,11 @@ export default function WorkbenchPage({
   const [error, setError] = useState<string | null>(null);
   /** 池 → 时间轴的跨容器拖拽（M6-3） */
   const [extDrag, setExtDrag] = useState<{ clipId: string } | null>(null);
+  // 成品连播（M6-6）：播放头（成品内秒）与播放状态在页面层持有，与时间轴播放头联动
+  const [playhead, setPlayhead] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const [seekReq, setSeekReq] = useState<{ t: number; nonce: number } | null>(null);
+  const seekNonce = useRef(0);
 
   const fileById = useCallback((id: string) => files.find((f) => f.id === id), [files]);
   const clipById = useCallback((id: string) => clips.find((c) => c.id === id), [clips]);
@@ -556,6 +562,44 @@ export default function WorkbenchPage({
   const proxyEnabled = (info: MediaInfo | null) =>
     !!info && wantsProxy(info, settings.proxyMode);
 
+  // ---------- 成品连播（M6-6） ----------
+  const productEntries = useMemo<ProductEntry[]>(() => {
+    let acc = 0;
+    return timelineClips.map((c) => {
+      const info = clipSource(c)?.info ?? null;
+      const dur = c.seg ? c.seg.end - c.seg.start : info?.durationSec ?? 0;
+      const entry: ProductEntry = {
+        clipId: c.id,
+        sourcePath: clipSource(c)?.path ?? "",
+        srcStart: c.seg?.start ?? 0,
+        srcEnd: c.seg?.end ?? info?.durationSec ?? 0,
+        productStart: acc,
+        rot: c.rot,
+        crop: c.crop,
+        dims: info ? displayedDims(info, c.rot) : { w: 16, h: 9 },
+        proxy: !!info && wantsProxy(info, settings.proxyMode),
+      };
+      acc += dur;
+      return entry;
+    });
+  }, [timelineClips, clipSource, settings.proxyMode]);
+
+  const productSeek = useCallback((t: number) => {
+    setPlayhead(t);
+    seekNonce.current += 1;
+    setSeekReq({ t, nonce: seekNonce.current });
+  }, []);
+
+  // 切走预览模式时暂停连播；切回成品模式时把播放头同步给播放器
+  const prevModeRef = useRef<PreviewMode>(mode);
+  useEffect(() => {
+    if (prevModeRef.current.type !== mode.type) {
+      if (mode.type !== "product" && playing) setPlaying(false);
+      if (mode.type === "product") productSeek(playhead);
+      prevModeRef.current = mode;
+    }
+  }, [mode, playing, playhead, productSeek]);
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex h-14 shrink-0 items-center gap-3 border-b border-hairline px-4">
@@ -656,17 +700,24 @@ export default function WorkbenchPage({
               </div>
 
               <div className="flex h-[38vh] min-h-[240px] w-full items-center justify-center overflow-hidden rounded-md border border-hairline bg-black">
-                {mode.type === "product" && (
-                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-center">
-                    <Film className="h-8 w-8 text-mute/60" strokeWidth={1.5} />
-                    <p className="text-sm text-mute">
-                      成品连播预览将在 M6-6 接入，导出结果以 FFmpeg 实际输出为准
-                    </p>
-                    <p className="text-xs text-mute/70">
-                      点击时间轴块或片段卡可加工；点击素材卡可剪出新片段
-                    </p>
-                  </div>
-                )}
+                {mode.type === "product" &&
+                  (timelineClips.length === 0 ? (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-center">
+                      <Film className="h-8 w-8 text-mute/60" strokeWidth={1.5} />
+                      <p className="text-sm text-mute">
+                        时间轴为空——从片段池把片段加入时间轴后，这里将连播成品
+                      </p>
+                    </div>
+                  ) : (
+                    <ProductPreview
+                      entries={productEntries}
+                      playhead={playhead}
+                      onPlayhead={setPlayhead}
+                      seekRequest={seekReq}
+                      playing={playing}
+                      onPlayingChange={setPlaying}
+                    />
+                  ))}
                 {mode.type === "cut" &&
                   (() => {
                     const src = fileById(mode.sourceId);
@@ -707,10 +758,8 @@ export default function WorkbenchPage({
               onInsert={insertToTimeline}
               onExternalDragEnd={() => setExtDrag(null)}
               onRemove={removeClip}
-              onSeek={() => {
-                /* 成品内 seek 待 M6-6 连播接入 */
-              }}
-              currentTime={0}
+              onSeek={productSeek}
+              currentTime={playhead}
             />
 
             {/* ③ 片段池 */}
