@@ -265,9 +265,7 @@ export default function EditorPage({
                       });
                     }
                   }}
-                />
-                {/* 裁剪框选层：框内按下拖动=移动选区，框外按下拖动=重新框选 */}
-                {tool === "crop" && (
+                overlay={tool === "crop" && (
                   <div
                     className={`absolute inset-0 ${overRect ? "cursor-move" : "cursor-crosshair"}`}
                     onMouseMove={(e) => {
@@ -369,6 +367,7 @@ export default function EditorPage({
                     )}
                   </div>
                 )}
+                />
               </div>
             </div>
 

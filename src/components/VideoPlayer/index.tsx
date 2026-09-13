@@ -5,6 +5,7 @@ import {
   useImperativeHandle,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 import { formatTime } from "../../utils/time";
 
@@ -27,11 +28,13 @@ interface VideoPlayerProps {
   fill?: boolean;
   /** 底部控制条（进度 + 时间 + 音量），默认开启 */
   controls?: boolean;
+  /** 覆盖层（如裁剪框选层）：渲染在视频之上、控制条之下，不拦截播放控制 */
+  overlay?: ReactNode;
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(
-    { src, onTime, onLoadedMetadata, onError, banner, fill, controls = true },
+    { src, onTime, onLoadedMetadata, onError, banner, fill, controls = true, overlay },
     ref,
   ) {
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -131,6 +134,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           }}
           onError={() => onError?.()}
         />
+        {overlay}
         {banner && (
           <div className="absolute left-2 top-2 rounded bg-ink/80 px-2 py-1 text-xs text-warn backdrop-blur-sm">
             {banner}
