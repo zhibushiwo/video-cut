@@ -8,6 +8,7 @@ import {
   submitTask,
 } from "../../services/tauri";
 import type { AppSettings, MergeComparison } from "../../types";
+import { useDragSort } from "../../hooks/useDragSort";
 import { audioSummary, videoSummary } from "../../utils/media";
 import { formatBytes, withFileTimestamp } from "../../utils/time";
 import { resolveOutputDir } from "../../utils/paths";
@@ -30,7 +31,6 @@ export default function MergePage({
   const [error, setError] = useState<string | null>(null);
   const [confirmNormalize, setConfirmNormalize] = useState(false);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
-  const dragFrom = useRef<number | null>(null);
   // 拖拽导入：每次新的拖入都追加（App 层原地分发，页面不跳转）
   const consumedInitialRef = useRef<string[] | null>(null);
 
@@ -125,6 +125,8 @@ export default function MergePage({
     });
   };
 
+  const { listRef, beginDrag, rowCls } = useDragSort(reorder);
+
   const startMerge = async (force: boolean) => {
     if (files.length < 2 || !outputDir || !outputName.trim()) return;
     setSubmitting(true);
@@ -189,26 +191,19 @@ export default function MergePage({
           </button>
         ) : (
           <>
-            <div className="divide-y divide-hairline rounded-md border border-hairline">
+            <div ref={listRef} className="divide-y divide-hairline rounded-md border border-hairline">
               {files.map((path, i) => {
                 const name = path.split(/[\\/]/).pop() ?? path;
                 const summary = summaryOf(path);
                 return (
                   <div
                     key={path}
-                    draggable
-                    onDragStart={() => {
-                      dragFrom.current = i;
-                    }}
-                    onDragOver={(e) => e.preventDefault()}
-                    onDrop={() => {
-                      if (dragFrom.current !== null) reorder(dragFrom.current, i);
-                      dragFrom.current = null;
-                    }}
-                    className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-panel"
+                    data-sort-row
+                    className={`flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-panel ${rowCls(i)}`}
                   >
                     <GripVertical
-                      className="h-4 w-4 shrink-0 cursor-grab text-mute/60"
+                      onPointerDown={(e) => beginDrag(e, i)}
+                      className="h-4 w-4 shrink-0 cursor-grab touch-none text-mute/60"
                       aria-hidden="true"
                     />
                     <span className="w-5 shrink-0 text-center font-mono text-xs text-mute">

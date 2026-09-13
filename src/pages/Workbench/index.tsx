@@ -47,6 +47,7 @@ import type {
   PipelineCheck,
   QualityPreset,
 } from "../../types";
+import { useDragSort } from "../../hooks/useDragSort";
 import { formatBytes, formatTime, parseTime, withFileTimestamp } from "../../utils/time";
 import { needsProxy } from "../../utils/media";
 import { resolveOutputDir } from "../../utils/paths";
@@ -169,7 +170,6 @@ export default function WorkbenchPage({
   const [quality, setQuality] = useState<QualityPreset>(settings.quality);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const dragFrom = useRef<number | null>(null);
   /** 一次只展开一个片段的编辑器 */
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
@@ -236,6 +236,8 @@ export default function WorkbenchPage({
       return next;
     });
   };
+
+  const { listRef, beginDrag, rowCls } = useDragSort(reorder);
 
   // 列表缩略图（缓存命中时接近即时）
   useEffect(() => {
@@ -398,7 +400,7 @@ export default function WorkbenchPage({
           </button>
         ) : (
           <>
-            <div className="divide-y divide-hairline rounded-md border border-hairline">
+            <div ref={listRef} className="divide-y divide-hairline rounded-md border border-hairline">
               {items.map((it, i) => {
                 const name = it.path.split(/[\\/]/).pop() ?? it.path;
                 const c = checkOf(it.path);
@@ -406,19 +408,12 @@ export default function WorkbenchPage({
                 return (
                   <div key={it.id}>
                     <div
-                      draggable
-                      onDragStart={() => {
-                        dragFrom.current = i;
-                      }}
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={() => {
-                        if (dragFrom.current !== null) reorder(dragFrom.current, i);
-                        dragFrom.current = null;
-                      }}
-                      className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-panel"
+                      data-sort-row
+                      className={`flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-panel ${rowCls(i)}`}
                     >
                       <GripVertical
-                        className="h-4 w-4 shrink-0 cursor-grab text-mute/60"
+                        onPointerDown={(e) => beginDrag(e, i)}
+                        className="h-4 w-4 shrink-0 cursor-grab touch-none text-mute/60"
                         aria-hidden="true"
                       />
                       <span className="w-5 shrink-0 text-center font-mono text-xs text-mute">
