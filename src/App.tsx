@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import HomePage from "./pages/Home";
+import { useCallback, useEffect, useState } from "react";
 import CutPage from "./pages/Cut";
 import MergePage from "./pages/Merge";
 import EditorPage from "./pages/Editor";
@@ -16,7 +15,7 @@ import {
 import type { AppSettings, EnvironmentInfo, PageName } from "./types";
 
 export default function App() {
-  const [page, setPage] = useState<PageName>("home");
+  const [page, setPage] = useState<PageName>("workbench");
   const [env, setEnv] = useState<EnvironmentInfo | null>(null);
   const [dragOver, setDragOver] = useState(false);
   /** 拖入的文件：随页面挂载消费一次 */
@@ -24,9 +23,6 @@ export default function App() {
   // 设置：App 层一次加载；页面按导航条件挂载，挂载时即拿到最终值
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [settingsReady, setSettingsReady] = useState(false);
-  // 拖拽监听只注册一次，用 ref 读取当前页（避免闭包过期）
-  const pageRef = useRef<PageName>("home");
-  pageRef.current = page;
 
   useEffect(() => {
     checkEnvironment()
@@ -54,18 +50,13 @@ export default function App() {
     [settings],
   );
 
-  // 拖拽导入：主页按数量路由；其余页面留在原地，由页面自行接收
+  // 拖拽导入：落在当前页面由其自行接收（工作台追加为素材，剪切/合并/编辑页原地加载）
   useEffect(() => {
     let unDrop: (() => void) | undefined;
     let unHover: (() => void) | undefined;
     void onVideoDropped((paths) => {
       setDragOver(false);
-      if (pageRef.current === "home") {
-        setPending(paths);
-        setPage(paths.length >= 2 ? "merge" : "cut");
-      } else {
-        setPending(paths);
-      }
+      setPending(paths);
     }).then((f) => {
       unDrop = f;
     });
@@ -85,18 +76,17 @@ export default function App() {
 
   return (
     <>
-      {page === "home" && <HomePage env={env} onNavigate={navigate} />}
       {page === "cut" && settingsReady && (
         <CutPage
           settings={settings}
-          onBack={() => navigate("home")}
+          onBack={() => navigate("workbench")}
           initialFiles={pending}
         />
       )}
       {page === "merge" && settingsReady && (
         <MergePage
           settings={settings}
-          onBack={() => navigate("home")}
+          onBack={() => navigate("workbench")}
           initialFiles={pending}
         />
       )}
@@ -104,30 +94,27 @@ export default function App() {
         <EditorPage
           tool={page}
           settings={settings}
-          onBack={() => navigate("home")}
-          initialFiles={pending}
-        />
-      )}
-      {page === "workbench" && settingsReady && (
-        <WorkbenchPage
-          settings={settings}
-          onBack={() => navigate("home")}
+          onBack={() => navigate("workbench")}
           initialFiles={pending}
         />
       )}
       {page === "settings" && (
-        <SettingsPage settings={settings} onUpdate={updateSettings} onBack={() => navigate("home")} />
+        <SettingsPage settings={settings} onUpdate={updateSettings} onBack={() => navigate("workbench")} />
       )}
-      {page === "history" && <HistoryPage onBack={() => navigate("home")} />}
+      {page === "history" && <HistoryPage onBack={() => navigate("workbench")} />}
+      {page === "workbench" && settingsReady && (
+        <WorkbenchPage
+          settings={settings}
+          env={env}
+          onNavigate={navigate}
+          initialFiles={pending}
+        />
+      )}
       <TaskProgress />
       {dragOver && (
         <div className="pointer-events-none fixed inset-0 z-40 flex flex-col items-center justify-center gap-2 border-4 border-dashed border-signal/60 bg-ink/70 backdrop-blur-sm">
           <p className="text-lg font-medium text-paper">松开以导入视频</p>
-          <p className="text-xs text-mute">
-            {page === "home"
-              ? "单个文件进入剪切，多个文件进入合并"
-              : "视频将添加到当前页面"}
-          </p>
+          <p className="text-xs text-mute">视频将添加到当前页面</p>
         </div>
       )}
     </>

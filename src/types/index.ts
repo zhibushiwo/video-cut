@@ -2,14 +2,13 @@
  * 与 Rust 后端共享的数据模型，字段与 src-tauri/src/lib.rs 及 docs/DESIGN.md §7 一一对应。
  */
 
-/** 前端导航状态（App 顶层 state 切换，DESIGN §9.2） */
+/** 前端导航状态（App 顶层 state 切换，DESIGN §9.2；工作台 = 落地页） */
 export type PageName =
-  | "home"
+  | "workbench"
   | "cut"
   | "merge"
   | "rotate"
   | "crop"
-  | "workbench"
   | "history"
   | "settings";
 

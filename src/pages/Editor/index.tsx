@@ -458,7 +458,7 @@ function EditorHeader({
       <button
         type="button"
         onClick={onBack}
-        aria-label="返回主页"
+        aria-label="返回工作台"
         className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
       >
         <ArrowLeft className="h-4 w-4" />
