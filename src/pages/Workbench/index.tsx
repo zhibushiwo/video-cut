@@ -36,11 +36,13 @@ import {
 import Timeline, { type Selection } from "../../components/Timeline";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
 import { useDragSort } from "../../hooks/useDragSort";
+import { useHotkeys } from "../../hooks/useHotkeys";
 import {
   checkPipeline,
   confirmDialog,
   fileExists,
   fileSrc,
+  generateClipThumbnails,
   generateProxy,
   generateThumbnails,
   listKeyframes,
@@ -263,6 +265,13 @@ export default function WorkbenchPage({
   const [playing, setPlaying] = useState(false);
   const [seekReq, setSeekReq] = useState<{ t: number; nonce: number } | null>(null);
   const seekNonce = useRef(0);
+  // 批量能力（M6-8 = 原 M4-4）：素材多选 → 一键建片段 / 批量应用旋转
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
+  const [batchRot, setBatchRot] = useState<RotateState>(NO_ROTATE);
+  const [batchMsg, setBatchMsg] = useState<string | null>(null);
+  // 片段起点帧缩略图（M6-8）：key = `${path}@${time.toFixed(2)}`
+  const [clipThumbs, setClipThumbs] = useState<Record<string, string>>({});
+  const requestedThumbsRef = useRef<Set<string>>(new Set());
 
   const fileById = useCallback((id: string) => files.find((f) => f.id === id), [files]);
   const clipById = useCallback((id: string) => clips.find((c) => c.id === id), [clips]);
@@ -272,6 +281,15 @@ export default function WorkbenchPage({
       const info = clipSource(c)?.info;
       if (!info) return 0;
       return c.seg ? c.seg.end - c.seg.start : info.durationSec;
+    },
+    [clipSource],
+  );
+  // 片段起点帧缩略图缓存 key（M6-8）
+  const clipThumbKey = useCallback(
+    (c: Clip) => {
+      const src = clipSource(c);
+      const t = c.seg ? c.seg.start : 0;
+      return src ? `${src.path}@${t.toFixed(2)}` : "";
     },
     [clipSource],
   );
@@ -367,6 +385,39 @@ export default function WorkbenchPage({
     [clips],
   );
 
+  // 片段起点帧缩略图（M6-8）：对有入点的片段取其入点帧，全段片段取 0s
+  useEffect(() => {
+    const reqs: { input: string; timeSec: number }[] = [];
+    for (const c of clips) {
+      const src = clipSource(c);
+      if (!src) continue;
+      const t = c.seg ? c.seg.start : 0;
+      const key = `${src.path}@${t.toFixed(2)}`;
+      if (clipThumbs[key] || requestedThumbsRef.current.has(key)) continue;
+      requestedThumbsRef.current.add(key);
+      reqs.push({ input: src.path, timeSec: t });
+    }
+    if (reqs.length === 0) return;
+    let alive = true;
+    void generateClipThumbnails(reqs)
+      .then((list) => {
+        if (!alive) return;
+        setClipThumbs((prev) => {
+          const next = { ...prev };
+          for (const t of list) {
+            next[`${t.input}@${t.timeSec.toFixed(2)}`] = t.thumbPath;
+          }
+          return next;
+        });
+      })
+      .catch(() => {
+        /* 缩略图失败不阻塞 */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [clips, clipThumbs, clipThumbKey, clipSource]);
+
   // ---------- 片段操作 ----------
   const addClip = useCallback(
     (sourceId: string, seg: { start: number; end: number } | null) => {
@@ -421,6 +472,44 @@ export default function WorkbenchPage({
       return next;
     });
   }, []);
+
+  // ---------- 批量能力（M6-8 = 原 M4-4） ----------
+  const toggleSourceSelect = useCallback((id: string) => {
+    setSelectedSources((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const batchAddClips = useCallback(() => {
+    const targets = files.filter((f) => selectedSources.has(f.id) && f.info);
+    if (targets.length === 0) return;
+    for (const f of targets) addClip(f.id, null);
+    setBatchMsg(`已为 ${targets.length} 个素材各建全段片段并入轴`);
+    setSelectedSources(new Set());
+    window.setTimeout(() => setBatchMsg(null), 2500);
+  }, [files, selectedSources, addClip]);
+
+  const applyBatchRot = useCallback(() => {
+    const targets = clips.filter((c) => selectedSources.has(c.sourceId));
+    if (targets.length === 0) {
+      setBatchMsg("选中素材没有片段");
+      window.setTimeout(() => setBatchMsg(null), 2500);
+      return;
+    }
+    setClips((prev) =>
+      prev.map((c) =>
+        selectedSources.has(c.sourceId) ? { ...c, rot: batchRot, crop: null } : c,
+      ),
+    );
+    setCheck(null);
+    setBatchMsg(
+      `已把 ${batchRot.deg}°${batchRot.hflip ? "+水平翻转" : ""}${batchRot.vflip ? "+垂直翻转" : ""} 应用到 ${targets.length} 个片段`,
+    );
+    window.setTimeout(() => setBatchMsg(null), 2500);
+  }, [clips, selectedSources, batchRot]);
 
   // ---------- 导出链路（timeline → PipelineItem[]） ----------
   const timelineClips = useMemo(
@@ -589,6 +678,26 @@ export default function WorkbenchPage({
     seekNonce.current += 1;
     setSeekReq({ t, nonce: seekNonce.current });
   }, []);
+
+  // 快捷键（M4-3，成品模式）：空格 播放/暂停 · ←/→ ±1s · Shift+←/→ 细步 · Delete 删选中片段
+  useHotkeys((e) => {
+    if (mode.type !== "product") return;
+    if (e.code === "Space") {
+      if (e.repeat) return;
+      e.preventDefault();
+      setPlaying((p) => !p);
+      return;
+    }
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const delta = (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 1 / 30 : 1);
+      productSeek(Math.min(Math.max(0, playhead + delta), totalDuration));
+      return;
+    }
+    if ((e.key === "Delete" || e.key === "Backspace") && !e.repeat && selectedClipId) {
+      removeClip(selectedClipId);
+    }
+  });
 
   // 切走预览模式时暂停连播；切回成品模式时把播放头同步给播放器
   const prevModeRef = useRef<PreviewMode>(mode);
@@ -781,6 +890,10 @@ export default function WorkbenchPage({
                     const chk = clipCheck(c.id);
                     const inTimeline = timeline.includes(c.id);
                     const selected = mode.type === "edit" && mode.clipId === c.id;
+                    const thumbKey = clipThumbKey(c);
+                    const thumb = src
+                      ? (clipThumbs[thumbKey] ?? thumbs[src.path])
+                      : null;
                     return (
                       <div
                         key={c.id}
@@ -795,9 +908,9 @@ export default function WorkbenchPage({
                           title={chk && !chk.copy ? chk.reasons.join("；") : undefined}
                         >
                           <div className="relative h-16 w-full bg-black">
-                            {src && thumbs[src.path] ? (
+                            {thumb ? (
                               <img
-                                src={fileSrc(thumbs[src.path])}
+                                src={fileSrc(thumb)}
                                 alt=""
                                 className="h-full w-full object-cover"
                               />
@@ -874,21 +987,63 @@ export default function WorkbenchPage({
               </div>
             </section>
 
-            {/* ④ 素材卡片 */}
+            {/* ④ 素材卡片（含批量操作条，M6-8 = 原 M4-4） */}
+            {selectedSources.size > 0 && (
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-signal/30 bg-signal/5 px-3 py-2">
+                <span className="text-xs font-medium text-paper">
+                  已选 {selectedSources.size} 个素材
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSources(new Set(files.map((f) => f.id)))}
+                  className={fieldBtn}
+                >
+                  全选
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSources(new Set())}
+                  className={fieldBtn}
+                >
+                  清除选择
+                </button>
+                <span className="h-4 w-px bg-hairline" aria-hidden="true" />
+                <button
+                  type="button"
+                  onClick={batchAddClips}
+                  title="为每个选中素材各建一个全段片段，并入时间轴末尾"
+                  className="rounded-md border border-signal/40 bg-signal/10 px-2.5 py-1.5 text-xs text-signal transition-colors hover:bg-signal/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                >
+                  各建全段片段
+                </button>
+                <span className="h-4 w-px bg-hairline" aria-hidden="true" />
+                <RotateControls
+                  rot={batchRot}
+                  onChange={setBatchRot}
+                  currentRotation={null}
+                />
+                <button type="button" onClick={applyBatchRot} className={fieldBtn}>
+                  旋转应用到片段
+                </button>
+                {batchMsg && <span className="text-xs text-signal">{batchMsg}</span>}
+              </div>
+            )}
             <section className="flex flex-col gap-1.5">
               <div className="flex items-center gap-2">
                 <h2 className="text-xs font-medium text-mute">素材</h2>
                 <span className="text-[11px] text-mute/60">
-                  点击进入剪切（可反复剪出多个片段）；卡片顺序仅作组织，不影响成品
+                  点击进入剪切（可反复剪出多个片段）；勾选卡片可批量建片段/应用旋转
                 </span>
               </div>
               <SourceCards
                 files={files}
                 thumbs={thumbs}
+                selectedIds={selectedSources}
                 onOpen={(id) => setMode({ type: "cut", sourceId: id })}
                 onRemove={(f) => void removeSource(f)}
                 onAdd={() => void openFiles()}
                 onReorder={reorderSources}
+                onToggleSelect={toggleSourceSelect}
               />
             </section>
           </>
@@ -963,30 +1118,38 @@ export default function WorkbenchPage({
   );
 }
 
-/** ④ 素材卡片区（横向卡片行，拖拽排序用横向轴） */
+/** ④ 素材卡片区（横向卡片行，拖拽排序用横向轴；勾选支持批量操作，M6-8） */
 function SourceCards({
   files,
   thumbs,
+  selectedIds,
   onOpen,
   onRemove,
   onAdd,
   onReorder,
+  onToggleSelect,
 }: {
   files: SourceFile[];
   thumbs: Record<string, string>;
+  selectedIds: Set<string>;
   onOpen(id: string): void;
   onRemove(file: SourceFile): void;
   onAdd(): void;
   onReorder(from: number, to: number): void;
+  onToggleSelect(id: string): void;
 }) {
   const { listRef, beginDrag, rowCls } = useDragSort(onReorder, "x");
   return (
     <div ref={listRef} className="flex gap-2.5 overflow-x-auto pb-1">
-      {files.map((f, i) => (
+      {files.map((f, i) => {
+        const isSelected = selectedIds.has(f.id);
+        return (
         <div
           key={f.id}
           data-sort-row
-          className={`group relative w-40 shrink-0 overflow-hidden rounded-md border bg-panel ${rowCls(i)}`}
+          className={`group relative w-40 shrink-0 overflow-hidden rounded-md border bg-panel ${rowCls(i)} ${
+            isSelected ? "border-signal/70" : ""
+          }`}
         >
           <button
             type="button"
@@ -1029,6 +1192,22 @@ function SourceCards({
           </span>
           <button
             type="button"
+            onClick={() => onToggleSelect(f.id)}
+            aria-label={isSelected ? "取消选择" : "选择以批量操作"}
+            aria-pressed={isSelected}
+            title="选择以批量操作"
+            className={`absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-signal ${
+              isSelected
+                ? "border-signal bg-signal text-ink"
+                : "border-paper/50 bg-ink/70 text-transparent hover:border-paper"
+            }`}
+          >
+            <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <polyline points="20 6 9 17 4 12" />
+            </svg>
+          </button>
+          <button
+            type="button"
             onClick={() => onRemove(f)}
             aria-label={`移除 ${basename(f.path)}`}
             className="absolute left-1 top-1 flex h-5 w-5 items-center justify-center rounded bg-ink/80 text-mute opacity-0 transition-opacity hover:text-warn focus:outline-none focus-visible:opacity-100 group-hover:opacity-100"
@@ -1036,7 +1215,8 @@ function SourceCards({
             <X className="h-3.5 w-3.5" />
           </button>
         </div>
-      ))}
+        );
+      })}
       <button
         type="button"
         onClick={onAdd}
@@ -1104,6 +1284,7 @@ function CutModeView({
   /** null = 关键帧扫描中（允许数字输入，无吸附） */
   const [keyframes, setKeyframes] = useState<number[] | null>(null);
   const [addedMsg, setAddedMsg] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -1129,6 +1310,28 @@ function CutModeView({
     setSel((s) => ({ start: Math.min(s.start, Math.max(0, end - 0.1)), end }));
   };
 
+  // 快捷键（M4-3，源剪切）：空格 播放/暂停 · ←/→ ±1s · Shift+←/→ 逐帧 · I/O 设入/出点
+  const frameStep = info.video.frameRate > 0 ? 1 / info.video.frameRate : 1 / 30;
+  useHotkeys((e) => {
+    if (e.code === "Space") {
+      if (e.repeat) return;
+      e.preventDefault();
+      if (playing) playerRef.current?.pause();
+      else playerRef.current?.play();
+      return;
+    }
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const delta = (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? frameStep : 1);
+      const t = Math.min(Math.max(0, current + delta), info.durationSec);
+      playerRef.current?.seek(t);
+      setCurrent(t);
+      return;
+    }
+    if (e.code === "KeyI" && !e.repeat) commitStart(current);
+    if (e.code === "KeyO" && !e.repeat) commitEnd(current);
+  });
+
   const addNow = () => {
     const whole = sel.start <= 0.001 && sel.end >= info.durationSec - 0.001;
     const seg = whole || sel.end <= sel.start + 0.05 ? null : { start: sel.start, end: sel.end };
@@ -1149,6 +1352,7 @@ function CutModeView({
           src={fileSrc(proxyPath ?? source.path)}
           banner={proxyPath ? "当前为代理预览画面，导出使用原始文件" : null}
           onTime={setCurrent}
+          onPlayStateChange={setPlaying}
           onError={onError}
           videoMaxClass="max-h-[20vh]"
         />
@@ -1208,6 +1412,24 @@ function EditModeView({
   const [tab, setTab] = useState<EditorTab>("rotate");
   const [current, setCurrent] = useState(0);
   const [playing, setPlaying] = useState(false);
+
+  // 快捷键（M4-3，片段加工）：空格 播放/暂停 · ←/→ ±1s · Shift+←/→ 逐帧
+  const frameStep = info.video.frameRate > 0 ? 1 / info.video.frameRate : 1 / 30;
+  useHotkeys((e) => {
+    if (e.code === "Space") {
+      if (e.repeat) return;
+      e.preventDefault();
+      togglePlay();
+      return;
+    }
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const delta = (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? frameStep : 1);
+      const t = Math.min(Math.max(0, current + delta), info.durationSec);
+      playerRef.current?.seek(t);
+      setCurrent(t);
+    }
+  });
 
   const dims = displayedDims(info, clip.rot);
   const quarter = clip.rot.deg === 90 || clip.rot.deg === 270;
@@ -1343,6 +1565,7 @@ function EditModeView({
                 src={fileSrc(proxyPath ?? source.path)}
                 banner={proxyPath ? "当前为代理预览画面，导出使用原始文件" : null}
                 onTime={setCurrent}
+                onPlayStateChange={setPlaying}
                 onError={onError}
                 onLoadedMetadata={() => playerRef.current?.seek(clip.seg?.start ?? 0)}
               />

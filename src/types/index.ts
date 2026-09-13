@@ -103,6 +103,19 @@ export interface CacheClearResult {
   skipped: number;
 }
 
+/** 片段起点帧缩略图请求（M6-8，与 Rust ClipThumbRequest 对齐） */
+export interface ClipThumbRequest {
+  input: string;
+  timeSec: number;
+}
+
+/** 片段起点帧缩略图 */
+export interface ClipThumbnail {
+  input: string;
+  timeSec: number;
+  thumbPath: string;
+}
+
 export type VideoTask =
   | {
       type: "cut";

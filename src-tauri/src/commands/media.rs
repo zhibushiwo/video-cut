@@ -336,6 +336,7 @@ fn generate_thumbnails_sync(
             let status = cmd
                 .args(command::thumbnail_args(
                     input,
+                    1.0,
                     &path.to_string_lossy(),
                 ))
                 .stdout(std::process::Stdio::null())
@@ -359,6 +360,76 @@ fn file_display(p: &str) -> &str {
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(p)
+}
+
+/// 片段起点帧缩略图请求（M6-8）：源路径 + 取帧时间。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipThumbRequest {
+    pub input: String,
+    pub time_sec: f64,
+}
+
+/// 片段起点帧缩略图：失败的单个跳过（装饰性资源，不阻塞）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipThumbnail {
+    pub input: String,
+    pub time_sec: f64,
+    pub thumb_path: String,
+}
+
+/// 批量生成片段起点帧缩略图（M6-8，缓存命中即时返回；缓存 key = 路径@时间两位小数）。
+#[tauri::command]
+pub async fn generate_clip_thumbnails(
+    app: AppHandle,
+    requests: Vec<ClipThumbRequest>,
+) -> Result<Vec<ClipThumbnail>, String> {
+    tauri::async_runtime::spawn_blocking(move || generate_clip_thumbs_sync(&app, &requests))
+        .await
+        .map_err(|e| format!("缩略图任务失败：{e}"))?
+}
+
+fn generate_clip_thumbs_sync(
+    app: &AppHandle,
+    requests: &[ClipThumbRequest],
+) -> Result<Vec<ClipThumbnail>, String> {
+    let cache_dir = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("无法定位缓存目录：{e}"))?
+        .join("thumbs");
+    std::fs::create_dir_all(&cache_dir).map_err(|e| format!("无法创建缓存目录：{e}"))?;
+    let ffmpeg = command::resolve_sidecar("ffmpeg")?;
+
+    let mut out = Vec::with_capacity(requests.len());
+    for r in requests {
+        let key = format!("{}@{:.2}", r.input, r.time_sec);
+        let path = cache_dir.join(format!("{:016x}.jpg", fnv1a(key.as_bytes())));
+        if !path.exists() {
+            let mut cmd = std::process::Command::new(&ffmpeg);
+            command::spawn_hidden(&mut cmd);
+            let status = cmd
+                .args(command::thumbnail_args(
+                    &r.input,
+                    r.time_sec,
+                    &path.to_string_lossy(),
+                ))
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .map_err(|e| format!("无法启动 ffmpeg：{e}"))?;
+            if !status.success() || !path.exists() {
+                continue; // 单个失败跳过
+            }
+        }
+        out.push(ClipThumbnail {
+            input: r.input.clone(),
+            time_sec: r.time_sec,
+            thumb_path: path_to_string(&path),
+        });
+    }
+    Ok(out)
 }
 
 /// 返回当前任务列表快照。

@@ -12,6 +12,8 @@ import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type {
   CacheClearResult,
   CacheUsage,
+  ClipThumbRequest,
+  ClipThumbnail,
   EnvironmentInfo,
   FileThumbnail,
   HistoryEntry,
@@ -59,6 +61,13 @@ export function checkPipeline(items: PipelineItem[]): Promise<PipelineCheck> {
 /** 批量提取首帧缩略图（带缓存） */
 export function generateThumbnails(inputs: string[]): Promise<FileThumbnail[]> {
   return invoke("generate_thumbnails", { inputs });
+}
+
+/** 批量生成片段起点帧缩略图（缓存命中即时返回，M6-8） */
+export function generateClipThumbnails(
+  requests: ClipThumbRequest[],
+): Promise<ClipThumbnail[]> {
+  return invoke("generate_clip_thumbnails", { requests });
 }
 
 export function listKeyframes(input: string): Promise<number[]> {

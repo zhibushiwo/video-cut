@@ -252,6 +252,7 @@ pub fn run() {
             commands::media::generate_proxy,
             commands::media::cancel_task,
             commands::media::generate_thumbnails,
+            commands::media::generate_clip_thumbnails,
             commands::merge::check_merge,
             commands::pipeline::check_pipeline,
             commands::cut::submit_task,

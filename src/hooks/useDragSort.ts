@@ -1,4 +1,10 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+
+/** 拖拽选项：boundsRef 内松手 = 正常排序；拖到边界外松手 = onDropOutside(index)（M6-8 拖出移除） */
+interface DragSortOptions {
+  boundsRef?: RefObject<HTMLElement | null>;
+  onDropOutside?: (index: number) => void;
+}
 
 /**
  * 列表拖拽排序，指针事件实现（DESIGN 决策 #18：Tauri 在 Windows 接管 WebView2
@@ -11,6 +17,7 @@ import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react"
 export function useDragSort(
   onReorder: (from: number, to: number) => void,
   axis: "x" | "y" = "y",
+  options?: DragSortOptions,
 ) {
   const listRef = useRef<HTMLDivElement>(null);
   const overRef = useRef<number | null>(null);
@@ -40,8 +47,12 @@ export function useDragSort(
     e.preventDefault();
     const startPos = axis === "x" ? e.clientX : e.clientY;
     let active = false;
+    let lastX = e.clientX;
+    let lastY = e.clientY;
 
     const move = (ev: PointerEvent) => {
+      lastX = ev.clientX;
+      lastY = ev.clientY;
       const pos = axis === "x" ? ev.clientX : ev.clientY;
       if (!active) {
         // 死区：按住未明显移动视为普通点击，不进入拖拽
@@ -58,8 +69,17 @@ export function useDragSort(
       window.removeEventListener("pointerup", finish);
       window.removeEventListener("pointercancel", finish);
       if (active) {
-        const to = overRef.current;
-        if (to !== null && to !== index) onReorder(index, to);
+        const bounds = options?.boundsRef?.current?.getBoundingClientRect();
+        const outside =
+          !!options?.onDropOutside &&
+          !!bounds &&
+          !(lastX >= bounds.left && lastX <= bounds.right && lastY >= bounds.top && lastY <= bounds.bottom);
+        if (outside) {
+          options.onDropOutside?.(index);
+        } else {
+          const to = overRef.current;
+          if (to !== null && to !== index) onReorder(index, to);
+        }
         setDragIndex(null);
         setOverIndex(null);
       }

@@ -265,14 +265,14 @@ pub fn concat_args(list_file: &str, output: &str) -> Vec<String> {    [
     .collect()
 }
 
-/// 首帧缩略图提取（合并列表辨识用）：取 ~1s 处一帧，缩到 160px 宽。
-pub fn thumbnail_args(input: &str, output: &str) -> Vec<String> {
+/// 缩略图提取：取指定时间处一帧，缩到 160px 宽（合并列表用 ~1s；片段起点帧用片段入点，M6-8）。
+pub fn thumbnail_args(input: &str, start_sec: f64, output: &str) -> Vec<String> {
     [
         "-hide_banner",
         "-loglevel",
         "error",
         "-ss",
-        "1",
+        &format!("{start_sec:.3}"),
         "-i",
         input,
         "-map",
@@ -726,6 +726,14 @@ mod tests {
             args.iter().any(|a| a == "scale=-2:min(720\\,ih),format=yuv420p"),
             "缺少滤镜参数，实际 {args:?}"
         );
+    }
+
+    #[test]
+    fn thumbnail_args_seeks_requested_time() {
+        let args = thumbnail_args("in.mp4", 12.5, "out.jpg");
+        let i = args.iter().position(|a| a == "-ss").expect("缺少 -ss");
+        assert_eq!(args[i + 1], "12.500");
+        assert!(args.iter().any(|a| a == "scale=160:-2"));
     }
 
     #[test]

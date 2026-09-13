@@ -32,17 +32,21 @@ interface VideoPlayerProps {
   videoMaxClass?: string;
   /** 覆盖层（如裁剪框选层）：渲染在视频之上、控制条之下，不拦截播放控制 */
   overlay?: ReactNode;
+  /** 播放状态变化（快捷键空格需要真实状态，M4-3） */
+  onPlayStateChange?: (playing: boolean) => void;
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(
-    { src, onTime, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass },
+    { src, onTime, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass, onPlayStateChange },
     ref,
   ) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const rafRef = useRef(0);
     const onTimeRef = useRef(onTime);
     onTimeRef.current = onTime;
+    const onPlayStateRef = useRef(onPlayStateChange);
+    onPlayStateRef.current = onPlayStateChange;
     const [cur, setCur] = useState(0);
     const [dur, setDur] = useState(0);
     const [vol, setVol] = useState(1);
@@ -90,6 +94,10 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const onPlay = () => {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = requestAnimationFrame(tick);
+        onPlayStateRef.current?.(true);
+      };
+      const onPause = () => {
+        onPlayStateRef.current?.(false);
       };
       const onStop = () => {
         cancelAnimationFrame(rafRef.current);
@@ -97,12 +105,12 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         onTimeRef.current?.(v.currentTime);
       };
       v.addEventListener("play", onPlay);
-      v.addEventListener("pause", onStop);
+      v.addEventListener("pause", onPause);
       v.addEventListener("seeked", onStop);
       return () => {
         cancelAnimationFrame(rafRef.current);
         v.removeEventListener("play", onPlay);
-        v.removeEventListener("pause", onStop);
+        v.removeEventListener("pause", onPause);
         v.removeEventListener("seeked", onStop);
       };
     }, []);

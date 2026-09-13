@@ -51,7 +51,14 @@ export default function ClipTimeline({
   currentTime,
 }: ClipTimelineProps) {
   const trackRef = useRef<HTMLDivElement>(null);
-  const { listRef, beginDrag, rowCls } = useDragSort(onReorder, "x");
+  // 拖出时间轴边界松手 = 移出成品（M6-8 拖回池手势的等价实现）
+  const { listRef, beginDrag, rowCls } = useDragSort(onReorder, "x", {
+    boundsRef: trackRef,
+    onDropOutside: (i) => {
+      const id = clips[i]?.id;
+      if (id) onRemove(id);
+    },
+  });
   /** 池拖入时的插入位置指示（目标块 index） */
   const [extIndex, setExtIndex] = useState<number | null>(null);
   const total = clips.reduce((s, c) => s + c.duration, 0);

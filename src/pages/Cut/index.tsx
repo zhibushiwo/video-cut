@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { SegmentList, TimeField } from "../../components/CutEditor";
 import Timeline, { type Selection } from "../../components/Timeline";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
+import { useHotkeys } from "../../hooks/useHotkeys";
 import {
   fileSrc,
   generateProxy,
@@ -42,6 +43,7 @@ export default function CutPage({
   const [proxyPath, setProxyPath] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
 
   const playerRef = useRef<VideoPlayerHandle>(null);
   const proxyTaskIdRef = useRef<string | null>(null);
@@ -122,6 +124,45 @@ export default function CutPage({
     playerRef.current?.seek(t);
     setCurrentTime(t);
   }, []);
+
+  // ---------- 快捷键（M4-3 / §9.4）：空格 播放/暂停 · ←/→ ±1s · Shift+←/→ 逐帧 ·
+  // I/O 设入/出点 · Delete 删最近添加的片段 ----------
+  const frameStep =
+    info?.video.frameRate && info.video.frameRate > 0 ? 1 / info.video.frameRate : 1 / 30;
+  useHotkeys((e) => {
+    if (e.code === "Space") {
+      if (e.repeat) return;
+      e.preventDefault();
+      if (playing) playerRef.current?.pause();
+      else playerRef.current?.play();
+      return;
+    }
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      const delta = (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? frameStep : 1);
+      const t = Math.min(Math.max(0, currentTime + delta), duration || currentTime);
+      playerRef.current?.seek(t);
+      setCurrentTime(t);
+      return;
+    }
+    if (e.code === "KeyI" && !e.repeat) {
+      setSelection((s) => ({
+        start: Math.min(Math.max(0, currentTime), s.end - 0.1),
+        end: s.end,
+      }));
+      return;
+    }
+    if (e.code === "KeyO" && !e.repeat) {
+      setSelection((s) => ({
+        start: s.start,
+        end: Math.min(Math.max(currentTime, s.start + 0.1), duration || currentTime),
+      }));
+      return;
+    }
+    if ((e.key === "Delete" || e.key === "Backspace") && !e.repeat) {
+      setSegments((prev) => (prev.length > 0 ? prev.slice(0, -1) : prev));
+    }
+  });
 
   const canAdd =
     duration > 0 && selection.end - selection.start >= 0.1;
@@ -216,6 +257,7 @@ export default function CutPage({
               ref={playerRef}
               src={fileSrc(proxyPath ?? inputPath)}
               onTime={handleTime}
+              onPlayStateChange={setPlaying}
               onLoadedMetadata={(d) => {
                 if (duration <= 0 && Number.isFinite(d) && d > 0) {
                   setDuration(d);
@@ -345,6 +387,11 @@ export default function CutPage({
               segments={segments}
               onRemove={(i) => setSegments((prev) => prev.filter((_, idx) => idx !== i))}
             />
+
+            <p className="text-[11px] text-mute/60">
+              快捷键：空格 播放/暂停 · ←/→ ±1 秒 · Shift+←/→ 逐帧 · I / O 设入点/出点 · Delete
+              删最近添加的片段
+            </p>
           </>
         )}
       </div>
