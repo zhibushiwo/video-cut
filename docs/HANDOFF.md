@@ -16,9 +16,9 @@
 | M2 合并（九项参数检测/无损拼接/自动统一/缩略图） | ✅ | `6964f41` |
 | M3 旋转（组合）/局部放大/精确剪切 | ✅ | `ae24685` |
 | M5 工作台（多文件流水线：逐段剪切/旋转/放大 → 合成成品） | ✅ | `9b96210` |
-| M4 打磨（设置/历史/快捷键/批量/安装包/日志 M4-7） | M4-1、M4-2 ✅（`497177a`），M4-3~M4-7 未开始 | `497177a` |
+| M4 打磨（设置/历史/快捷键/批量/安装包/日志 M4-7） | M4-1/2/5/6/7/8 ✅（M4-5 实机冒烟待用户）；M4-3 快捷键未做、M4-4 取消立项（决策 #20） | 第三批各提交 |
 | M6 工作台 2.0（多片段/片段池/合成时间轴/成品连播） | M6-0~M6-6 ✅（含成品连播预览）；M6-7 e2e 手测、M6-8 增强未做 | 本批提交 |
-| M7 反馈修复与体验 | M7-1~M7-7 ✅（bug 修复 + 第一批快改）；M7-8/9 待第三批"打包"批次（决策 #19/#20/#21） | `16468f7` `5d25884` `8c52d6f` + 第一批各提交 |
+| M7 反馈修复与体验 | M7-1~M7-9 全部 ✅（第一批 bug 修复与快改 + 第三批打包项） | 各批次提交 |
 
 ## M4-1 设置页要点（DESIGN §9.9、§12）
 
@@ -114,9 +114,18 @@
 - 删素材联动删片段（有片段时 confirmDialog）；删片段/素材会复位引用它们的预览模式
 - **M6-6 连播**（`components/ProductPreview`）：双 video 槽（a/b 轮换，隐藏槽预载下一段并停在其起点）；metadata 前设 currentTime 不可靠 → pendingSeek 在 onLoadedMetadata 应用；播放头/playing 状态在页面层（与 ClipTimeline 联动），ProductPreview 用 refs 读最新值防 rAF 闭包过期；代理按路径去重请求、task-status 完成回填；切走预览模式自动暂停、切回 productSeek(playhead) 同步
 
+## 第三批实施要点（M7-8/M7-9 + M4-8 + M4-5 + M4-6，2026-09-14）
+
+- **M7-8**：tauri.conf `targets: ["nsis"]` + `windows.nsis.languages: ["SimpChinese"]`；无 MSI
+- **M7-9 图标**：`scripts/icon.svg`（墨底圆角方 rx185 + BrandMark 40 倍居中）+ `scripts/render-icon.mjs`（**纯 Node PNG 编码器**：zlib + 手写 chunk + CRC32，3×3 超采样；System.Drawing 在本机 PowerShell 7 不可用才走此路）→ `pnpm tauri icon` 全套再生成；改图标流程 = 改 svg → node 渲染 → tauri icon；android/ios 产物目录已 gitignore
+- **M4-8 主题色**：`theme.ts` ACCENTS 4 预设 + `applyAccent`（覆写 :root `--color-signal`）；App 启动加载后与 updateSettings 时应用；5 处 `accent-[#4cc38a]` 硬编码全部改 `accent-signal`；`::selection` 用 color-mix 跟随 token
+- **M4-8 缓存**：Rust `cache_usage`/`clear_cache`（`app_cache_dir/proxy|thumbs` 目录级统计与删除，占用文件跳过计数）
+- **M4-8 关闭确认**：services `onWindowCloseGuard`（onCloseRequested + listTasks 忙判断 + ask + destroy）；**capability 补了 `core:window:allow-destroy`**（destroy 不再触发 CloseRequested，不会死循环）
+- **M4-8 重置/关于**：重置 = onUpdate({...DEFAULT_SETTINGS})（App 侧 patch.accent 会同步 applyAccent）；关于区 = getAppVersion() + env 的 FFmpeg 版本 + GPL 注记
+- **M4-6**：README 重写（功能表/快速开始含 fetch-ffmpeg/结构/开发约定/许可证注意）；DESIGN §5.2 组件树修正为实际组件、决策 #4 版本改 9.x
+
 ## 待办
 
-1. 用户手测：M7-1/2/3 三项修复 + 第一批快改；**工作台 2.0 全流程**（拖入多素材 → 剪出多片段 → 加工 → 时间轴编排 → **成品连播预览**（播放/暂停/进度条/时间轴点击 seek/边界切换/代理源）→ 合成导出验证输出正确）
-2. 第二批余项：M6-7 e2e 手测确认后收尾；M6-8 增强（批量能力 = 原 M4-4、拖回池手势、片段起点帧缩略图）；M4-3 快捷键（可开始）
-3. 第三批：M7-8 NSIS 中文（MSI 砍掉，决策 #21）+ M7-9 图标 + M4-5 实机验证；M4-8 设置二期；M4-6 文档收尾
-4. 遗留小项：规则 B 下"有片段裁剪 + 其他片段非恒等旋转"时后者也转码（方向一致性优先，已文档化）；硬编路径未在真 GPU 上验证；旋转覆盖源 flip 元数据（罕见）；代理关闭时不支持格式仅显示提示条（无占位封面图）；日志跨天不切文件（下次启动切换，已知简化）；时间轴拖回池用块上 ✕ 代替（拖回池手势留 M6-8）
+1. 用户手测（统一验证）：M7-1/2/3 bug 修复、第一批快改、**工作台 2.0 全流程**（含成品连播）、M4-8（主题色切换/缓存清理/关闭确认/重置与关于）；**M4-5 实机冒烟**——安装 NSIS 包到干净环境，验证中文向导/新图标/全功能/SmartScreen 提示
+2. 第二批余项：M6-8 增强（批量能力 = 原 M4-4、拖回池手势、片段起点帧缩略图）；M4-3 快捷键（M6-4 已完成，可开工）
+3. 遗留小项：规则 B 下"有片段裁剪 + 其他片段非恒等旋转"时后者也转码（方向一致性优先，已文档化）；硬编路径未在真 GPU 上验证；旋转覆盖源 flip 元数据（罕见）；代理关闭时不支持格式仅显示提示条；日志跨天不切文件；时间轴拖回池用块上 ✕ 代替（拖回池手势留 M6-8）；README 截图待补

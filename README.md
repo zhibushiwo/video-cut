@@ -1,28 +1,35 @@
 # video-cut
 
-基于 **Tauri 2 + React + Rust + FFmpeg** 的 Windows 视频剪辑软件。使用系统自带 WebView 渲染界面，体积小、启动快；视频解码、剪辑与导出等重活交给 Rust 侧调用 FFmpeg 完成。
+基于 **Tauri 2 + React + Rust + FFmpeg** 的 Windows 本地视频工具。
+核心卖点：**无损优先**——能不重新编码的绝不重编码，剪切/合并/旋转默认走 stream copy，
+画质与文件大小和原视频一致、秒级完成；所有操作向用户明示"无损 / 重编码"。
 
-> 项目目前处于起步阶段，界面与核心功能正在搭建中，欢迎 Star / Fork 一起完善。
+## 功能
+
+| 功能 | 说明 |
+| --- | --- |
+| **工作台**（落地页） | 多素材 → 剪出任意多片段 → 逐段旋转/放大加工 → 合成时间轴编排 → 连播预览 → 合成一个成品；全程无损时秒级 |
+| **剪切** | 极速（关键帧对齐，`-c copy`）与精确（帧级，重编码）双模式；多片段一次导出；入点吸附关键帧、所见即所得 |
+| **合并** | 九项参数一致性检测，一致直接无损拼接；不一致可"自动统一后合并" |
+| **旋转** | 默认元数据级旋转（`-display_rotation` + remux），秒级且无损；重编码旋转作为高级选项 |
+| **局部放大** | 框选画面区域裁剪并放大（crop + lanczos），自动探测 GPU 编码器、失败回退软件编码 |
+| **其他** | 代理预览（AVI/HEVC 等不被 WebView2 支持的格式自动生成低清代理，导出仍用原文件）、任务队列（进度/取消/历史记录）、设置（输出目录/编码器锁定/主题色/缓存管理）、按天滚动日志 |
 
 ## 技术栈
 
 | 层级 | 技术 |
 | --- | --- |
 | 桌面框架 | Tauri 2 |
-| 前端 | React 19 + TypeScript + Vite 8 |
-| 样式 | Tailwind CSS 4（通过 `@tailwindcss/vite` 插件接入） |
-| 后端 | Rust（Tauri Command） |
-| 音视频处理 | FFmpeg（规划接入） |
+| 前端 | React 19 + TypeScript + Vite + Tailwind CSS 4 |
+| 后端 | Rust（Tauri Command，只负责生成 FFmpeg 命令与任务管理，不做编解码） |
+| 音视频 | FFmpeg 9.x（gyan.dev 构建，sidecar 随安装包分发，用户无需安装） |
 
-## 环境要求（Windows）
+## 环境要求（开发）
 
-- [Node.js](https://nodejs.org/) ≥ 20.19（Vite 8 要求）与 [pnpm](https://pnpm.io/) `npm i -g pnpm`
-- [Rust](https://rustup.dev/)（MSVC 工具链，建议最新稳定版）
-- [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)（含 "使用 C++ 的桌面开发" 工作负载）
-- [Microsoft Edge WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) 运行时（Windows 10/11 一般已内置）
-- FFmpeg：用于后续音视频处理，可从 [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) 或 [BtbN builds](https://github.com/BtbN/FFmpeg-Builds/releases) 下载并将 `ffmpeg` / `ffprobe` 加入 PATH
-
-> 推荐使用 [VS Code](https://code.visualstudio.com/) 并安装 [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) 与 [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer) 扩展（见 `.vscode/extensions.json`）。
+- [Node.js](https://nodejs.org/) ≥ 20.19 与 [pnpm](https://pnpm.io/) `npm i -g pnpm`
+- [Rust](https://rustup.dev/)（MSVC 工具链）
+- [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)（"使用 C++ 的桌面开发"工作负载）
+- [WebView2](https://developer.microsoft.com/microsoft-edge/webview2/) 运行时（Windows 10/11 一般已内置）
 
 ## 快速开始
 
@@ -30,10 +37,13 @@
 # 1. 安装前端依赖
 pnpm install
 
-# 2. 以开发模式启动（自动启动 Vite 与 Tauri 窗口，支持热更新）
+# 2. 下载 FFmpeg sidecar（放到 src-tauri/binaries/，不入 git）
+powershell -ExecutionPolicy Bypass -File scripts/fetch-ffmpeg.ps1
+
+# 3. 开发模式（自动启动 Vite 与 Tauri 窗口，支持热更新）
 pnpm tauri dev
 
-# 3. 构建发行版安装包（输出位于 src-tauri/target/release/bundle/）
+# 4. 构建安装包（NSIS，简体中文向导；输出 src-tauri/target/release/bundle/nsis/）
 pnpm tauri build
 ```
 
@@ -41,50 +51,42 @@ pnpm tauri build
 
 | 命令 | 说明 |
 | --- | --- |
-| `pnpm dev` | 仅启动 Vite 前端开发服务器（http://localhost:1420） |
+| `pnpm dev` | 仅启动 Vite 前端开发服务器（固定 1420 端口，勿改） |
 | `pnpm build` | TypeScript 类型检查 + 前端产物构建 |
-| `pnpm tauri dev` | 启动 Tauri 桌面应用开发模式 |
-| `pnpm tauri build` | 打包 Windows 安装程序 / 可执行文件 |
+| `pnpm tauri dev` | Tauri 桌面应用开发模式 |
+| `pnpm tauri build` | 打包 NSIS 安装程序 |
+| `cargo test`（src-tauri 下） | Rust 单元测试（命令构建器全量断言） |
+| `node scripts/render-icon.mjs` | 重渲染图标源 PNG（改 `scripts/icon.svg` 后执行） |
+| `pnpm tauri icon src-tauri/icons/icon-source.png --output src-tauri/icons` | 从源 PNG 生成全套应用图标 |
 
 ## 项目结构
 
 ```
 video-cut/
-├── index.html                  # 前端入口 HTML
-├── src/                        # React 前端源码
-│   ├── main.tsx                # 应用挂载入口
-│   ├── App.tsx                 # 根组件
-│   ├── components/             # 通用组件
-│   └── global.css              # 全局样式（引入 Tailwind CSS）
-├── src-tauri/                  # Rust 后端
-│   ├── src/
-│   │   ├── main.rs             # 程序入口
-│   │   └── lib.rs              # 应用构建与 Tauri Command
-│   ├── capabilities/           # Tauri 权限配置（capability）
-│   ├── icons/                  # 应用图标
-│   ├── tauri.conf.json         # Tauri 配置（窗口、打包等）
-│   └── Cargo.toml              # Rust 依赖配置
-├── vite.config.ts              # Vite 配置（固定 1420 端口供 Tauri 使用）
-└── package.json
+├── docs/                        # DESIGN（设计定稿）/ PLAN（里程碑）/ HANDOFF（状态快照）
+├── scripts/                     # fetch-ffmpeg / 图标源与渲染脚本 / 测试夹具生成
+├── src/                         # React 前端
+│   ├── components/              # VideoPlayer / Timeline / ClipTimeline / ProductPreview / TaskProgress 等
+│   ├── pages/                   # Workbench（落地页）/ Cut / Merge / Editor / Settings / History
+│   ├── hooks/                   # useDragSort（指针拖拽排序，决策 #18）
+│   ├── services/tauri.ts        # 唯一 IPC 入口（invoke 封装 + 事件订阅）
+│   └── types/                   # 与 Rust 数据模型对齐的 TS 类型
+└── src-tauri/                   # Rust 后端
+    ├── src/commands/            # 命令入口（校验与任务提交）
+    ├── src/ffmpeg/              # 命令构建器 / ffprobe / 进度解析
+    ├── src/task/                # 任务队列（并发 2 / 取消 / .part→rename）
+    └── binaries/                # FFmpeg sidecar（不入 git，fetch-ffmpeg.ps1 下载）
 ```
 
 ## 开发说明
 
-- Vite 固定监听 **1420** 端口（`strictPort: true`），这是 Tauri 开发模式所依赖的，请勿改动；如需局域网/移动设备调试，可设置 `TAURI_DEV_HOST` 环境变量。
-- Rust 代码变更后，`tauri dev` 会自动重新编译并重启应用。
-- 前端通过 `@tauri-apps/api` 的 `invoke` 调用 Rust 侧命令；新增命令需在 `src-tauri/src/lib.rs` 的 `invoke_handler` 中注册，并按需在 `src-tauri/capabilities/` 中补充权限。
-- `Cargo.toml` 中已针对发布构建做了体积与性能优化（LTO、单 codegen unit、符号剥离等）。
-
-## 功能规划
-
-- [ ] 视频导入与素材管理
-- [ ] 时间线编辑：多轨道、拖拽排序
-- [ ] 片段裁剪、分割、删除
-- [ ] 实时预览与逐帧定位
-- [ ] 字幕 / 水印 / 滤镜
-- [ ] 基于 FFmpeg 的高性能导出（自定义分辨率、码率、格式）
-- [ ] 打包为独立安装程序分发
+- **设计即文档**：实现与设计冲突时先改 `docs/DESIGN.md` 再改代码；里程碑与进度见 `docs/PLAN.md`，会话交接状态见 `docs/HANDOFF.md`
+- 所有 FFmpeg 参数只在 `src-tauri/src/ffmpeg/command.rs` 一处拼装（可单测审计）
+- 前端通过 `services/tauri.ts` 调 Rust 命令；新增命令需在 `src-tauri/src/lib.rs` 的 `invoke_handler` 注册并按需补 capability
+- 窗口内部拖拽一律指针事件实现（HTML5 DnD 在 Tauri Windows 下被文件拖拽通道吞掉）
+- `Cargo.toml` 已做发布构建优化（LTO、单 codegen unit、符号剥离）
 
 ## 许可证
 
-暂未确定，规划中。
+暂未确定，规划中。注意：内置 FFmpeg（gyan.dev 构建）含 GPL 组件，建议个人/内部使用；
+若公开发布或商用需评估 GPL 合规（详见 `docs/DESIGN.md` §11）。

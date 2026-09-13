@@ -223,26 +223,25 @@ WebView2 的 `<video>` 对部分格式无法直接播放（详见第 10 节）�
 ```text
 src/
 ├── components/
-│   ├── VideoPlayer/     # <video> 封装：播放/暂停/逐帧步进/时间上报/代理播放
-│   ├── Timeline/        # 时间轴：区间双手柄、关键帧刻度与吸附、片段标记
-│   ├── ClipTimeline/    # 工作台合成时间轴：片段块编排（§9.8）、播放头、池↔轴拖拽
-│   ├── CutEditor/       # 剪切页编辑区：模式选择、片段列表、时间输入
-│   ├── MergeEditor/     # 合并页：文件列表拖拽排序、参数检测面板
-│   ├── RotateEditor/    # 旋转页：角度/翻转选择与预览
-│   ├── CropEditor/      # 放大页：画面框选矩形、比例锁定、数值微调
-│   └── TaskProgress/    # 全局任务面板：进度/速度/取消/失败原因
+│   ├── VideoPlayer/     # <video> 封装：播放/暂停/倍速/时间上报/overlay 插槽/代理切换
+│   ├── Timeline/        # 源内时间轴：区间双手柄、关键帧刻度与吸附
+│   ├── ClipTimeline/    # 工作台合成时间轴：片段块编排（§9.8）、池↔轴拖入、播放头
+│   ├── ProductPreview/  # 工作台成品虚拟连播（M6-6）：双 video 轮换预加载
+│   ├── RotateControls/  # 旋转组合按钮（Editor 页与工作台共享）
+│   └── TaskProgress/    # 全局任务面板：进度/速度/取消/复制日志/自动关闭
 ├── pages/
-│   ├── Workbench/       # 工作台（落地页，§9.8）
-│   ├── Cut/             # 剪切页 = VideoPlayer + Timeline + CutEditor
+│   ├── Workbench/       # 工作台（落地页，§9.8：素材卡/片段池/时间轴/三态预览）
+│   ├── Cut/             # 剪切页 = VideoPlayer + Timeline
 │   ├── Merge/           # 合并页
-│   ├── Editor/          # 旋转/放大共用编辑页（按参数切换 Rotate/Crop 编辑器）
+│   ├── Editor/          # 旋转/放大共用编辑页
 │   ├── Settings/        # 设置页（§9.9，受控组件）
 │   └── History/         # 历史记录页（§9.10，只读）
 ├── hooks/
 │   └── useDragSort.ts   # 指针事件拖拽排序（决策 #18：禁用 HTML5 DnD）
 ├── services/
 │   └── tauri.ts         # invoke 封装 + 事件订阅，全部类型安全，UI 不直接碰 @tauri-apps/api
-└── types/               # 与 Rust 数据模型对齐的 TS 类型定义
+├── theme.ts             # 主题色预设与运行时覆写（§9.1/决策 #16）
+└── types/               # 与 Rust 数据模型对齐的 TS 类型
 ```
 
 约定：
@@ -906,7 +905,7 @@ Workbench ──右上角──▶ History / Settings
 | 1 | 不使用 tailwind.config.ts | Tailwind v4 CSS-first（`@theme`），项目经 `@tailwindcss/vite` 接入 |
 | 2 | 配置存储用 JSON（tauri-plugin-store），不用 SQLite | v1 无关系型数据；降低复杂度 |
 | 3 | 预览用 `<video>` + 代理文件，第一版不集成 libmpv | WebView2 原生覆盖主流格式，代理兜底长尾；mpv 集成成本高，留待真实兼容性问题出现再评估 |
-| 4 | FFmpeg 固定 7.x 并以 sidecar 分发 | `-display_rotation` 需 ≥6.0；sidecar 解决打包路径与版本一致性 |
+| 4 | FFmpeg 9.x（gyan.dev release-essentials）以 sidecar 分发 | `-display_rotation` 需 ≥6.0；sidecar 解决打包路径与版本一致性 |
 | 5 | 所有 copy 类命令强制 `-map 0` | FFmpeg 默认流选择会丢弃多音轨/字幕，违背无损承诺 |
 | 6 | 进度用 `-progress pipe:1`，禁止解析 stderr | 结构化输出可靠；stderr 仅作错误日志 |
 | 7 | 剪切 `-ss` 置于 `-i` 前（copy）/ `-i` 后（重编码） | 输入侧 seek 供 copy 快速对齐关键帧；输出侧 seek 供精确到帧 |
