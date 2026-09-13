@@ -229,6 +229,7 @@ pub fn submit_pipeline(
     items: Vec<PipelineItem>,
     output: String,
     quality: QualityPreset,
+    locked_encoder: Option<String>,
 ) -> Result<String, String> {
     if items.is_empty() {
         return Err("请先添加视频".into());
@@ -334,7 +335,8 @@ pub fn submit_pipeline(
                     )?),
                     None => None,
                 };
-                let encoder = command::resolve_encoder(&facts[i].info.video.pix_fmt);
+                let encoder =
+                    command::effective_encoder(locked_encoder.as_deref(), &facts[i].info.video.pix_fmt);
                 command::pipeline_transcode_args(
                     seg,
                     plan.bake_deg,

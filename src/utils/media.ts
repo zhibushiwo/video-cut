@@ -1,5 +1,5 @@
 /** 媒体信息相关的展示与判定逻辑（DESIGN §3.7、§10）。 */
-import type { MediaInfo } from "../types";
+import type { MediaInfo, ProxyMode } from "../types";
 
 /** WebView2 原生可播的视频编码 */
 const NATIVE_VIDEO = new Set(["h264", "vp8", "vp9", "av1"]);
@@ -16,6 +16,16 @@ export function needsProxy(info: MediaInfo): boolean {
     info.video.pixFmt.toLowerCase() === "yuv420p";
   const audioOk = info.audio.every((a) => NATIVE_AUDIO.has(a.codec.toLowerCase()));
   return !(videoOk && audioOk);
+}
+
+/**
+ * 结合设置的三态代理判定（DESIGN §3.7/§10/§12）：
+ * off = 从不生成（不支持格式的画面显示占位提示）；always = 强制代理；
+ * auto = 按格式支持性按需生成。
+ */
+export function wantsProxy(info: MediaInfo, mode: ProxyMode): boolean {
+  if (mode === "off") return false;
+  return mode === "always" || needsProxy(info);
 }
 
 /** 视频摘要行：H.264 · 1920×1080 · 60fps */

@@ -13,14 +13,17 @@ import {
   probeMedia,
   submitTask,
 } from "../../services/tauri";
-import type { MediaInfo, Segment } from "../../types";
-import { audioSummary, needsProxy, videoSummary } from "../../utils/media";
+import type { AppSettings, CutMode, MediaInfo, Segment } from "../../types";
+import { audioSummary, needsProxy, videoSummary, wantsProxy } from "../../utils/media";
 import { formatBitrate, formatBytes, formatTime } from "../../utils/time";
+import { resolveOutputDir } from "../../utils/paths";
 
 export default function CutPage({
+  settings,
   onBack,
   initialFiles,
 }: {
+  settings: AppSettings;
   onBack: () => void;
   initialFiles?: string[] | null;
 }) {
@@ -33,15 +36,18 @@ export default function CutPage({
   const [currentTime, setCurrentTime] = useState(0);
   const [selection, setSelection] = useState<Selection>({ start: 0, end: 0 });
   const [segments, setSegments] = useState<Segment[]>([]);
-  const [outputDir, setOutputDir] = useState("");
-  const [snap, setSnap] = useState(true);
-  const [cutMode, setCutMode] = useState<"fast" | "precise">("fast");
+  const [outputDir, setOutputDir] = useState(settings.defaultOutputDir);
+  const [snap, setSnap] = useState(settings.keyframeSnap);
+  const [cutMode, setCutMode] = useState<CutMode>(settings.defaultCutMode);
   const [proxyPath, setProxyPath] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const playerRef = useRef<VideoPlayerHandle>(null);
   const proxyTaskIdRef = useRef<string | null>(null);
+  // 设置在页面生命周期内不变，loadFile 闭包经 ref 读取
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   // 代理任务完成 → 切换到代理画面
   useEffect(() => {
@@ -74,10 +80,10 @@ export default function CutPage({
       setInfo(mi);
       setDuration(mi.durationSec);
       setSelection({ start: 0, end: mi.durationSec });
-      // 默认输出到视频所在目录
-      const parent = path.replace(/[\\/][^\\/]+$/, "");
-      if (parent) setOutputDir(parent);
-      if (needsProxy(mi)) {
+      // 输出位置：默认输出目录优先，否则跟随源文件目录（DESIGN §12）
+      setOutputDir(resolveOutputDir(path, settingsRef.current.defaultOutputDir));
+      // 代理三态：auto 按需 / always 强制 / off 不生成（DESIGN §3.7/§10/§12）
+      if (wantsProxy(mi, settingsRef.current.proxyMode)) {
         const started = await generateProxy(path);
         if (started.taskId) {
           proxyTaskIdRef.current = started.taskId;
@@ -139,6 +145,7 @@ export default function CutPage({
         segments,
         outputDir,
         mode: cutMode,
+        encoder: settings.encoder === "auto" ? null : settings.encoder,
       });
     } catch (err) {
       setError(String(err));
@@ -216,8 +223,13 @@ export default function CutPage({
                 }
               }}
               onError={() => {
-                // 原始文件播不了且代理还没生成 → 兜底请求代理
-                if (!proxyPath && !proxyTaskIdRef.current && info) {
+                // 原始文件播不了且代理还没生成 → 兜底请求代理（设置关闭时不兜底）
+                if (
+                  settings.proxyMode !== "off" &&
+                  !proxyPath &&
+                  !proxyTaskIdRef.current &&
+                  info
+                ) {
                   void generateProxy(inputPath).then((s) => {
                     if (s.taskId) proxyTaskIdRef.current = s.taskId;
                     else setProxyPath(s.proxyPath);
@@ -225,7 +237,11 @@ export default function CutPage({
                 }
               }}
               banner={
-                proxyPath ? "当前为代理预览画面，导出使用原始文件" : null
+                proxyPath
+                  ? "当前为代理预览画面，导出使用原始文件"
+                  : settings.proxyMode === "off" && info && needsProxy(info)
+                    ? "代理预览已关闭，此格式无法预览；导出不受影响，可在设置中开启代理预览"
+                    : null
               }
             />
 

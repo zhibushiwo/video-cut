@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { Clock, Settings as SettingsIcon } from "lucide-react";
 import type { EnvironmentInfo, PageName } from "../../types";
 
 interface HomeProps {
@@ -203,6 +204,25 @@ export default function HomePage({ env, onNavigate }: HomeProps) {
           {OPERATIONS.map((op) => (
             <OperationRow key={op.page} op={op} onNavigate={onNavigate} />
           ))}
+        </div>
+
+        <div className="mt-4 flex items-center gap-5">
+          <button
+            type="button"
+            onClick={() => onNavigate("history")}
+            className="flex items-center gap-1.5 text-xs text-mute transition-colors hover:text-paper focus:outline-none focus-visible:text-paper"
+          >
+            <Clock className="h-3.5 w-3.5" />
+            历史记录
+          </button>
+          <button
+            type="button"
+            onClick={() => onNavigate("settings")}
+            className="flex items-center gap-1.5 text-xs text-mute transition-colors hover:text-paper focus:outline-none focus-visible:text-paper"
+          >
+            <SettingsIcon className="h-3.5 w-3.5" />
+            设置
+          </button>
         </div>
 
         <p className="mt-5 text-xs text-mute/80">所有处理都在本机完成，文件不会离开电脑。</p>

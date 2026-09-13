@@ -329,6 +329,18 @@ pub fn resolve_encoder(pix_fmt: &str) -> String {
     }
 }
 
+/// 设置中可锁定的编码器全集（DESIGN §3.5/§12，与前端 EncoderChoice 对齐）。
+pub const LOCKABLE_ENCODERS: [&str; 5] =
+    ["h264_nvenc", "h264_qsv", "h264_amf", "libx264", "libx265"];
+
+/// 任务显式锁定编码器时校验并采用；None 或非法值回退像素格式自动探测。
+pub fn effective_encoder(locked: Option<&str>, pix_fmt: &str) -> String {
+    match locked {
+        Some(e) if LOCKABLE_ENCODERS.contains(&e) => e.to_string(),
+        _ => resolve_encoder(pix_fmt),
+    }
+}
+
 /// 质量档位 → 编码参数（集中映射，DESIGN §3.5：高质量/平衡/小体积）。
 pub fn encoder_quality_args(encoder: &str, quality: QualityPreset) -> Vec<String> {
     let (cq, amf_quality, crf, preset): (&str, &str, &str, &str) = match quality {
@@ -957,5 +969,15 @@ mod tests {
             enc10 == "hevc_nvenc" || enc10 == "hevc_qsv" || enc10 == "hevc_amf" || enc10 == "libx265",
             "10bit 应走 HEVC 路径：{enc10}"
         );
+    }
+
+    #[test]
+    fn effective_encoder_honors_lock_and_rejects_unknown() {
+        assert_eq!(effective_encoder(Some("libx265"), "yuv420p"), "libx265");
+        assert_eq!(effective_encoder(Some("h264_nvenc"), "yuv420p10le"), "h264_nvenc");
+        // 非法值与 None 都回退自动探测
+        let auto = effective_encoder(Some("not-an-encoder"), "yuv420p");
+        assert!(LOCKABLE_ENCODERS.contains(&auto.as_str()) || auto == "libx264");
+        assert_eq!(effective_encoder(None, "yuv420p10le"), resolve_encoder("yuv420p10le"));
     }
 }

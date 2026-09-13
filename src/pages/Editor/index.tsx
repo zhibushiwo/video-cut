@@ -10,8 +10,9 @@ import {
   probeMedia,
   submitTask,
 } from "../../services/tauri";
-import type { MediaInfo, QualityPreset } from "../../types";
-import { needsProxy } from "../../utils/media";
+import type { AppSettings, MediaInfo, QualityPreset } from "../../types";
+import { needsProxy, wantsProxy } from "../../utils/media";
+import { resolveOutputDir } from "../../utils/paths";
 
 export type EditorTool = "rotate" | "crop";
 
@@ -31,10 +32,12 @@ const QUALITY_LABELS: Record<QualityPreset, string> = {
 
 export default function EditorPage({
   tool,
+  settings,
   onBack,
   initialFiles,
 }: {
   tool: EditorTool;
+  settings: AppSettings;
   onBack: () => void;
   initialFiles?: string[] | null;
 }) {
@@ -49,7 +52,11 @@ export default function EditorPage({
   // 旋转
   const [rot, setRot] = useState<RotateState>(NO_ROTATE);
   const [rotateTranscode, setRotateTranscode] = useState(false);
-  const [quality, setQuality] = useState<QualityPreset>("balanced");
+  const [quality, setQuality] = useState<QualityPreset>(settings.quality);
+
+  // 设置在页面生命周期内不变，loadFile 闭包经 ref 读取
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
 
   // 裁剪
   const [rect, setRect] = useState<CropRect | null>(null);
@@ -86,7 +93,8 @@ export default function EditorPage({
     try {
       const mi = await probeMedia(path);
       setInfo(mi);
-      if (needsProxy(mi)) {
+      // 代理三态：auto 按需 / always 强制 / off 不生成（DESIGN §3.7/§10/§12）
+      if (wantsProxy(mi, settingsRef.current.proxyMode)) {
         const started = await generateProxy(path);
         if (started.taskId) proxyTaskIdRef.current = started.taskId;
         else setProxyPath(started.proxyPath);
@@ -127,7 +135,7 @@ export default function EditorPage({
     const dot = name.lastIndexOf(".");
     const stem = dot > 0 ? name.slice(0, dot) : name;
     const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : "mp4";
-    const dir = src.replace(/[\\/][^\\/]+$/, "");
+    const dir = resolveOutputDir(src, settings.defaultOutputDir);
     setSubmitting(true);
     setError(null);
     try {
@@ -141,6 +149,7 @@ export default function EditorPage({
           output: `${dir}\\${stem}_rotated.${ext}`,
           transcode: rotateTranscode,
           quality,
+          encoder: settings.encoder === "auto" ? null : settings.encoder,
         });
       } else {
         const px = pxRect(rect ?? { nx: 0, ny: 0, nw: 1, nh: 1 });
@@ -159,6 +168,7 @@ export default function EditorPage({
           outHeight: null,
           quality,
           output: `${dir}\\${stem}_zoomed.${ext}`,
+          encoder: settings.encoder === "auto" ? null : settings.encoder,
         });
       }
     } catch (err) {
@@ -234,9 +244,21 @@ export default function EditorPage({
                 <VideoPlayer
                   ref={playerRef}
                   src={fileSrc(proxyPath ?? inputPath)}
-                  banner={proxyPath ? "当前为代理预览画面，导出使用原始文件" : null}
+                  banner={
+                    proxyPath
+                      ? "当前为代理预览画面，导出使用原始文件"
+                      : settings.proxyMode === "off" && info && needsProxy(info)
+                        ? "代理预览已关闭，此格式无法预览；导出不受影响，可在设置中开启代理预览"
+                        : null
+                  }
                   onError={() => {
-                    if (!proxyPath && !proxyTaskIdRef.current && info) {
+                    // 原始文件播不了且代理还没生成 → 兜底请求代理（设置关闭时不兜底）
+                    if (
+                      settings.proxyMode !== "off" &&
+                      !proxyPath &&
+                      !proxyTaskIdRef.current &&
+                      info
+                    ) {
                       void generateProxy(inputPath).then((s) => {
                         if (s.taskId) proxyTaskIdRef.current = s.taskId;
                         else setProxyPath(s.proxyPath);

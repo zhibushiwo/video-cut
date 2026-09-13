@@ -53,3 +53,19 @@ export function withFileTimestamp(name: string): string {
   const ext = dot > 0 ? name.slice(dot) : ".mp4";
   return `${stem}_${fileTimestamp()}${ext}`;
 }
+
+/** 历史记录用：unix ms → 本地 yyyy-MM-dd HH:mm */
+export function formatDateTime(ms: number): string {
+  const d = new Date(ms);
+  return (
+    `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ` +
+    `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  );
+}
+
+/** 历史记录用：耗时毫秒 → "42 秒" / "3 分 05 秒" */
+export function formatDurationMs(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000));
+  if (s < 60) return `${s} 秒`;
+  return `${Math.floor(s / 60)} 分 ${pad2(s % 60)} 秒`;
+}

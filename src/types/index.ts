@@ -3,7 +3,15 @@
  */
 
 /** 前端导航状态（App 顶层 state 切换，DESIGN §9.2） */
-export type PageName = "home" | "cut" | "merge" | "rotate" | "crop" | "workbench";
+export type PageName =
+  | "home"
+  | "cut"
+  | "merge"
+  | "rotate"
+  | "crop"
+  | "workbench"
+  | "history"
+  | "settings";
 
 export interface EnvironmentInfo {
   ok: boolean;
@@ -49,6 +57,34 @@ export interface Segment {
 export type CutMode = "fast" | "precise";
 export type QualityPreset = "high" | "balanced" | "small";
 
+/** 代理预览三态（DESIGN §3.7/§10/§12）：按需 / 始终代理 / 关闭 */
+export type ProxyMode = "auto" | "always" | "off";
+
+/** 可锁定的编码器；"auto" = 按像素格式自动探测（DESIGN §3.5/§12） */
+export type EncoderChoice =
+  | "auto"
+  | "h264_nvenc"
+  | "h264_qsv"
+  | "h264_amf"
+  | "libx264"
+  | "libx265";
+
+/** 应用设置（DESIGN §12，tauri-plugin-store 持久化为 settings.json） */
+export interface AppSettings {
+  /** 默认输出目录；空 = 跟随源文件所在目录 */
+  defaultOutputDir: string;
+  /** 新建任务的默认剪切模式 */
+  defaultCutMode: CutMode;
+  /** 入点吸附关键帧 */
+  keyframeSnap: boolean;
+  /** 代理预览策略 */
+  proxyMode: ProxyMode;
+  /** 重编码类任务的编码器 */
+  encoder: EncoderChoice;
+  /** 重编码类任务的默认质量档位 */
+  quality: QualityPreset;
+}
+
 export type VideoTask =
   | {
       type: "cut";
@@ -56,6 +92,8 @@ export type VideoTask =
       segments: Segment[];
       outputDir: string;
       mode: CutMode;
+      /** null = 按像素格式自动探测编码器（极速剪切不使用） */
+      encoder: string | null;
     }
   | { type: "merge"; inputs: string[]; output: string; forceTranscode: boolean }
   | {
@@ -68,6 +106,7 @@ export type VideoTask =
       output: string;
       transcode: boolean;
       quality: QualityPreset;
+      encoder: string | null;
     }
   | {
       type: "crop_zoom";
@@ -80,12 +119,14 @@ export type VideoTask =
       outHeight: number | null;
       quality: QualityPreset;
       output: string;
+      encoder: string | null;
     }
   | {
       type: "pipeline";
       items: PipelineItem[];
       output: string;
       quality: QualityPreset;
+      encoder: string | null;
     };
 
 /** 工作台单项配置（DESIGN §3.8）：裁剪矩形为显示空间像素坐标 */
@@ -150,6 +191,22 @@ export interface TaskProgressPayload {
   percent: number;
   speed: string | null;
   etaSeconds: number | null;
+}
+
+/** 历史记录条目（DESIGN §12 / M4-2，与 Rust HistoryEntry 对齐；仅终态任务） */
+export interface HistoryEntry {
+  id: string;
+  kind: string;
+  label: string;
+  status: TaskStatus;
+  outputs: string[];
+  error: string | null;
+  /** 提交时间（unix ms） */
+  createdAt: number;
+  /** 开始执行时间；0 = 排队即被取消 */
+  startedAt: number;
+  /** 终态时间（unix ms） */
+  finishedAt: number;
 }
 
 /** 合并检测事实：MediaInfo + 视频流 time_base（Rust 端 flatten 序列化） */

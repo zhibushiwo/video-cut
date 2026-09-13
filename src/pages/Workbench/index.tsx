@@ -26,9 +26,10 @@ import {
   probeMedia,
   submitTask,
 } from "../../services/tauri";
-import type { MediaInfo, PipelineItem, PipelineCheck, QualityPreset } from "../../types";
+import type { AppSettings, MediaInfo, PipelineItem, PipelineCheck, QualityPreset } from "../../types";
 import { formatBytes, formatTime, parseTime, withFileTimestamp } from "../../utils/time";
 import { needsProxy } from "../../utils/media";
+import { resolveOutputDir } from "../../utils/paths";
 
 const QUALITY_LABELS: Record<QualityPreset, string> = {
   high: "高质量",
@@ -80,9 +81,11 @@ function cropPx(crop: CropNorm, dims: { w: number; h: number }) {
 }
 
 export default function WorkbenchPage({
+  settings,
   onBack,
   initialFiles,
 }: {
+  settings: AppSettings;
   onBack: () => void;
   initialFiles?: string[] | null;
 }) {
@@ -90,7 +93,7 @@ export default function WorkbenchPage({
   const [check, setCheck] = useState<PipelineCheck | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [outputName, setOutputName] = useState("workbench.mp4");
-  const [quality, setQuality] = useState<QualityPreset>("balanced");
+  const [quality, setQuality] = useState<QualityPreset>(settings.quality);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dragFrom = useRef<number | null>(null);
@@ -232,7 +235,9 @@ export default function WorkbenchPage({
     };
   }, [payload, allProbed]);
 
-  const outputDir = items.length > 0 ? items[0].path.replace(/[\\/][^\\/]+$/, "") : "";
+  // 输出位置：默认输出目录优先，否则跟随首个源文件目录（DESIGN §12）
+  const outputDir =
+    items.length > 0 ? resolveOutputDir(items[0].path, settings.defaultOutputDir) : "";
   const probedItems = items.filter((it) => it.info);
 
   const startExport = async () => {
@@ -245,6 +250,7 @@ export default function WorkbenchPage({
         items: payload,
         output: `${outputDir.replace(/[\\/]+$/, "")}\\${withFileTimestamp(outputName.trim())}`,
         quality,
+        encoder: settings.encoder === "auto" ? null : settings.encoder,
       });
     } catch (err) {
       setError(String(err));

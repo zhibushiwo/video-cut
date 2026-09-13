@@ -94,6 +94,7 @@ pub fn submit_crop(
     rect: (u32, u32, u32, u32, u32, u32),
     quality: QualityPreset,
     output: String,
+    locked_encoder: Option<String>,
 ) -> Result<String, String> {
     let (x, y, width, height, out_w, out_h) = rect;
     if !Path::new(&input).is_file() {
@@ -134,7 +135,7 @@ pub fn submit_crop(
         let duration = facts.info.duration_sec;
         let pix_fmt = facts.info.video.pix_fmt.clone();
 
-        let encoder = command::resolve_encoder(&pix_fmt);
+        let encoder = command::effective_encoder(locked_encoder.as_deref(), &pix_fmt);
         let args = command::crop_zoom_args(
             &job_input,
             x,

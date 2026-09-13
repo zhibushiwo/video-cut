@@ -26,7 +26,8 @@ pub async fn submit_task(
             segments,
             output_dir,
             mode,
-        } => submit_cut(app, &state, input, segments, output_dir, mode),
+            encoder,
+        } => submit_cut(app, &state, input, segments, output_dir, mode, encoder),
         VideoTask::Merge {
             inputs,
             output,
@@ -40,8 +41,9 @@ pub async fn submit_task(
             output,
             transcode,
             quality,
+            encoder,
         } => super::rotate::submit_rotate(
-            app, &state, input, rotate_deg, hflip, vflip, output, transcode, quality,
+            app, &state, input, rotate_deg, hflip, vflip, output, transcode, quality, encoder,
         ),
         VideoTask::CropZoom {
             input,
@@ -53,17 +55,19 @@ pub async fn submit_task(
             out_height,
             quality,
             output,
+            encoder,
         } => {
             let rect =
                 super::crop::validate_crop_rect(&app, &input, x, y, width, height, out_width, out_height)
                     .await?;
-            super::crop::submit_crop(app, &state, input, rect, quality, output)
+            super::crop::submit_crop(app, &state, input, rect, quality, output, encoder)
         }
         VideoTask::Pipeline {
             items,
             output,
             quality,
-        } => super::pipeline::submit_pipeline(app, &state, items, output, quality),
+            encoder,
+        } => super::pipeline::submit_pipeline(app, &state, items, output, quality, encoder),
     }
 }
 
@@ -81,6 +85,7 @@ fn submit_cut(
     segments: Vec<crate::Segment>,
     output_dir: String,
     mode: CutMode,
+    locked_encoder: Option<String>,
 ) -> Result<String, String> {
     let precise = mode == CutMode::Precise;
     // ---------- 校验（DESIGN §13） ----------
@@ -163,11 +168,14 @@ fn submit_cut(
             }
         }
 
-        // 精确模式：按源像素格式选编码器（10bit → HEVC 路径）
+        // 精确模式：优先设置中锁定的编码器，否则按源像素格式自动探测（10bit → HEVC 路径）
         let encoder = if precise {
             let facts = probe::probe_merge_facts_sync(&ffprobe, &job_input)
                 .map_err(|e| format!("{}：{e}", in_name_of(&job_input)))?;
-            Some(command::resolve_encoder(&facts.info.video.pix_fmt))
+            Some(command::effective_encoder(
+                locked_encoder.as_deref(),
+                &facts.info.video.pix_fmt,
+            ))
         } else {
             None
         };

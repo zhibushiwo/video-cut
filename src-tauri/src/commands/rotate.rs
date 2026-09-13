@@ -24,6 +24,7 @@ pub fn submit_rotate(
     output: String,
     transcode: bool,
     quality: QualityPreset,
+    locked_encoder: Option<String>,
 ) -> Result<String, String> {
     if !Path::new(&input).is_file() {
         return Err(format!("输入文件不存在：{input}"));
@@ -68,7 +69,7 @@ pub fn submit_rotate(
         let pix_fmt = facts.info.video.pix_fmt.clone();
 
         let args = if transcode {
-            let encoder = command::resolve_encoder(&pix_fmt);
+            let encoder = command::effective_encoder(locked_encoder.as_deref(), &pix_fmt);
             command::rotate_transcode_args(
                 rotate_deg,
                 hflip,

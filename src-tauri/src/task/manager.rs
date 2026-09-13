@@ -68,12 +68,25 @@ pub struct TaskHandle {
     pub outputs: Mutex<Vec<String>>,
     pub cancelled: AtomicBool,
     killer: Mutex<Option<Killer>>,
+    /// 提交时间（unix ms，供 [`crate::history::HistoryEntry`] 使用）。
+    pub(crate) created_at: u64,
+    /// 开始执行时间（unix ms）；0 = 尚未开始（排队即被取消）。
+    pub(crate) started_at: Mutex<u64>,
+    /// 终态防重标记：取消与执行器可能并发到达终态，历史只记首次。
+    terminal_recorded: AtomicBool,
 }
 
 impl TaskHandle {
     /// 任务结束（正常/失败/取消）后清空 killer，避免残留闭包。
     pub(crate) fn clear_killer(&self) {
         *self.killer.lock().unwrap() = None;
+    }
+
+    /// 首次到达终态时返回 true（并发到达时只有一个赢家）。
+    pub(crate) fn mark_terminal(&self) -> bool {
+        self.terminal_recorded
+            .compare_exchange(false, true, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
     }
 }
 
@@ -145,6 +158,9 @@ struct TaskEntry {
     sink: Arc<dyn EventSink>,
 }
 
+/// 终态回调：历史记录等订阅者经此接入，任务模块保持与 Tauri 解耦。
+pub(crate) type OnTerminal = Box<dyn Fn(&TaskHandle) + Send + Sync>;
+
 struct Inner {
     tasks: HashMap<String, TaskEntry>,
     order: Vec<String>,
@@ -156,6 +172,7 @@ pub(crate) struct Shared {
     inner: Mutex<Inner>,
     cv: Condvar,
     max_concurrent: usize,
+    on_terminal: Mutex<Option<OnTerminal>>,
 }
 
 impl Shared {
@@ -165,6 +182,16 @@ impl Shared {
         inner.running -= 1;
         drop(inner);
         self.cv.notify_all();
+    }
+
+    /// 终态落历史：仅首次到达生效（防取消与执行器并发双记）。
+    pub(crate) fn record_terminal(&self, handle: &TaskHandle) {
+        if !handle.mark_terminal() {
+            return;
+        }
+        if let Some(cb) = self.on_terminal.lock().unwrap().as_ref() {
+            cb(handle);
+        }
     }
 }
 
@@ -184,6 +211,7 @@ impl TaskManager {
             }),
             cv: Condvar::new(),
             max_concurrent,
+            on_terminal: Mutex::new(None),
         });
         std::thread::Builder::new()
             .name("task-scheduler".into())
@@ -196,6 +224,11 @@ impl TaskManager {
             shared,
             seq: AtomicU64::new(0),
         }
+    }
+
+    /// 注册终态回调（历史记录）：须在提交任何任务前调用（App setup 阶段）。
+    pub fn set_on_terminal(&self, cb: OnTerminal) {
+        *self.shared.on_terminal.lock().unwrap() = Some(cb);
     }
 
     /// 提交任务：立即返回 TaskId，作业由调度线程在并发配额内执行（DESIGN §8.2）。
@@ -212,6 +245,9 @@ impl TaskManager {
             outputs: Mutex::new(Vec::new()),
             cancelled: AtomicBool::new(false),
             killer: Mutex::new(None),
+            created_at: crate::history::now_ms(),
+            started_at: Mutex::new(0),
+            terminal_recorded: AtomicBool::new(false),
         });
         let mut inner = self.shared.inner.lock().unwrap();
         inner.order.push(id.clone());
@@ -252,7 +288,9 @@ impl TaskManager {
             k();
         }
         if pending {
-            TaskContext::new(handle, sink).emit_status();
+            TaskContext::new(handle.clone(), sink).emit_status();
+            // 排队中直接取消不会经过执行器，这里补记终态历史
+            self.shared.record_terminal(&handle);
         }
         true
     }

@@ -114,6 +114,7 @@ pub(crate) fn run(
     let ctx = TaskContext::new(handle, sink);
     if !ctx.is_cancelled() {
         *ctx.handle.status.lock().unwrap() = TaskStatus::Running;
+        *ctx.handle.started_at.lock().unwrap() = crate::history::now_ms();
         ctx.emit_status();
 
         let result = job(&ctx);
@@ -134,10 +135,12 @@ pub(crate) fn run(
             ctx.set_progress(1.0);
         }
         ctx.emit_status();
+        shared.record_terminal(&ctx.handle);
     } else {
         // 排队期间被取消但未及出队：兜底置为 Cancelled
         *ctx.handle.status.lock().unwrap() = TaskStatus::Cancelled;
         ctx.emit_status();
+        shared.record_terminal(&ctx.handle);
     }
     ctx.handle.clear_killer();
     shared.task_finished();

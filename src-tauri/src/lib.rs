@@ -1,8 +1,10 @@
 mod commands;
 mod ffmpeg;
+mod history;
 mod task;
 
 use serde::{Deserialize, Serialize};
+use tauri::Manager;
 use task::manager::TaskManager;
 
 /// 环境检测结果（DESIGN §6.1）。
@@ -139,6 +141,8 @@ pub enum VideoTask {
         segments: Vec<Segment>,
         output_dir: String,
         mode: CutMode,
+        /// 设置中锁定的编码器；None = 按像素格式自动探测（DESIGN §3.5/§12）
+        encoder: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
     Merge {
@@ -157,6 +161,7 @@ pub enum VideoTask {
         output: String,
         transcode: bool,
         quality: QualityPreset,
+        encoder: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
     CropZoom {
@@ -169,6 +174,7 @@ pub enum VideoTask {
         out_height: Option<u32>,
         quality: QualityPreset,
         output: String,
+        encoder: Option<String>,
     },
     /// 工作台流水线：逐片段处理（无损/重编码按计划）→ 定向统一 → concat（DESIGN §3.8）。
     #[serde(rename_all = "camelCase")]
@@ -176,6 +182,7 @@ pub enum VideoTask {
         items: Vec<PipelineItem>,
         output: String,
         quality: QualityPreset,
+        encoder: Option<String>,
     },
 }
 
@@ -190,6 +197,43 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(AppTasks(TaskManager::new(2)))
+        .setup(|app| {
+            // 任务终态 → 历史落盘（DESIGN §12）。须在首个任务提交前接好。
+            let handle = app.handle().clone();
+            app.state::<AppTasks>()
+                .0
+                .set_on_terminal(Box::new(move |h| {
+                    // 代理预览等内部任务不是用户导出，不入历史
+                    if !matches!(
+                        h.kind.as_str(),
+                        "cut" | "merge" | "rotate" | "crop_zoom" | "pipeline"
+                    ) {
+                        return;
+                    }
+                    let entry = history::HistoryEntry {
+                        id: h.id.clone(),
+                        kind: h.kind.clone(),
+                        label: h.label.clone(),
+                        status: *h.status.lock().unwrap(),
+                        outputs: h.outputs.lock().unwrap().clone(),
+                        error: h.error.lock().unwrap().clone(),
+                        created_at: h.created_at,
+                        started_at: *h.started_at.lock().unwrap(),
+                        finished_at: history::now_ms(),
+                    };
+                    let path = match commands::history::history_path(&handle) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            eprintln!("[history] 无法定位历史文件：{e}");
+                            return;
+                        }
+                    };
+                    if let Err(e) = history::append(&path, entry) {
+                        eprintln!("[history] 写入失败：{e}");
+                    }
+                }));
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::media::check_environment,
             commands::media::list_tasks,
@@ -201,6 +245,8 @@ pub fn run() {
             commands::merge::check_merge,
             commands::pipeline::check_pipeline,
             commands::cut::submit_task,
+            commands::history::list_history,
+            commands::history::clear_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -7,14 +7,17 @@ import {
   pickVideos,
   submitTask,
 } from "../../services/tauri";
-import type { MergeComparison } from "../../types";
+import type { AppSettings, MergeComparison } from "../../types";
 import { audioSummary, videoSummary } from "../../utils/media";
 import { formatBytes, withFileTimestamp } from "../../utils/time";
+import { resolveOutputDir } from "../../utils/paths";
 
 export default function MergePage({
+  settings,
   onBack,
   initialFiles,
 }: {
+  settings: AppSettings;
   onBack: () => void;
   initialFiles?: string[] | null;
 }) {
@@ -31,8 +34,9 @@ export default function MergePage({
   // 拖拽导入：每次新的拖入都追加（App 层原地分发，页面不跳转）
   const consumedInitialRef = useRef<string[] | null>(null);
 
+  // 输出位置：默认输出目录优先，否则跟随首个源文件目录（DESIGN §12）
   const outputDir =
-    files.length > 0 ? files[0].replace(/[\\/][^\\/]+$/, "") : "";
+    files.length > 0 ? resolveOutputDir(files[0], settings.defaultOutputDir) : "";
 
   useEffect(() => {
     if (!initialFiles || initialFiles === consumedInitialRef.current) return;

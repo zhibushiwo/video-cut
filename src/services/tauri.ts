@@ -5,11 +5,12 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { open } from "@tauri-apps/plugin-dialog";
+import { ask, open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type {
   EnvironmentInfo,
   FileThumbnail,
+  HistoryEntry,
   MediaInfo,
   MergeComparison,
   PipelineCheck,
@@ -148,4 +149,19 @@ export async function pickDirectory(): Promise<string | null> {
 /** 在资源管理器中显示文件 */
 export function revealInFolder(path: string): Promise<void> {
   return revealItemInDir(path);
+}
+
+/** 确认对话框（危险操作二次确认），返回用户是否确认 */
+export function confirmDialog(message: string, title: string): Promise<boolean> {
+  return ask(message, { title, kind: "warning" });
+}
+
+/** 历史记录：全部终态任务（存储序，页面按完成时间倒序展示） */
+export function listHistory(): Promise<HistoryEntry[]> {
+  return invoke("list_history");
+}
+
+/** 历史记录：清空 */
+export function clearHistory(): Promise<void> {
+  return invoke("clear_history");
 }
