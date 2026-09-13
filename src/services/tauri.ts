@@ -91,14 +91,16 @@ export function onTaskProgress(
   return listen<TaskProgressPayload>("task-progress", (event) => handler(event.payload));
 }
 
-/** 拖拽导入：文件拖入窗口并松开时回调路径列表（已在 services 内过滤视频扩展名） */
+/** 拖拽导入：drop 统一经 expand_video_inputs 展开（文件夹递归收集视频，M7-7）。
+ * 结果为空（纯非视频拖入）不回调；遮罩收起由 onDragHover 的 drop 分支负责。 */
 export function onVideoDropped(handler: (paths: string[]) => void): Promise<UnlistenFn> {
   return getCurrentWebview().onDragDropEvent((event) => {
     if (event.payload.type === "drop") {
-      const videos = event.payload.paths.filter((p) =>
-        VIDEO_EXTENSIONS.includes(p.split(".").pop()?.toLowerCase() ?? ""),
+      void invoke<string[]>("expand_video_inputs", { paths: event.payload.paths }).then(
+        (videos) => {
+          if (videos.length > 0) handler(videos);
+        },
       );
-      if (videos.length > 0) handler(videos);
     }
   });
 }

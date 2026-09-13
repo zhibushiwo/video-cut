@@ -54,6 +54,72 @@ pub fn file_exists(path: String) -> bool {
     std::path::Path::new(&path).exists()
 }
 
+/// 支持的视频扩展名（与前端 services/tauri.ts 的 VIDEO_EXTENSIONS 一致）。
+const VIDEO_EXTS: &[&str] = &["mp4", "mov", "mkv", "avi", "webm", "m4v", "ts", "flv", "wmv"];
+
+fn is_video_file(p: &std::path::Path) -> bool {
+    p.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| VIDEO_EXTS.contains(&e.to_ascii_lowercase().as_str()))
+        .unwrap_or(false)
+}
+
+/// 递归收集目录下的视频文件；跳过隐藏项，深度上限防符号链接环。
+fn collect_videos(dir: &std::path::Path, depth: usize, out: &mut Vec<String>) {
+    if depth > 8 {
+        return;
+    }
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if name.starts_with('.') {
+            continue;
+        }
+        if path.is_dir() {
+            collect_videos(&path, depth + 1, out);
+        } else if is_video_file(&path) {
+            out.push(path.to_string_lossy().into_owned());
+        }
+    }
+}
+
+/// 拖入路径展开（M7-7）：视频文件原样保留，目录递归扫描其中的视频文件，
+/// 结果按路径排序。前端 drop 一律经此展开（纯非视频拖入返回空）。
+#[tauri::command]
+pub fn expand_video_inputs(paths: Vec<String>) -> Vec<String> {
+    let mut out = Vec::new();
+    for p in &paths {
+        let path = std::path::Path::new(p);
+        if path.is_dir() {
+            collect_videos(path, 0, &mut out);
+        } else if path.is_file() && is_video_file(path) {
+            out.push(p.clone());
+        }
+    }
+    out.sort();
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn is_video_file_matches_extension_case_insensitively() {
+        assert!(is_video_file(Path::new("a.MP4")));
+        assert!(is_video_file(Path::new("b.mkv")));
+        assert!(is_video_file(Path::new("c.Wmv")));
+        assert!(!is_video_file(Path::new("d.txt")));
+        assert!(!is_video_file(Path::new("无扩展名")));
+    }
+}
+
 /// 打开日志文件夹（资源管理器，DESIGN §12.1 的任务面板入口）。
 #[tauri::command]
 pub fn open_log_dir(app: AppHandle) -> Result<(), String> {
