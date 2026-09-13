@@ -43,7 +43,8 @@ function snapToKeyframe(t: number, kfs: number[], snap: boolean): number {
   return Math.abs(best - t) <= SNAP_TOLERANCE_SEC ? best : t;
 }
 
-function pickTickStep(duration: number): number {
+/** 按时长选择合适的刻度步长（秒）；ClipTimeline 复用 */
+export function pickTickStep(duration: number): number {
   const steps = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1200, 3600];
   for (const s of steps) {
     if (duration / s <= 16) return s;

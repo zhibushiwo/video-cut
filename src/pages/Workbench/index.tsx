@@ -1,3 +1,8 @@
+/**
+ * 工作台（DESIGN §3.8 / §9.8 v0.3 = 2.0 布局）：
+ * 素材卡片 → 剪切成片段 → 片段池 → 合成时间轴编排 → 合成一个成品。
+ * 三层数据模型：SourceFile（素材）/ Clip（片段 = 后端一个 PipelineItem）/ timeline（成品顺序）。
+ */
 import {
   Clock,
   Film,
@@ -20,20 +25,24 @@ import {
   type CSSProperties,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
-  type RefObject,
 } from "react";
+import ClipTimeline, { type TimelineClip } from "../../components/ClipTimeline";
 import {
   NO_ROTATE,
   RotateControls,
   type RotateState,
 } from "../../components/RotateControls";
+import Timeline, { type Selection } from "../../components/Timeline";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
+import { useDragSort } from "../../hooks/useDragSort";
 import {
   checkPipeline,
+  confirmDialog,
   fileExists,
   fileSrc,
   generateProxy,
   generateThumbnails,
+  listKeyframes,
   onTaskStatus,
   pickVideos,
   probeMedia,
@@ -44,13 +53,12 @@ import type {
   EnvironmentInfo,
   MediaInfo,
   PageName,
-  PipelineItem,
   PipelineCheck,
+  PipelineItem,
   QualityPreset,
 } from "../../types";
-import { useDragSort } from "../../hooks/useDragSort";
-import { formatBytes, formatTime, parseTime, withFileTimestamp } from "../../utils/time";
-import { needsProxy } from "../../utils/media";
+import { formatTime, parseTime, withFileTimestamp } from "../../utils/time";
+import { wantsProxy } from "../../utils/media";
 import { resolveOutputDir } from "../../utils/paths";
 
 const QUALITY_LABELS: Record<QualityPreset, string> = {
@@ -58,40 +66,6 @@ const QUALITY_LABELS: Record<QualityPreset, string> = {
   balanced: "平衡",
   small: "小体积",
 };
-
-type EditorTab = "cut" | "rotate" | "crop";
-
-interface CropNorm {
-  /** 归一化坐标 0..1（显示空间：含旋转效果的用户所见画面） */
-  nx: number;
-  ny: number;
-  nw: number;
-  nh: number;
-}
-
-interface WorkItem {
-  id: number;
-  path: string;
-  info: MediaInfo | null;
-  probeError: string | null;
-  /** 剪切区间（秒），null = 整段保留 */
-  seg: { start: number; end: number } | null;
-  rot: RotateState;
-  crop: CropNorm | null;
-  lockRatio: boolean;
-}
-
-let nextId = 1;
-
-/** 显示空间宽高：90°/270° 时为源宽高交换（DESIGN §9.8 预览约定） */
-function displayedDims(info: MediaInfo, rot: RotateState) {
-  const quarter = rot.deg === 90 || rot.deg === 270;
-  return quarter
-    ? { w: info.video.height, h: info.video.width }
-    : { w: info.video.width, h: info.video.height };
-}
-
-const even = (v: number) => Math.max(0, Math.round(v / 2) * 2);
 
 /** 右上角功能导航（DESIGN §9.2：工作台为落地页，其余功能经此跳转） */
 const NAV_ITEMS: { page: PageName; label: string; icon: typeof Scissors }[] = [
@@ -143,6 +117,54 @@ function EnvChip({ env }: { env: EnvironmentInfo | null }) {
   );
 }
 
+type EditorTab = "rotate" | "crop";
+
+interface CropNorm {
+  /** 归一化坐标 0..1（显示空间：含旋转效果的用户所见画面） */
+  nx: number;
+  ny: number;
+  nw: number;
+  nh: number;
+}
+
+/** 素材：导入的源文件（§3.8 三层数据模型之一） */
+interface SourceFile {
+  id: string;
+  path: string;
+  info: MediaInfo | null;
+  probeError: string | null;
+}
+
+/** 片段：加工与合成的最小单元，= 后端一个 PipelineItem */
+interface Clip {
+  id: string;
+  sourceId: string;
+  /** 源内区间（秒），null = 整段保留 */
+  seg: { start: number; end: number } | null;
+  rot: RotateState;
+  crop: CropNorm | null;
+  lockRatio: boolean;
+}
+
+/** 预览区三态（§9.8 ①）：成品（M6-6 连播）/ 源剪切 / 片段加工 */
+type PreviewMode =
+  | { type: "product" }
+  | { type: "cut"; sourceId: string }
+  | { type: "edit"; clipId: string };
+
+let nextId = 1;
+const freshId = (prefix: string) => `${prefix}-${nextId++}`;
+
+/** 显示空间宽高：90°/270° 时为源宽高交换（DESIGN §9.8 预览约定） */
+function displayedDims(info: MediaInfo, rot: RotateState) {
+  const quarter = rot.deg === 90 || rot.deg === 270;
+  return quarter
+    ? { w: info.video.height, h: info.video.width }
+    : { w: info.video.width, h: info.video.height };
+}
+
+const even = (v: number) => Math.max(0, Math.round(v / 2) * 2);
+
 function cropPx(crop: CropNorm, dims: { w: number; h: number }) {
   return {
     x: even(crop.nx * dims.w),
@@ -150,6 +172,63 @@ function cropPx(crop: CropNorm, dims: { w: number; h: number }) {
     w: even(crop.nw * dims.w),
     h: even(crop.nh * dims.h),
   };
+}
+
+function basename(p: string) {
+  return p.split(/[\\/]/).pop() ?? p;
+}
+
+/**
+ * 代理预览（设置三态感知）：按需生成代理并在任务完成后切换播放源。
+ * 返回 onError 供 <video> 原文件播放失败时兜底请求代理。
+ */
+function useProxyPreview(path: string, useProxy: boolean) {
+  const [proxyPath, setProxyPath] = useState<string | null>(null);
+  const taskIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setProxyPath(null);
+    taskIdRef.current = null;
+    if (useProxy) {
+      generateProxy(path)
+        .then((s) => {
+          if (!alive) return;
+          if (s.taskId) taskIdRef.current = s.taskId;
+          else setProxyPath(s.proxyPath);
+        })
+        .catch(() => {
+          /* 预览失败不阻塞数值编辑 */
+        });
+    }
+    return () => {
+      alive = false;
+    };
+  }, [path, useProxy]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void onTaskStatus((p) => {
+      const tid = taskIdRef.current;
+      if (tid && p.taskId === tid && p.status === "completed" && p.outputs[0]) {
+        setProxyPath(p.outputs[0]);
+      }
+    }).then((f) => {
+      unlisten = f;
+    });
+    return () => unlisten?.();
+  }, []);
+
+  const onError = useCallback(() => {
+    if (useProxy && !proxyPath && !taskIdRef.current) {
+      void generateProxy(path).then((s) => {
+        if (s.taskId) taskIdRef.current = s.taskId;
+        else setProxyPath(s.proxyPath);
+      });
+    }
+  }, [useProxy, proxyPath, path]);
+
+  return { proxyPath, onError };
 }
 
 export default function WorkbenchPage({
@@ -164,50 +243,54 @@ export default function WorkbenchPage({
   onNavigate: (page: PageName) => void;
   initialFiles?: string[] | null;
 }) {
-  const [items, setItems] = useState<WorkItem[]>([]);  const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  const [files, setFiles] = useState<SourceFile[]>([]);
+  const [clips, setClips] = useState<Clip[]>([]);
+  /** 成品顺序：片段 id 有序表（唯一顺序语义，决策 #13） */
+  const [timeline, setTimeline] = useState<string[]>([]);
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  const [mode, setMode] = useState<PreviewMode>({ type: "product" });
   const [check, setCheck] = useState<PipelineCheck | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [outputName, setOutputName] = useState("workbench.mp4");
   const [quality, setQuality] = useState<QualityPreset>(settings.quality);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** 一次只展开一个片段的编辑器 */
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+  /** 池 → 时间轴的跨容器拖拽（M6-3） */
+  const [extDrag, setExtDrag] = useState<{ clipId: string } | null>(null);
+
+  const fileById = useCallback((id: string) => files.find((f) => f.id === id), [files]);
+  const clipById = useCallback((id: string) => clips.find((c) => c.id === id), [clips]);
+  const clipSource = useCallback((c: Clip) => fileById(c.sourceId), [fileById]);
+  const clipDuration = useCallback(
+    (c: Clip) => {
+      const info = clipSource(c)?.info;
+      if (!info) return 0;
+      return c.seg ? c.seg.end - c.seg.start : info.durationSec;
+    },
+    [clipSource],
+  );
 
   const addFiles = useCallback(async (paths: string[]) => {
-    setItems((prev) => {
+    setFiles((prev) => {
       const fresh = paths
-        .filter((p) => !prev.some((it) => it.path === p))
-        .map((p) => ({
-          id: nextId++,
-          path: p,
-          info: null,
-          probeError: null,
-          seg: null,
-          rot: NO_ROTATE,
-          crop: null,
-          lockRatio: true,
-        }));
+        .filter((p) => !prev.some((f) => f.path === p))
+        .map((p) => ({ id: freshId("src"), path: p, info: null, probeError: null }));
       return [...prev, ...fresh];
     });
     // 逐个探测媒体信息（顺序即可，文件数通常不多）
     for (const p of paths) {
       try {
         const mi = await probeMedia(p);
-        setItems((prev) =>
-          prev.map((it) => (it.path === p ? { ...it, info: mi } : it)),
-        );
+        setFiles((prev) => prev.map((f) => (f.path === p ? { ...f, info: mi } : f)));
       } catch (err) {
-        setItems((prev) =>
-          prev.map((it) =>
-            it.path === p ? { ...it, probeError: String(err) } : it,
-          ),
+        setFiles((prev) =>
+          prev.map((f) => (f.path === p ? { ...f, probeError: String(err) } : f)),
         );
       }
     }
   }, []);
 
-  // 拖拽导入：每次新的拖入都追加（App 层原地分发，页面不跳转；addFiles 内部去重）
+  // 拖拽导入：每次新的拖入都追加（App 层原地分发；addFiles 内部去重）
   const consumedInitialRef = useRef<string[] | null>(null);
   useEffect(() => {
     if (!initialFiles || initialFiles === consumedInitialRef.current) return;
@@ -220,31 +303,11 @@ export default function WorkbenchPage({
     if (picked.length > 0) void addFiles(picked);
   }, [addFiles]);
 
-  const updateItem = (id: number, patch: Partial<WorkItem>) =>
-    setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
-
-  const removeAt = (index: number) => {
-    setItems((prev) => prev.filter((_, i) => i !== index));
-    setCheck(null);
-  };
-
-  const reorder = (from: number, to: number) => {
-    if (from === to) return;
-    setItems((prev) => {
-      const next = [...prev];
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved);
-      return next;
-    });
-  };
-
-  const { listRef, beginDrag, rowCls } = useDragSort(reorder);
-
-  // 列表缩略图（缓存命中时接近即时）
+  // 素材缩略图（缓存命中时接近即时）
   useEffect(() => {
-    if (items.length === 0) return;
+    if (files.length === 0) return;
     let alive = true;
-    generateThumbnails(items.map((it) => it.path))
+    generateThumbnails(files.map((f) => f.path))
       .then((list) => {
         if (!alive) return;
         setThumbs((prev) => {
@@ -259,36 +322,139 @@ export default function WorkbenchPage({
     return () => {
       alive = false;
     };
-  }, [items]);
+  }, [files]);
 
-  /** 提交后端的数据形态（探测完成才有意义） */
+  // ---------- 素材操作 ----------
+  const reorderSources = useCallback((from: number, to: number) => {
+    if (from === to) return;
+    setFiles((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  }, []);
+
+  const removeSource = useCallback(
+    async (file: SourceFile) => {
+      const ownedIds = new Set(
+        clips.filter((c) => c.sourceId === file.id).map((c) => c.id),
+      );
+      if (ownedIds.size > 0) {
+        const ok = await confirmDialog(
+          `删除素材「${basename(file.path)}」将同时移除它的 ${ownedIds.size} 个片段（含时间轴中的位置）。`,
+          "删除素材",
+        );
+        if (!ok) return;
+      }
+      setFiles((prev) => prev.filter((f) => f.id !== file.id));
+      setClips((prev) => prev.filter((c) => c.sourceId !== file.id));
+      setTimeline((prev) => prev.filter((id) => !ownedIds.has(id)));
+      setMode((m) =>
+        (m.type === "cut" && m.sourceId === file.id) ||
+        (m.type === "edit" && ownedIds.has(m.clipId))
+          ? { type: "product" }
+          : m,
+      );
+      setCheck(null);
+    },
+    [clips],
+  );
+
+  // ---------- 片段操作 ----------
+  const addClip = useCallback(
+    (sourceId: string, seg: { start: number; end: number } | null) => {
+      const clip: Clip = {
+        id: freshId("clip"),
+        sourceId,
+        seg,
+        rot: NO_ROTATE,
+        crop: null,
+        lockRatio: true,
+      };
+      setClips((prev) => [...prev, clip]);
+      setTimeline((prev) => [...prev, clip.id]);
+      setCheck(null);
+      return clip.id;
+    },
+    [],
+  );
+
+  const updateClip = useCallback((id: string, patch: Partial<Clip>) => {
+    setClips((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+    setCheck(null);
+  }, []);
+
+  const removeClip = useCallback((id: string) => {
+    setClips((prev) => prev.filter((c) => c.id !== id));
+    setTimeline((prev) => prev.filter((x) => x !== id));
+    setMode((m) => (m.type === "edit" && m.clipId === id ? { type: "product" } : m));
+    setCheck(null);
+  }, []);
+
+  const reorderTimeline = useCallback((from: number, to: number) => {
+    if (from === to) return;
+    setTimeline((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(from, 1);
+      next.splice(to, 0, moved);
+      return next;
+    });
+  }, []);
+
+  /** 池「+」加入时间轴末尾（已在轴内则无操作） */
+  const appendToTimeline = useCallback((clipId: string) => {
+    setTimeline((prev) => (prev.includes(clipId) ? prev : [...prev, clipId]));
+  }, []);
+
+  /** 池拖入/块拖动插入：已在轴内 = 移动，否则插入（M6-3） */
+  const insertToTimeline = useCallback((clipId: string, index: number) => {
+    setTimeline((prev) => {
+      const next = prev.filter((x) => x !== clipId);
+      next.splice(Math.min(index, next.length), 0, clipId);
+      return next;
+    });
+  }, []);
+
+  // ---------- 导出链路（timeline → PipelineItem[]） ----------
+  const timelineClips = useMemo(
+    () => timeline.map((id) => clipById(id)).filter((c): c is Clip => !!c),
+    [timeline, clipById],
+  );
+
   const payload = useMemo<PipelineItem[]>(
     () =>
-      items.map((it) => {
-        const dims = it.info ? displayedDims(it.info, it.rot) : { w: 0, h: 0 };
-        const px = it.crop ? cropPx(it.crop, dims) : null;
+      timelineClips.map((c) => {
+        const info = clipSource(c)?.info ?? null;
+        const dims = info ? displayedDims(info, c.rot) : { w: 0, h: 0 };
+        const px = c.crop ? cropPx(c.crop, dims) : null;
         return {
-          input: it.path,
+          input: clipSource(c)?.path ?? "",
           segment:
-            it.seg && it.seg.end > it.seg.start + 0.05
-              ? { startSec: it.seg.start, endSec: it.seg.end }
+            c.seg && c.seg.end > c.seg.start + 0.05
+              ? { startSec: c.seg.start, endSec: c.seg.end }
               : null,
-          rotateDeg: it.rot.deg,
-          hflip: it.rot.hflip,
-          vflip: it.rot.vflip,
-          crop: px && px.w >= 16 && px.h >= 16 ? { x: px.x, y: px.y, width: px.w, height: px.h } : null,
+          rotateDeg: c.rot.deg,
+          hflip: c.rot.hflip,
+          vflip: c.rot.vflip,
+          crop:
+            px && px.w >= 16 && px.h >= 16
+              ? { x: px.x, y: px.y, width: px.w, height: px.h }
+              : null,
           outWidth: null,
           outHeight: null,
         };
       }),
-    [items],
+    [timelineClips, clipSource],
   );
 
-  const allProbed = items.length > 0 && items.every((it) => it.info || it.probeError);
+  const allProbed =
+    timelineClips.length > 0 && timelineClips.every((c) => clipSource(c)?.info);
+  const hasProbeError = files.some((f) => f.probeError);
 
-  // 导出前检测（防抖 500ms；全部探测完成后才请求）
+  // 导出前检测（防抖 500ms；时间轴片段全部探测完成后才请求）
   useEffect(() => {
-    if (!allProbed || items.some((it) => it.probeError)) {
+    if (!allProbed || hasProbeError) {
       setCheck(null);
       setCheckError(null);
       return;
@@ -309,15 +475,19 @@ export default function WorkbenchPage({
       alive = false;
       clearTimeout(timer);
     };
-  }, [payload, allProbed]);
+  }, [payload, allProbed, hasProbeError]);
 
   // 输出位置：默认输出目录优先，否则跟随首个源文件目录（DESIGN §12）
-  const outputDir =
-    items.length > 0 ? resolveOutputDir(items[0].path, settings.defaultOutputDir) : "";
-  const probedItems = items.filter((it) => it.info);
+  const firstSourcePath = timelineClips[0]
+    ? clipSource(timelineClips[0])?.path
+    : undefined;
+  const outputDir = resolveOutputDir(
+    firstSourcePath ?? files[0]?.path ?? "",
+    settings.defaultOutputDir,
+  );
 
   const startExport = async () => {
-    if (probedItems.length === 0 || !outputDir || !outputName.trim()) return;
+    if (timelineClips.length === 0 || !outputDir || !outputName.trim() || hasProbeError) return;
     setSubmitting(true);
     setError(null);
     try {
@@ -340,8 +510,51 @@ export default function WorkbenchPage({
     }
   };
 
-  const checkOf = (path: string) => check?.items.find((c) => c.input === path);
-  const allLossless = check?.allLossless === true;
+  // 页脚检测汇总一行（§9.8：细节由块/卡徽标 hover 承载）
+  const checkSummary = !allProbed
+    ? timelineClips.length === 0
+      ? null
+      : "正在读取媒体信息…"
+    : hasProbeError
+      ? "⚠ 有素材读取失败，请先移除无法识别的文件"
+      : checkError
+        ? `⚠ 检测失败：${checkError}`
+        : check
+          ? check.allLossless
+            ? "✓ 全程无损"
+            : `⚠ ${check.items.filter((c) => !c.copy).length} 个片段需重编码${
+                check.warnings.length > 0 ? ` · ${check.warnings.length} 条参数统一提示` : ""
+              }`
+          : "正在检测处理方式…";
+
+  // 时间轴/池卡的徽标数据（check.items 与 payload 按下标一一对应）
+  const clipCheck = useCallback(
+    (clipId: string) => {
+      const i = timeline.indexOf(clipId);
+      return i >= 0 ? (check?.items[i] ?? null) : null;
+    },
+    [timeline, check],
+  );
+
+  const totalDuration = timelineClips.reduce((s, c) => s + clipDuration(c), 0);
+
+  const tlClips: TimelineClip[] = timelineClips.map((c) => {
+    const src = clipSource(c);
+    const chk = clipCheck(c.id);
+    return {
+      id: c.id,
+      label: `${src ? basename(src.path) : "?"} ${
+        c.seg ? `${formatTime(c.seg.start, false)}–${formatTime(c.seg.end, false)}` : "全段"
+      }`,
+      duration: clipDuration(c),
+      lossless: chk ? chk.copy : null,
+      detail: chk && !chk.copy ? chk.reasons.join("；") : undefined,
+    };
+  });
+
+  const selectedClipId = mode.type === "edit" ? mode.clipId : null;
+  const proxyEnabled = (info: MediaInfo | null) =>
+    !!info && wantsProxy(info, settings.proxyMode);
 
   return (
     <div className="flex h-full flex-col">
@@ -352,8 +565,10 @@ export default function WorkbenchPage({
           <div className="text-[11px] text-mute">工作台 · 逐段加工，合成一个成品</div>
         </div>
         <EnvChip env={env} />
-        {items.length > 0 && (
-          <span className="shrink-0 text-xs text-mute">{items.length} 个片段</span>
+        {files.length > 0 && (
+          <span className="shrink-0 text-xs text-mute">
+            {files.length} 个素材 · {timeline.length} 个片段
+          </span>
         )}
         <nav className="ml-auto flex shrink-0 items-center gap-1" aria-label="功能导航">
           {NAV_ITEMS.map(({ page, label, icon: Icon }) => (
@@ -389,8 +604,8 @@ export default function WorkbenchPage({
         </nav>
       </header>
 
-      <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col gap-3 overflow-y-auto p-4">
-        {items.length === 0 ? (
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
+        {files.length === 0 ? (
           <button
             type="button"
             onClick={() => void openFiles()}
@@ -398,154 +613,256 @@ export default function WorkbenchPage({
           >
             <Sparkles className="h-8 w-8 text-mute transition-colors group-hover:text-signal" strokeWidth={1.5} />
             <span className="text-sm text-mute transition-colors group-hover:text-paper">
-              添加视频文件
+              添加视频素材
             </span>
             <span className="text-xs text-mute/70">
-              每个文件可剪切、旋转、放大，最后合成一条视频；无重编码操作时全程无损
+              每个素材可剪出多个片段，片段支持旋转/放大加工，最后在时间轴上编排合成
             </span>
           </button>
         ) : (
           <>
-            <div ref={listRef} className="divide-y divide-hairline rounded-md border border-hairline">
-              {items.map((it, i) => {
-                const name = it.path.split(/[\\/]/).pop() ?? it.path;
-                const c = checkOf(it.path);
-                const expanded = expandedId === it.id;
-                return (
-                  <div key={it.id}>
-                    <div
-                      data-sort-row
-                      className={`flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-panel ${rowCls(i)}`}
-                    >
-                      <GripVertical
-                        onPointerDown={(e) => beginDrag(e, i)}
-                        className="h-4 w-4 shrink-0 cursor-grab touch-none text-mute/60"
-                        aria-hidden="true"
-                      />
-                      <span className="w-5 shrink-0 text-center font-mono text-xs text-mute">
-                        {i + 1}
-                      </span>
-                      {thumbs[it.path] ? (
-                        <img
-                          src={fileSrc(thumbs[it.path])}
-                          alt=""
-                          className="h-9 w-16 shrink-0 rounded border border-hairline object-cover"
-                        />
-                      ) : (
-                        <span className="flex h-9 w-16 shrink-0 items-center justify-center rounded border border-hairline bg-panel">
-                          <Film className="h-4 w-4 text-mute/60" />
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setExpandedId(expanded ? null : it.id)}
-                        className="min-w-0 flex-1 text-left focus:outline-none"
-                      >
-                        <span className="block truncate text-sm text-paper" title={it.path}>
-                          {name}
-                        </span>
-                        <span className="mt-0.5 flex flex-wrap items-center gap-1.5">
-                          <OpChip active={!!it.seg} label={it.seg ? `剪 ${formatTime(it.seg.start, false)}–${formatTime(it.seg.end, false)}` : "不剪切"} />
-                          <OpChip active={it.rot.deg !== 0 || it.rot.hflip || it.rot.vflip} label={rotLabel(it.rot)} />
-                          <OpChip active={!!it.crop} label={it.crop ? "放大" : "不放大"} />
-                        </span>
-                      </button>
-                      {it.probeError ? (
-                        <span className="shrink-0 text-xs text-warn" title={it.probeError}>
-                          读取失败
-                        </span>
-                      ) : !it.info ? (
-                        <span className="shrink-0 text-xs text-mute">读取中…</span>
-                      ) : c ? (
-                        <span
-                          className={`shrink-0 rounded border px-1.5 py-0.5 text-xs ${
-                            c.copy
-                              ? "border-signal/30 bg-signal/10 text-signal"
-                              : "border-warn/30 bg-warn/10 text-warn"
-                          }`}
-                          title={c.copy ? "无损片段" : c.reasons.join("；")}
-                        >
-                          {c.copy ? "无损" : "重编码"}
-                        </span>
-                      ) : null}
-                      <button
-                        type="button"
-                        onClick={() => removeAt(i)}
-                        aria-label={`移除 ${name}`}
-                        className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-mute transition-colors hover:bg-warn/10 hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    {expanded && it.info && (
-                      <ItemEditor
-                        item={it}
-                        onChange={(patch) => updateItem(it.id, patch)}
-                      />
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-            <button
-              type="button"
-              onClick={() => void openFiles()}
-              className="flex items-center justify-center gap-2 rounded-md border border-dashed border-hairline py-2 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-            >
-              <Plus className="h-3.5 w-3.5" /> 添加视频
-            </button>
-            <p className="text-[11px] text-mute/70">拖动左侧手柄调整合成顺序；点击文件名展开编辑。</p>
+            {/* ① 预览区（三态复用） */}
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => setMode({ type: "product" })}
+                  className={`rounded-md px-2 py-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-signal ${
+                    mode.type === "product" ? "bg-panel text-paper" : "text-mute hover:text-paper"
+                  }`}
+                >
+                  成品预览
+                </button>
+                {mode.type === "cut" && (
+                  <span className="flex items-center gap-1 text-mute">
+                    <Scissors className="h-3 w-3" />
+                    正在剪切 {basename(fileById(mode.sourceId)?.path ?? "")}
+                  </span>
+                )}
+                {mode.type === "edit" && (
+                  <span className="flex items-center gap-1 text-mute">
+                    <Sparkles className="h-3 w-3" />
+                    {(() => {
+                      const c = clipById(mode.clipId);
+                      if (!c) return "正在编辑片段";
+                      const idx = clips.findIndex((x) => x.id === c.id);
+                      return `正在编辑 片段 ${idx + 1}（${basename(clipSource(c)?.path ?? "")}）`;
+                    })()}
+                  </span>
+                )}
+                <span className="ml-auto font-mono text-[11px] text-mute">
+                  时间轴 {timeline.length} 段 · 总时长 {formatTime(totalDuration, false)}
+                </span>
+              </div>
 
-            {/* 检测面板（DESIGN §9.8） */}
-            {items.length > 0 && (
-              <div
-                className={`rounded-md border p-4 ${
-                  !allProbed || check
-                    ? allLossless
-                      ? "border-signal/30 bg-signal/5"
-                      : check
-                        ? "border-warn/40 bg-warn/5"
-                        : "border-hairline bg-panel/60"
-                    : "border-hairline bg-panel/60"
-                }`}
-              >
-                {!allProbed ? (
-                  <p className="text-sm text-mute">正在读取媒体信息…</p>
-                ) : items.some((it) => it.probeError) ? (
-                  <p className="text-sm text-warn">有片段读取失败，请先移除无法识别的文件。</p>
-                ) : checkError ? (
-                  <p className="text-sm text-warn">{checkError}</p>
-                ) : !check ? (
-                  <p className="text-sm text-mute">正在检测处理方式…</p>
-                ) : (
-                  <div>
-                    <p className={`text-sm font-medium ${allLossless ? "text-signal" : "text-warn"}`}>
-                      {allLossless ? "✓ 全程无损" : "⚠ 部分片段需要重编码"}
+              <div className="flex h-[38vh] min-h-[240px] w-full items-center justify-center overflow-hidden rounded-md border border-hairline bg-black">
+                {mode.type === "product" && (
+                  <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-center">
+                    <Film className="h-8 w-8 text-mute/60" strokeWidth={1.5} />
+                    <p className="text-sm text-mute">
+                      成品连播预览将在 M6-6 接入，导出结果以 FFmpeg 实际输出为准
                     </p>
-                    <ul className="mt-2 space-y-1 text-xs text-mute">
-                      {check.items
-                        .filter((c) => !c.copy)
-                        .map((c) => (
-                          <li key={c.input}>
-                            {c.input.split(/[\\/]/).pop()}：{c.reasons.join("；")}
-                          </li>
-                        ))}
-                      {check.warnings.map((w) => (
-                        <li key={w}>{w}</li>
-                      ))}
-                    </ul>
+                    <p className="text-xs text-mute/70">
+                      点击时间轴块或片段卡可加工；点击素材卡可剪出新片段
+                    </p>
                   </div>
                 )}
+                {mode.type === "cut" &&
+                  (() => {
+                    const src = fileById(mode.sourceId);
+                    if (!src) return null;
+                    return (
+                      <CutModeView
+                        source={src}
+                        snap={settings.keyframeSnap}
+                        useProxy={proxyEnabled(src.info)}
+                        onAdd={(seg) => addClip(src.id, seg)}
+                      />
+                    );
+                  })()}
+                {mode.type === "edit" &&
+                  (() => {
+                    const clip = clipById(mode.clipId);
+                    const src = clip ? clipSource(clip) : undefined;
+                    if (!clip || !src) return null;
+                    return (
+                      <EditModeView
+                        clip={clip}
+                        source={src}
+                        useProxy={proxyEnabled(src.info)}
+                        onChange={(patch) => updateClip(clip.id, patch)}
+                      />
+                    );
+                  })()}
               </div>
-            )}
+            </div>
+
+            {/* ② 合成时间轴 */}
+            <ClipTimeline
+              clips={tlClips}
+              externalDrag={extDrag}
+              selectedId={selectedClipId}
+              onSelect={(id) => setMode({ type: "edit", clipId: id })}
+              onReorder={reorderTimeline}
+              onInsert={insertToTimeline}
+              onExternalDragEnd={() => setExtDrag(null)}
+              onRemove={removeClip}
+              onSeek={() => {
+                /* 成品内 seek 待 M6-6 连播接入 */
+              }}
+              currentTime={0}
+            />
+
+            {/* ③ 片段池 */}
+            <section className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-medium text-mute">片段池</h2>
+                <span className="text-[11px] text-mute/60">
+                  {clips.length === 0
+                    ? "点素材卡剪出片段；顺序只在时间轴上表达"
+                    : "点击卡片加工 · + 加入时间轴 · 拖手柄入轴"}
+                </span>
+              </div>
+              <div className="flex gap-2.5 overflow-x-auto pb-1">
+                {clips.length === 0 ? (
+                  <p className="shrink-0 text-xs text-mute/50">还没有片段。</p>
+                ) : (
+                  clips.map((c) => {
+                    const src = clipSource(c);
+                    const chk = clipCheck(c.id);
+                    const inTimeline = timeline.includes(c.id);
+                    const selected = mode.type === "edit" && mode.clipId === c.id;
+                    return (
+                      <div
+                        key={c.id}
+                        className={`group relative w-44 shrink-0 overflow-hidden rounded-md border bg-panel ${
+                          selected ? "border-signal/70" : "border-hairline"
+                        }`}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => setMode({ type: "edit", clipId: c.id })}
+                          className="block w-full text-left focus:outline-none"
+                          title={chk && !chk.copy ? chk.reasons.join("；") : undefined}
+                        >
+                          <div className="relative h-16 w-full bg-black">
+                            {src && thumbs[src.path] ? (
+                              <img
+                                src={fileSrc(thumbs[src.path])}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                            ) : (
+                              <span className="flex h-full w-full items-center justify-center">
+                                <Film className="h-5 w-5 text-mute/50" />
+                              </span>
+                            )}
+                            <span className="absolute bottom-1 left-1 rounded bg-ink/80 px-1 font-mono text-[9px] text-paper/90">
+                              {c.seg
+                                ? `${formatTime(c.seg.start, false)}–${formatTime(c.seg.end, false)}`
+                                : "全段"}
+                            </span>
+                            <span
+                              className={`absolute right-1 top-1 h-2 w-2 rounded-full ${
+                                chk === null ? "bg-mute/50" : chk.copy ? "bg-signal" : "bg-warn"
+                              }`}
+                              title={
+                                chk
+                                  ? chk.copy
+                                    ? "无损片段"
+                                    : chk.reasons.join("；")
+                                  : "检测中"
+                              }
+                            />
+                          </div>
+                          <div className="px-2 py-1.5">
+                            <p className="truncate text-xs text-paper">
+                              {src ? basename(src.path) : "已移除素材"}
+                            </p>
+                            <p className="font-mono text-[10px] text-mute">
+                              {clipDuration(c) > 0 ? `${clipDuration(c).toFixed(1)}s` : "…"}
+                              {inTimeline ? " · 已在轴" : ""}
+                            </p>
+                          </div>
+                        </button>
+                        <div className="absolute right-1 top-9 flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                          {!inTimeline && (
+                            <button
+                              type="button"
+                              onClick={() => appendToTimeline(c.id)}
+                              aria-label="加入时间轴末尾"
+                              title="加入时间轴末尾"
+                              className="flex h-5 w-5 items-center justify-center rounded bg-ink/80 text-mute hover:text-signal focus:outline-none"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeClip(c.id)}
+                            aria-label="删除片段"
+                            title="删除片段"
+                            className="flex h-5 w-5 items-center justify-center rounded bg-ink/80 text-mute hover:text-warn focus:outline-none"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                        <span
+                          onPointerDown={(e) => {
+                            if (e.button !== 0) return;
+                            e.preventDefault();
+                            setExtDrag({ clipId: c.id });
+                          }}
+                          className="absolute bottom-1 right-1 cursor-grab touch-none rounded p-0.5 text-mute/60 hover:text-paper"
+                          title="拖入时间轴"
+                        >
+                          <GripVertical className="h-3.5 w-3.5" />
+                        </span>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+            </section>
+
+            {/* ④ 素材卡片 */}
+            <section className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-2">
+                <h2 className="text-xs font-medium text-mute">素材</h2>
+                <span className="text-[11px] text-mute/60">
+                  点击进入剪切（可反复剪出多个片段）；卡片顺序仅作组织，不影响成品
+                </span>
+              </div>
+              <SourceCards
+                files={files}
+                thumbs={thumbs}
+                onOpen={(id) => setMode({ type: "cut", sourceId: id })}
+                onRemove={(f) => void removeSource(f)}
+                onAdd={() => void openFiles()}
+                onReorder={reorderSources}
+              />
+            </section>
           </>
         )}
       </div>
 
       <footer className="shrink-0 border-t border-hairline px-4 py-3">
         <div className="flex items-center gap-3">
+          {checkSummary && (
+            <span
+              className={`shrink-0 text-xs ${
+                checkSummary.startsWith("✓")
+                  ? "text-signal"
+                  : checkSummary.startsWith("⚠")
+                    ? "text-warn"
+                    : "text-mute"
+              }`}
+            >
+              {checkSummary}
+            </span>
+          )}
           <span className="min-w-0 flex-1 truncate text-xs text-mute" title={outputDir}>
-            输出到 {outputDir || "（先添加视频）"}
+            {outputDir ? `输出到 ${outputDir}` : "（先添加视频并剪出片段）"}
           </span>
           <label className="flex items-center gap-1.5 text-xs text-mute">
             质量档位
@@ -580,11 +897,13 @@ export default function WorkbenchPage({
             type="button"
             disabled={
               submitting ||
-              probedItems.length === 0 ||
-              items.some((it) => it.probeError)
+              timelineClips.length === 0 ||
+              !outputDir ||
+              !outputName.trim() ||
+              hasProbeError
             }
             onClick={() => void startExport()}
-            title={items.length === 0 ? "请先添加视频" : undefined}
+            title={timelineClips.length === 0 ? "请先剪出片段并加入时间轴" : undefined}
             className="rounded-md bg-signal px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
           >
             {submitting ? "提交中…" : "合成导出"}
@@ -595,105 +914,272 @@ export default function WorkbenchPage({
   );
 }
 
-function OpChip({ active, label }: { active: boolean; label: string }) {
+/** ④ 素材卡片区（横向卡片行，拖拽排序用横向轴） */
+function SourceCards({
+  files,
+  thumbs,
+  onOpen,
+  onRemove,
+  onAdd,
+  onReorder,
+}: {
+  files: SourceFile[];
+  thumbs: Record<string, string>;
+  onOpen(id: string): void;
+  onRemove(file: SourceFile): void;
+  onAdd(): void;
+  onReorder(from: number, to: number): void;
+}) {
+  const { listRef, beginDrag, rowCls } = useDragSort(onReorder, "x");
   return (
-    <span
-      className={`rounded px-1 py-0.5 text-[10px] ${
-        active ? "bg-signal/10 text-signal" : "bg-panel text-mute/60"
-      }`}
-    >
-      {label}
-    </span>
+    <div ref={listRef} className="flex gap-2.5 overflow-x-auto pb-1">
+      {files.map((f, i) => (
+        <div
+          key={f.id}
+          data-sort-row
+          className={`group relative w-40 shrink-0 overflow-hidden rounded-md border bg-panel ${rowCls(i)}`}
+        >
+          <button
+            type="button"
+            onClick={() => onOpen(f.id)}
+            className="block w-full text-left focus:outline-none"
+          >
+            <div className="relative h-20 w-full bg-black">
+              {thumbs[f.path] ? (
+                <img src={fileSrc(thumbs[f.path])} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <span className="flex h-full w-full items-center justify-center">
+                  <Film className="h-6 w-6 text-mute/50" />
+                </span>
+              )}
+              {f.info && (
+                <span className="absolute bottom-1 right-1 rounded bg-ink/80 px-1 font-mono text-[9px] text-paper/90">
+                  {formatTime(f.info.durationSec, false)}
+                </span>
+              )}
+            </div>
+            <div className="px-2 py-1.5">
+              <p className="truncate text-xs text-paper" title={f.path}>
+                {basename(f.path)}
+              </p>
+              <p className="truncate text-[10px] text-mute">
+                {f.probeError
+                  ? "⚠ 读取失败"
+                  : !f.info
+                    ? "读取中…"
+                    : `${f.info.video.codec.toUpperCase()} ${f.info.video.width}×${f.info.video.height}`}
+              </p>
+            </div>
+          </button>
+          <span
+            onPointerDown={(e) => beginDrag(e, i)}
+            className="absolute bottom-1 right-1 cursor-grab touch-none rounded p-0.5 text-mute/60 hover:text-paper"
+            title="拖动排序"
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </span>
+          <button
+            type="button"
+            onClick={() => onRemove(f)}
+            aria-label={`移除 ${basename(f.path)}`}
+            className="absolute left-1 top-1 flex h-5 w-5 items-center justify-center rounded bg-ink/80 text-mute opacity-0 transition-opacity hover:text-warn focus:outline-none focus-visible:opacity-100 group-hover:opacity-100"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={onAdd}
+        className="flex h-28 w-40 shrink-0 flex-col items-center justify-center gap-1 rounded-md border border-dashed border-hairline text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+      >
+        <Plus className="h-4 w-4" />
+        添加素材
+      </button>
+    </div>
   );
 }
 
-function rotLabel(rot: RotateState) {
-  if (rot.deg === 0 && !rot.hflip && !rot.vflip) return "不旋转";
-  const parts: string[] = [];
-  if (rot.deg !== 0) parts.push(`${rot.deg}°`);
-  if (rot.hflip) parts.push("水平翻转");
-  if (rot.vflip) parts.push("垂直翻转");
-  return parts.join("+");
+/** 时间码输入：受控同步 + 失焦/回车提交（非法值回滚） */
+function TimeField({
+  label,
+  value,
+  onCommit,
+}: {
+  label: string;
+  value: number;
+  onCommit(t: number): void;
+}) {
+  const [text, setText] = useState(formatTime(value));
+  useEffect(() => setText(formatTime(value)), [value]);
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[11px] text-mute">{label}</span>
+      <input
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => {
+          const t = parseTime(text);
+          if (t !== null) onCommit(t);
+          else setText(formatTime(value));
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+        }}
+        className="w-28 rounded border border-hairline bg-panel px-2 py-1.5 font-mono text-xs text-paper focus:border-signal focus:outline-none"
+      />
+    </label>
+  );
 }
 
-/** 单片段编辑器：剪切 / 旋转 / 放大 三个标签页 + 显示空间预览 */
-function ItemEditor({
-  item,
-  onChange,
-}: {
-  item: WorkItem;
-  onChange: (patch: Partial<WorkItem>) => void;
-}) {
-  const [tab, setTab] = useState<EditorTab>("cut");
-  const info = item.info!;
-  const dims = displayedDims(info, item.rot);
-  const playerRef = useRef<VideoPlayerHandle>(null);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [proxyPath, setProxyPath] = useState<string | null>(null);
-  const proxyTaskIdRef = useRef<string | null>(null);
-  const [overRect, setOverRect] = useState(false);
-  const stageRef = useRef<HTMLDivElement>(null);
-  const drawingRef = useRef(false);
+const fieldBtn =
+  "rounded-md border border-hairline px-2.5 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal";
 
-  // 代理预览（与编辑器页同一套逻辑）
+/** ① 源剪切模式：选区间 → 添加为片段（一个素材可反复剪出多个片段） */
+function CutModeView({
+  source,
+  snap,
+  useProxy,
+  onAdd,
+}: {
+  source: SourceFile;
+  snap: boolean;
+  useProxy: boolean;
+  onAdd(seg: { start: number; end: number } | null): void;
+}) {
+  const info = source.info!;
+  const { proxyPath, onError } = useProxyPreview(source.path, useProxy);
+  const playerRef = useRef<VideoPlayerHandle>(null);
+  const [current, setCurrent] = useState(0);
+  const [sel, setSel] = useState<Selection>({ start: 0, end: info.durationSec });
+  /** null = 关键帧扫描中（允许数字输入，无吸附） */
+  const [keyframes, setKeyframes] = useState<number[] | null>(null);
+  const [addedMsg, setAddedMsg] = useState<string | null>(null);
+
   useEffect(() => {
     let alive = true;
-    if (needsProxy(info)) {
-      generateProxy(item.path)
-        .then((s) => {
-          if (!alive) return;
-          if (s.taskId) proxyTaskIdRef.current = s.taskId;
-          else setProxyPath(s.proxyPath);
-        })
-        .catch(() => {
-          /* 预览失败不阻塞数值编辑 */
-        });
-    }
+    setKeyframes(null);
+    listKeyframes(source.path)
+      .then((k) => {
+        if (alive) setKeyframes(k);
+      })
+      .catch(() => {
+        if (alive) setKeyframes([]);
+      });
     return () => {
       alive = false;
     };
-  }, [info, item.path]);
+  }, [source.path]);
 
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    void onTaskStatus((p) => {
-      const tid = proxyTaskIdRef.current;
-      if (tid && p.taskId === tid && p.status === "completed" && p.outputs[0]) {
-        setProxyPath(p.outputs[0]);
-      }
-    }).then((f) => {
-      unlisten = f;
-    });
-    return () => unlisten?.();
-  }, []);
+  const commitStart = (t: number) => {
+    const start = Math.min(Math.max(0, t), info.durationSec);
+    setSel((s) => ({ start, end: Math.max(s.end, start + 0.1) }));
+  };
+  const commitEnd = (t: number) => {
+    const end = Math.min(Math.max(0, t), info.durationSec);
+    setSel((s) => ({ start: Math.min(s.start, Math.max(0, end - 0.1)), end }));
+  };
 
-  const duration = info.durationSec;
-  const setSeg = (seg: { start: number; end: number } | null) => onChange({ seg });
+  const addNow = () => {
+    const whole = sel.start <= 0.001 && sel.end >= info.durationSec - 0.001;
+    const seg = whole || sel.end <= sel.start + 0.05 ? null : { start: sel.start, end: sel.end };
+    onAdd(seg);
+    setAddedMsg(
+      seg
+        ? `✓ 已添加片段 ${formatTime(seg.start, false)}–${formatTime(seg.end, false)}（入池并入轴末尾）`
+        : "✓ 已添加全段片段（入池并入轴末尾）",
+    );
+    window.setTimeout(() => setAddedMsg(null), 2500);
+  };
 
-  /** 旋转改变显示空间，已框选的放大区域作废 */
-  const changeRot = (rot: RotateState) => onChange({ rot, crop: null });
+  return (
+    <div className="flex h-full w-full flex-col gap-2 p-2">
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
+        <VideoPlayer
+          ref={playerRef}
+          src={fileSrc(proxyPath ?? source.path)}
+          banner={proxyPath ? "当前为代理预览画面，导出使用原始文件" : null}
+          onTime={setCurrent}
+          onError={onError}
+          videoMaxClass="max-h-[20vh]"
+        />
+      </div>
+      <div className="shrink-0">
+        {keyframes === null ? (
+          <p className="text-xs text-mute">正在扫描关键帧…（完成前可用数字输入，无吸附）</p>
+        ) : (
+          <Timeline
+            duration={info.durationSec}
+            keyframes={keyframes}
+            selection={sel}
+            currentTime={current}
+            snap={snap}
+            onSelectionChange={setSel}
+            onSeek={(t) => playerRef.current?.seek(t)}
+          />
+        )}
+        <div className="mt-2 flex flex-wrap items-end gap-2">
+          <TimeField label="入点" value={sel.start} onCommit={commitStart} />
+          <TimeField label="出点" value={sel.end} onCommit={commitEnd} />
+          <button type="button" className={`${fieldBtn} mb-0.5`} onClick={() => commitStart(current)}>
+            入点=当前帧
+          </button>
+          <button type="button" className={`${fieldBtn} mb-0.5`} onClick={() => commitEnd(current)}>
+            出点=当前帧
+          </button>
+          {addedMsg && <span className="mb-1 text-xs text-signal">{addedMsg}</span>}
+          <button
+            type="button"
+            onClick={addNow}
+            className="mb-0.5 ml-auto rounded-md bg-signal px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+          >
+            ✓ 添加为片段
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-  const tabBtn = (t: EditorTab) =>
-    `flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-signal ${
-      tab === t ? "bg-panel text-paper" : "text-mute hover:text-paper"
-    }`;
+/** ① 片段加工模式：旋转 / 显示空间放大（裁剪叠加层贴显示空间外层盒，坐标即所见即所得） */
+function EditModeView({
+  clip,
+  source,
+  useProxy,
+  onChange,
+}: {
+  clip: Clip;
+  source: SourceFile;
+  useProxy: boolean;
+  onChange(patch: Partial<Clip>): void;
+}) {
+  const info = source.info!;
+  const { proxyPath, onError } = useProxyPreview(source.path, useProxy);
+  const playerRef = useRef<VideoPlayerHandle>(null);
+  const [tab, setTab] = useState<EditorTab>("rotate");
+  const [current, setCurrent] = useState(0);
+  const [playing, setPlaying] = useState(false);
 
-  const stageAspect = `${dims.w} / ${dims.h}`;
-  const quarter = item.rot.deg === 90 || item.rot.deg === 270;
+  const dims = displayedDims(info, clip.rot);
+  const quarter = clip.rot.deg === 90 || clip.rot.deg === 270;
   const innerStyle: CSSProperties = {
     position: "absolute",
     left: "50%",
     top: "50%",
     width: quarter ? `${(dims.h / dims.w) * 100}%` : "100%",
     height: quarter ? `${(dims.w / dims.h) * 100}%` : "100%",
-    transform: `translate(-50%, -50%) rotate(${item.rot.deg}deg) scaleX(${item.rot.hflip ? -1 : 1}) scaleY(${item.rot.vflip ? -1 : 1})`,
+    transform: `translate(-50%, -50%) rotate(${clip.rot.deg}deg) scaleX(${clip.rot.hflip ? -1 : 1}) scaleY(${clip.rot.vflip ? -1 : 1})`,
   };
 
   // ---------- 放大：显示空间框选 / 移动（与编辑器页同一交互） ----------
+  const stageRef = useRef<HTMLDivElement>(null);
+  const drawingRef = useRef(false);
+  const [overRect, setOverRect] = useState(false);
+
   const cropHandlers = {
     onMouseMove: (e: ReactMouseEvent) => {
       const box = stageRef.current;
-      if (!box || !item.crop) {
+      if (!box || !clip.crop) {
         setOverRect(false);
         return;
       }
@@ -701,10 +1187,10 @@ function ItemEditor({
       const nx = (e.clientX - r.left) / r.width;
       const ny = (e.clientY - r.top) / r.height;
       setOverRect(
-        nx >= item.crop.nx &&
-          nx <= item.crop.nx + item.crop.nw &&
-          ny >= item.crop.ny &&
-          ny <= item.crop.ny + item.crop.nh,
+        nx >= clip.crop.nx &&
+          nx <= clip.crop.nx + clip.crop.nw &&
+          ny >= clip.crop.ny &&
+          ny <= clip.crop.ny + clip.crop.nh,
       );
     },
     onPointerDown: (e: ReactPointerEvent) => {
@@ -717,7 +1203,7 @@ function ItemEditor({
         ny: Math.min(1, Math.max(0, (cy - r.top) / r.height)),
       });
       const p = toN(e.clientX, e.clientY);
-      const base = item.crop;
+      const base = clip.crop;
       const inRect =
         !!base &&
         p.nx >= base.nx &&
@@ -761,7 +1247,7 @@ function ItemEditor({
         const nyMin = Math.min(startN.ny, endN.ny);
         let nw = Math.abs(endN.nx - startN.nx);
         let nh = Math.abs(endN.ny - startN.ny);
-        if (item.lockRatio && nw > 0) {
+        if (clip.lockRatio && nw > 0) {
           nh = Math.min(nh, nw);
           nw = nh;
         }
@@ -773,212 +1259,133 @@ function ItemEditor({
     },
   };
 
-  const px = item.crop ? cropPx(item.crop, dims) : null;
+  const px = clip.crop ? cropPx(clip.crop, dims) : null;
 
-  return (
-    <div className="flex flex-col gap-3 border-t border-hairline bg-panel/40 px-3 py-3">
-      {/* 预览：外层=显示空间（宽高随旋转交换），内层视频盒反向旋转回源比例 */}
-      <div className="flex h-[40vh] w-full items-center justify-center overflow-hidden rounded-md border border-hairline bg-black">
-        <div
-          ref={stageRef}
-          className={`relative ${tab === "crop" ? (overRect ? "cursor-move" : "cursor-crosshair") : ""}`}
-          style={{ aspectRatio: stageAspect, height: "100%", maxWidth: "100%" }}
-          {...(tab === "crop" ? cropHandlers : {})}
-        >
-          <div style={innerStyle}>
-            <VideoPlayer
-              ref={playerRef}
-              fill
-              src={fileSrc(proxyPath ?? item.path)}
-              banner={proxyPath ? "当前为代理预览画面，导出使用原始文件" : null}
-              onTime={tab === "cut" ? setCurrentTime : undefined}
-              onError={() => {
-                if (!proxyPath && !proxyTaskIdRef.current) {
-                  void generateProxy(item.path).then((s) => {
-                    if (s.taskId) proxyTaskIdRef.current = s.taskId;
-                    else setProxyPath(s.proxyPath);
-                  });
-                }
-              }}
-            />
-          </div>
-          {tab === "crop" && item.crop && (
-            <div
-              className="pointer-events-none absolute border-2 border-signal bg-signal/10"
-              style={{
-                left: `${item.crop.nx * 100}%`,
-                top: `${item.crop.ny * 100}%`,
-                width: `${item.crop.nw * 100}%`,
-                height: `${item.crop.nh * 100}%`,
-              }}
-            />
-          )}
-        </div>
-      </div>
-
-      {/* 标签页 */}
-      <div className="flex items-center gap-1">
-        <button type="button" onClick={() => setTab("cut")} className={tabBtn("cut")}>
-          <Scissors className="h-3.5 w-3.5" /> 剪切
-        </button>
-        <button type="button" onClick={() => setTab("rotate")} className={tabBtn("rotate")}>
-          旋转
-        </button>
-        <button type="button" onClick={() => setTab("crop")} className={tabBtn("crop")}>
-          <Sparkles className="h-3.5 w-3.5" /> 放大
-        </button>
-        <span className="ml-auto font-mono text-[11px] text-mute">
-          {info.video.codec.toUpperCase()} {info.video.width}×{info.video.height} ·{" "}
-          {formatTime(duration, false)} · {formatBytes(info.sizeBytes)}
-        </span>
-      </div>
-
-      {tab === "cut" && (
-        <CutTab item={item} duration={duration} currentTime={currentTime} playerRef={playerRef} onSeg={setSeg} />
-      )}
-      {tab === "rotate" && (
-        <div className="flex flex-col gap-2">
-          <RotateControls rot={item.rot} onChange={changeRot} currentRotation={info.rotation} />
-          {item.crop && (
-            <p className="text-xs text-warn">修改旋转会清除已框选的放大区域（框选基于旋转后的画面）。</p>
-          )}
-        </div>
-      )}
-      {tab === "crop" && (
-        <CropTab item={item} dims={dims} px={px} onChange={onChange} />
-      )}
-    </div>
-  );
-}
-
-function CutTab({
-  item,
-  duration,
-  currentTime,
-  playerRef,
-  onSeg,
-}: {
-  item: WorkItem;
-  duration: number;
-  currentTime: number;
-  playerRef: RefObject<VideoPlayerHandle | null>;
-  onSeg: (seg: { start: number; end: number } | null) => void;
-}) {
-  const [startText, setStartText] = useState(item.seg ? formatTime(item.seg.start) : "");
-  const [endText, setEndText] = useState(item.seg ? formatTime(item.seg.end) : "");
-
-  useEffect(() => {
-    setStartText(item.seg ? formatTime(item.seg.start) : "");
-    setEndText(item.seg ? formatTime(item.seg.end) : "");
-  }, [item.seg]);
-
-  const commit = (which: "start" | "end", text: string) => {
-    const t = parseTime(text);
-    if (t === null) {
-      setStartText(item.seg ? formatTime(item.seg.start) : "");
-      setEndText(item.seg ? formatTime(item.seg.end) : "");
-      return;
-    }
-    if (which === "start") {
-      const start = Math.min(Math.max(0, t), duration);
-      const end = item.seg ? Math.max(item.seg.end, start + 0.1) : duration;
-      onSeg({ start, end: Math.min(end, duration) });
+  const togglePlay = () => {
+    if (playing) {
+      playerRef.current?.pause();
+      setPlaying(false);
     } else {
-      const end = Math.min(Math.max(0, t), duration);
-      const start = item.seg ? Math.min(item.seg.start, Math.max(0, end - 0.1)) : 0;
-      onSeg({ start, end });
+      playerRef.current?.play();
+      setPlaying(true);
     }
   };
 
-  const field = (which: "start" | "end", label: string, text: string, setText: (v: string) => void) => (
-    <label className="flex flex-col gap-1">
-      <span className="text-[11px] text-mute">{label}</span>
-      <input
-        value={text}
-        placeholder="不剪切"
-        onChange={(e) => setText(e.target.value)}
-        onBlur={(e) => commit(which, e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-        }}
-        className="w-32 rounded border border-hairline bg-panel px-2 py-1.5 font-mono text-sm text-paper focus:border-signal focus:outline-none"
-      />
-    </label>
-  );
-
-  const btn =
-    "rounded-md border border-hairline px-2.5 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal";
+  const tabBtn = (t: EditorTab) =>
+    `flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-signal ${
+      tab === t ? "bg-panel text-paper" : "text-mute hover:text-paper"
+    }`;
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-end gap-3">
-        {field("start", "入点", startText, setStartText)}
-        {field("end", "出点", endText, setEndText)}
-        <button
-          type="button"
-          className={`${btn} mb-0.5`}
-          onClick={() => {
-            const start = Math.min(Math.max(0, currentTime), duration);
-            const end = item.seg ? Math.max(item.seg.end, start + 0.1) : duration;
-            onSeg({ start, end: Math.min(end, duration) });
-          }}
-        >
-          入点=当前帧
-        </button>
-        <button
-          type="button"
-          className={`${btn} mb-0.5`}
-          onClick={() => {
-            const end = Math.min(Math.max(0, currentTime), duration);
-            const start = item.seg ? Math.min(item.seg.start, Math.max(0, end - 0.1)) : 0;
-            onSeg({ start, end });
-          }}
-        >
-          出点=当前帧
-        </button>
-        <button
-          type="button"
-          className={`${btn} mb-0.5`}
-          onClick={() => playerRef.current?.seek(item.seg?.start ?? 0)}
-        >
-          预览入点
-        </button>
-        <button
-          type="button"
-          className={`${btn} mb-0.5`}
-          onClick={() => playerRef.current?.seek(item.seg?.end ?? duration)}
-        >
-          预览出点
-        </button>
-        {item.seg && (
-          <button
-            type="button"
-            className="mb-0.5 rounded-md px-2.5 py-1.5 text-xs text-mute transition-colors hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-            onClick={() => onSeg(null)}
+    <div className="flex h-full w-full gap-2 p-2">
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+        <div className="flex min-h-0 flex-1 items-center justify-center">
+          <div
+            ref={stageRef}
+            className={`relative ${tab === "crop" ? (overRect ? "cursor-move" : "cursor-crosshair") : ""}`}
+            style={{ aspectRatio: `${dims.w} / ${dims.h}`, height: "100%", maxWidth: "100%" }}
+            {...(tab === "crop" ? cropHandlers : {})}
           >
-            清除区间
+            <div style={innerStyle}>
+              <VideoPlayer
+                ref={playerRef}
+                fill
+                controls={false}
+                src={fileSrc(proxyPath ?? source.path)}
+                banner={proxyPath ? "当前为代理预览画面，导出使用原始文件" : null}
+                onTime={setCurrent}
+                onError={onError}
+                onLoadedMetadata={() => playerRef.current?.seek(clip.seg?.start ?? 0)}
+              />
+            </div>
+            {tab === "crop" && clip.crop && (
+              <div
+                className="pointer-events-none absolute border-2 border-signal bg-signal/10"
+                style={{
+                  left: `${clip.crop.nx * 100}%`,
+                  top: `${clip.crop.ny * 100}%`,
+                  width: `${clip.crop.nw * 100}%`,
+                  height: `${clip.crop.nh * 100}%`,
+                }}
+              />
+            )}
+          </div>
+        </div>
+        {/* 走带控制外置：控制条在变换盒内会被旋转/裁剪层遮挡（§9.8 预览约定） */}
+        <div className="flex shrink-0 items-center gap-2">
+          <button type="button" onClick={togglePlay} className={fieldBtn}>
+            {playing ? "暂停" : "播放"}
           </button>
-        )}
+          <input
+            type="range"
+            min={0}
+            max={info.durationSec}
+            step={0.05}
+            value={Math.min(current, info.durationSec)}
+            onChange={(e) => playerRef.current?.seek(Number(e.target.value))}
+            aria-label="播放进度"
+            className="h-1 min-w-0 flex-1 cursor-pointer accent-[#4cc38a]"
+          />
+          <span className="shrink-0 font-mono text-[10px] text-mute">
+            {formatTime(current, false)} / {formatTime(info.durationSec, false)}
+          </span>
+        </div>
       </div>
-      <p className="text-xs text-mute">
-        播放到想要的位置后"设为当前帧"；区间为 [{formatTime(item.seg?.start ?? 0)}, {formatTime(item.seg?.end ?? duration)})
-        {item.seg ? `，共 ${(item.seg.end - item.seg.start).toFixed(3)} 秒` : "（当前整段保留）"}。
-        无剪切/旋转/放大时此片段直接无损复制。
-      </p>
+
+      <div className="flex w-64 shrink-0 flex-col gap-2 overflow-y-auto">
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={() => setTab("rotate")} className={tabBtn("rotate")}>
+            <RotateCw className="h-3.5 w-3.5" /> 旋转
+          </button>
+          <button type="button" onClick={() => setTab("crop")} className={tabBtn("crop")}>
+            <ZoomIn className="h-3.5 w-3.5" /> 放大
+          </button>
+        </div>
+        {tab === "rotate" ? (
+          <div className="flex flex-col gap-2">
+            <RotateControls
+              rot={clip.rot}
+              onChange={(rot) => onChange({ rot, crop: null })}
+              currentRotation={info.rotation}
+            />
+            {clip.crop && (
+              <p className="text-xs text-warn">修改旋转会清除已框选的放大区域（框选基于旋转后的画面）。</p>
+            )}
+          </div>
+        ) : (
+          <CropFields
+            dims={dims}
+            px={px}
+            lockRatio={clip.lockRatio}
+            onLockRatio={(v) => onChange({ lockRatio: v })}
+            onCrop={(crop) => onChange({ crop })}
+            onClear={() => onChange({ crop: null })}
+          />
+        )}
+        <p className="text-[11px] leading-relaxed text-mute/70">
+          区间 {clip.seg ? `${formatTime(clip.seg.start, false)}–${formatTime(clip.seg.end, false)}` : "全段"}
+          ；如需重剪，删除此片段后从素材卡重新剪切。
+        </p>
+      </div>
     </div>
   );
 }
 
-function CropTab({
-  item,
+/** 放大数值微调（偶数对齐，坐标基于旋转后的显示空间） */
+function CropFields({
   dims,
   px,
-  onChange,
+  lockRatio,
+  onLockRatio,
+  onCrop,
+  onClear,
 }: {
-  item: WorkItem;
   dims: { w: number; h: number };
   px: { x: number; y: number; w: number; h: number } | null;
-  onChange: (patch: Partial<WorkItem>) => void;
+  lockRatio: boolean;
+  onLockRatio(v: boolean): void;
+  onCrop(crop: CropNorm): void;
+  onClear(): void;
 }) {
   const [fields, setFields] = useState({ x: "0", y: "0", w: "0", h: "0" });
 
@@ -995,7 +1402,7 @@ function CropTab({
     if (x + w > dims.w) w = dims.w - even(Math.min(x, dims.w - 16));
     if (y + h > dims.h) h = dims.h - even(Math.min(y, dims.h - 16));
     if (w < 16 || h < 16) return;
-    onChange({ crop: { nx: x / dims.w, ny: y / dims.h, nw: w / dims.w, nh: h / dims.h } });
+    onCrop({ nx: x / dims.w, ny: y / dims.h, nw: w / dims.w, nh: h / dims.h });
   };
 
   const field = (key: keyof typeof fields, label: string) => (
@@ -1008,43 +1415,45 @@ function CropTab({
         onKeyDown={(e) => {
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
         }}
-        className="w-24 rounded border border-hairline bg-panel px-2 py-1.5 font-mono text-sm text-paper focus:border-signal focus:outline-none"
+        className="w-20 rounded border border-hairline bg-panel px-2 py-1.5 font-mono text-xs text-paper focus:border-signal focus:outline-none"
       />
     </label>
   );
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-end gap-3">
+      <div className="flex flex-wrap items-end gap-2">
         {field("x", "X")}
         {field("y", "Y")}
-        {field("w", "宽度")}
-        {field("h", "高度")}
-        <label className="flex cursor-pointer items-center gap-1.5 pb-2 text-xs text-mute">
+        {field("w", "宽")}
+        {field("h", "高")}
+      </div>
+      <div className="flex items-center gap-3">
+        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-mute">
           <input
             type="checkbox"
-            checked={item.lockRatio}
-            onChange={(e) => onChange({ lockRatio: e.target.checked })}
+            checked={lockRatio}
+            onChange={(e) => onLockRatio(e.target.checked)}
             className="accent-[#4cc38a]"
           />
           锁定画面比例
         </label>
-        {item.crop && (
+        {px && (
           <button
             type="button"
-            onClick={() => onChange({ crop: null })}
-            className="mb-0.5 rounded-md px-2.5 py-1.5 text-xs text-mute transition-colors hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+            onClick={onClear}
+            className="rounded-md px-2 py-1 text-xs text-mute transition-colors hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
           >
             清除选区
           </button>
         )}
       </div>
-      <p className="text-xs text-mute">
-        在预览上拖拽框选区域（框内拖动=移动选区），坐标基于旋转后的画面。
+      <p className="text-[11px] leading-relaxed text-mute/70">
+        在预览上拖拽框选（框内拖动=移动选区），坐标基于旋转后的画面。
         {px
           ? `已选 ${px.w}×${px.h} @ (${px.x}, ${px.y})，输出将放大回 ${dims.w}×${dims.h}。`
           : "尚未框选。"}
-        放大必然重编码，画质可用底部质量档位权衡。
+        放大必然重编码，画质用页脚质量档位权衡。
       </p>
     </div>
   );

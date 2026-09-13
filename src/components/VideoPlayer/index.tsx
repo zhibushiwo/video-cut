@@ -28,13 +28,15 @@ interface VideoPlayerProps {
   fill?: boolean;
   /** 底部控制条（进度 + 时间 + 音量），默认开启 */
   controls?: boolean;
+  /** 非填充模式的视频最大高度类（默认 max-h-[44vh]；工作台剪切模式传更小值） */
+  videoMaxClass?: string;
   /** 覆盖层（如裁剪框选层）：渲染在视频之上、控制条之下，不拦截播放控制 */
   overlay?: ReactNode;
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(
-    { src, onTime, onLoadedMetadata, onError, banner, fill, controls = true, overlay },
+    { src, onTime, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass },
     ref,
   ) {
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -127,7 +129,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           className={
             fill
               ? "h-full w-full cursor-pointer bg-black"
-              : "mx-auto max-h-[44vh] w-full cursor-pointer bg-black"
+              : `mx-auto ${videoMaxClass ?? "max-h-[44vh]"} w-full cursor-pointer bg-black`
           }
           onClick={() => {
             const v = videoRef.current;
