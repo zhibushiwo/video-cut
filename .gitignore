@@ -29,3 +29,7 @@ scripts/fixtures/
 *.njsproj
 *.sln
 *.sw?
+
+# tauri icon 生成的移动端图标（纯 Windows 应用用不到）
+src-tauri/icons/android/
+src-tauri/icons/ios/

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- video-cut 应用图标源文件（DESIGN 决策：墨底圆角方 + signal 绿品牌切块，极简） -->
+  <!-- 品牌标记 = BrandMark（斜切双块，"剪开"本身），viewBox 24 → 40 倍 + 居中平移(32,32) -->
+  <rect width="1024" height="1024" rx="185" fill="#101113"/>
+  <g transform="translate(32,32) scale(40)" fill="#4cc38a">
+    <path d="M6 4.5h9.8L12.7 11H6z"/>
+    <path d="M11.4 13H18v6.5H8.1z"/>
+  </g>
+</svg>
