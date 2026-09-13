@@ -32,7 +32,7 @@ body {
 }
 
 ::selection {
-  background: rgba(76, 195, 138, 0.25);
+  background: color-mix(in srgb, var(--color-signal) 25%, transparent);
 }
 
 ::-webkit-scrollbar {

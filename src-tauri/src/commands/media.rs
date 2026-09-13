@@ -105,6 +105,70 @@ pub fn expand_video_inputs(paths: Vec<String>) -> Vec<String> {
     out
 }
 
+/// 缓存占用（M4-8，DESIGN §9.9）：代理与缩略图两个缓存目录。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheUsage {
+    pub proxy_bytes: u64,
+    pub thumb_bytes: u64,
+}
+
+/// 缓存清理结果：被占用跳过的文件数（Windows 文件占用常态）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheClearResult {
+    pub removed: u32,
+    pub skipped: u32,
+}
+
+fn dir_size(dir: &std::path::Path) -> u64 {
+    let mut total = 0u64;
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if let Ok(meta) = entry.metadata() {
+                if meta.is_file() {
+                    total += meta.len();
+                }
+            }
+        }
+    }
+    total
+}
+
+#[tauri::command]
+pub fn cache_usage(app: AppHandle) -> Result<CacheUsage, String> {
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("无法定位缓存目录：{e}"))?;
+    Ok(CacheUsage {
+        proxy_bytes: dir_size(&cache.join("proxy")),
+        thumb_bytes: dir_size(&cache.join("thumbs")),
+    })
+}
+
+#[tauri::command]
+pub fn clear_cache(app: AppHandle) -> Result<CacheClearResult, String> {
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("无法定位缓存目录：{e}"))?;
+    let mut removed = 0u32;
+    let mut skipped = 0u32;
+    for dir in [cache.join("proxy"), cache.join("thumbs")] {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            match std::fs::remove_file(entry.path()) {
+                Ok(()) => removed += 1,
+                Err(_) => skipped += 1,
+            }
+        }
+    }
+    Ok(CacheClearResult { removed, skipped })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

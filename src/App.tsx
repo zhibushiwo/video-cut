@@ -11,7 +11,9 @@ import {
   checkEnvironment,
   onDragHover,
   onVideoDropped,
+  onWindowCloseGuard,
 } from "./services/tauri";
+import { applyAccent } from "./theme";
 import type { AppSettings, EnvironmentInfo, PageName } from "./types";
 
 export default function App() {
@@ -38,13 +40,21 @@ export default function App() {
     void loadSettings().then((s) => {
       setSettings(s);
       setSettingsReady(true);
+      applyAccent(s.accent);
     });
+    // 关闭窗口守卫（DESIGN §9.9）：有未完成任务时二次确认
+    let unClose: (() => void) | undefined;
+    void onWindowCloseGuard().then((f) => {
+      unClose = f;
+    });
+    return () => unClose?.();
   }, []);
 
   const updateSettings = useCallback(
     (patch: Partial<AppSettings>) => {
       const next = { ...settings, ...patch };
       setSettings(next);
+      if (patch.accent) applyAccent(patch.accent);
       void saveSettings(next);
     },
     [settings],
@@ -99,7 +109,12 @@ export default function App() {
         />
       )}
       {page === "settings" && (
-        <SettingsPage settings={settings} onUpdate={updateSettings} onBack={() => navigate("workbench")} />
+        <SettingsPage
+          settings={settings}
+          env={env}
+          onUpdate={updateSettings}
+          onBack={() => navigate("workbench")}
+        />
       )}
       {page === "history" && <HistoryPage onBack={() => navigate("workbench")} />}
       {page === "workbench" && settingsReady && (

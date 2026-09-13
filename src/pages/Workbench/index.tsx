@@ -1373,7 +1373,7 @@ function EditModeView({
             value={Math.min(current, info.durationSec)}
             onChange={(e) => playerRef.current?.seek(Number(e.target.value))}
             aria-label="播放进度"
-            className="h-1 min-w-0 flex-1 cursor-pointer accent-[#4cc38a]"
+            className="h-1 min-w-0 flex-1 cursor-pointer accent-signal"
           />
           <span className="shrink-0 font-mono text-[10px] text-mute">
             {formatTime(current, false)} / {formatTime(info.durationSec, false)}
@@ -1483,7 +1483,7 @@ function CropFields({
             type="checkbox"
             checked={lockRatio}
             onChange={(e) => onLockRatio(e.target.checked)}
-            className="accent-[#4cc38a]"
+            className="accent-signal"
           />
           锁定画面比例
         </label>

@@ -3,7 +3,7 @@
  * 存储于 app_config_dir/settings.json，单键 "settings" 持有整个 AppSettings。
  */
 import { load, type Store } from "@tauri-apps/plugin-store";
-import type { AppSettings, CutMode, EncoderChoice, ProxyMode, QualityPreset } from "../types";
+import type { AccentChoice, AppSettings, CutMode, EncoderChoice, ProxyMode, QualityPreset } from "../types";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   defaultOutputDir: "",
@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   encoder: "auto",
   quality: "balanced",
   toastAutoCloseSec: 0,
+  accent: "green",
 };
 
 const STORE_FILE = "settings.json";
@@ -40,6 +41,7 @@ function sanitize(raw: unknown): AppSettings {
   const cutModes: CutMode[] = ["fast", "precise"];
   const proxyModes: ProxyMode[] = ["auto", "always", "off"];
   const qualities: QualityPreset[] = ["high", "balanced", "small"];
+  const accents: AccentChoice[] = ["green", "blue", "violet", "rose"];
   return {
     defaultOutputDir: typeof r.defaultOutputDir === "string" ? r.defaultOutputDir : "",
     defaultCutMode: cutModes.includes(r.defaultCutMode as CutMode)
@@ -59,6 +61,9 @@ function sanitize(raw: unknown): AppSettings {
       typeof r.toastAutoCloseSec === "number" && Number.isFinite(r.toastAutoCloseSec)
         ? Math.min(600, Math.max(0, Math.round(r.toastAutoCloseSec)))
         : DEFAULT_SETTINGS.toastAutoCloseSec,
+    accent: accents.includes(r.accent as AccentChoice)
+      ? (r.accent as AccentChoice)
+      : DEFAULT_SETTINGS.accent,
   };
 }
 

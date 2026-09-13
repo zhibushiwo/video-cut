@@ -1,8 +1,30 @@
-/** 设置页（DESIGN §12 / M4-1）：改动即保存（write-through），无显式保存按钮。 */
+/**
+ * 设置页（DESIGN §9.9 / M4-1 基础 + M4-8 二期）：改动即保存（write-through），无显式保存按钮。
+ * 二期新增：主题色预设、任务浮层自动关闭、缓存管理、重置全部设置、关于区。
+ */
+import { useCallback, useEffect, useState } from "react";
 import { ArrowLeft, FolderOpen, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { pickDirectory } from "../../services/tauri";
-import type { AppSettings, CutMode, EncoderChoice, ProxyMode, QualityPreset } from "../../types";
+import {
+  cacheUsage,
+  clearCache,
+  confirmDialog,
+  getAppVersion,
+  pickDirectory,
+} from "../../services/tauri";
+import { DEFAULT_SETTINGS } from "../../services/settings";
+import { ACCENTS } from "../../theme";
+import type {
+  AccentChoice,
+  AppSettings,
+  CacheUsage,
+  CutMode,
+  EncoderChoice,
+  EnvironmentInfo,
+  ProxyMode,
+  QualityPreset,
+} from "../../types";
+import { formatBytes } from "../../utils/time";
 
 const ENCODER_LABELS: Record<EncoderChoice, string> = {
   auto: "自动（探测 GPU，失败回退软件）",
@@ -68,17 +90,59 @@ function Segmented<T extends string>({
 
 export default function SettingsPage({
   settings,
+  env,
   onUpdate,
   onBack,
 }: {
   settings: AppSettings;
+  env: EnvironmentInfo | null;
   onUpdate: (patch: Partial<AppSettings>) => void;
   onBack: () => void;
 }) {
+  const [usage, setUsage] = useState<CacheUsage | null>(null);
+  const [version, setVersion] = useState<string>("");
+  const [cacheMsg, setCacheMsg] = useState<string | null>(null);
+
+  const loadUsage = useCallback(() => {
+    void cacheUsage()
+      .then(setUsage)
+      .catch(() => setUsage(null));
+  }, []);
+  useEffect(() => {
+    loadUsage();
+    void getAppVersion()
+      .then(setVersion)
+      .catch(() => setVersion(""));
+  }, [loadUsage]);
+
   const browseDir = async () => {
     const dir = await pickDirectory();
     if (dir) onUpdate({ defaultOutputDir: dir });
   };
+
+  const doClearCache = async () => {
+    const ok = await confirmDialog(
+      "将删除全部代理预览文件与缩略图缓存（不影响源视频与已导出的文件）。需要时会自动重新生成。",
+      "清理缓存",
+    );
+    if (!ok) return;
+    const r = await clearCache().catch(() => null);
+    loadUsage();
+    setCacheMsg(
+      r ? (r.skipped > 0 ? `已清理 ${r.removed} 个文件，${r.skipped} 个被占用跳过` : `已清理 ${r.removed} 个文件`) : "清理失败",
+    );
+    window.setTimeout(() => setCacheMsg(null), 3000);
+  };
+
+  const resetAll = async () => {
+    const ok = await confirmDialog("将把全部设置恢复为默认值（含输出目录、编码器、主题色等），此操作不可撤销。", "重置全部设置");
+    if (!ok) return;
+    onUpdate({ ...DEFAULT_SETTINGS });
+  };
+
+  const cacheDesc = usage
+    ? `代理预览与首帧缩略图缓存共 ${formatBytes(usage.proxyBytes + usage.thumbBytes)}（代理 ${formatBytes(usage.proxyBytes)} · 缩略图 ${formatBytes(usage.thumbBytes)}）。清理后预览需要时会自动重新生成。`
+    : "正在统计代理预览与首帧缩略图缓存的占用…";
 
   return (
     <div className="flex h-full flex-col">
@@ -142,7 +206,7 @@ export default function SettingsPage({
             type="checkbox"
             checked={settings.keyframeSnap}
             onChange={(e) => onUpdate({ keyframeSnap: e.target.checked })}
-            className="accent-[#4cc38a]"
+            className="accent-signal"
             aria-label="入点吸附关键帧"
           />
         </Row>
@@ -212,6 +276,67 @@ export default function SettingsPage({
           />
           <span className="text-xs text-mute">秒</span>
         </Row>
+
+        <Row title="主题色" desc="界面强调色预设。无损/就绪与重编码的语义色不变，选择即时生效。">
+          <div className="flex items-center gap-2">
+            {ACCENTS.map((a) => (
+              <button
+                key={a.value}
+                type="button"
+                onClick={() => onUpdate({ accent: a.value as AccentChoice })}
+                aria-label={`主题色 ${a.label}`}
+                aria-pressed={settings.accent === a.value}
+                title={a.label}
+                className={`h-6 w-6 rounded-full border-2 transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-signal ${
+                  settings.accent === a.value
+                    ? "scale-110 border-paper"
+                    : "border-transparent hover:scale-105"
+                }`}
+                style={{ backgroundColor: a.hex }}
+              />
+            ))}
+          </div>
+        </Row>
+
+        <Row title="缓存管理" desc={cacheDesc}>
+          {cacheMsg && <span className="text-xs text-signal">{cacheMsg}</span>}
+          <button
+            type="button"
+            onClick={() => void doClearCache()}
+            className="rounded-md border border-hairline px-2.5 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+          >
+            清理缓存
+          </button>
+        </Row>
+
+        <div className="flex items-center justify-between gap-8 py-4">
+          <div className="min-w-0">
+            <div className="text-sm text-paper">重置全部设置</div>
+            <div className="mt-0.5 text-xs leading-relaxed text-mute">
+              恢复所有设置为默认值（含输出目录、编码器、主题色等），不可撤销。
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void resetAll()}
+            className="shrink-0 rounded-md border border-warn/40 px-2.5 py-1.5 text-xs text-warn transition-colors hover:bg-warn/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+          >
+            重置
+          </button>
+        </div>
+
+        <div className="py-4">
+          <div className="text-sm text-paper">关于</div>
+          <p className="mt-1.5 text-xs leading-relaxed text-mute">
+            video-cut {version || "…"} · FFmpeg {env?.ffmpegVersion?.split("-")[0] ?? "…"} / ffprobe{" "}
+            {env?.ffprobeVersion?.split("-")[0] ?? "…"}
+            <br />
+            所有处理都在本机完成，文件不会离开电脑。
+            <br />
+            内置 FFmpeg 为 gyan.dev 构建（含 GPL 组件），建议个人/内部使用；若公开发布或商用需评估
+            GPL 合规。
+          </p>
+        </div>
 
         <p className="py-4 text-xs text-mute/80">
           设置改动即时生效并保存到本机（不随视频文件移动）。

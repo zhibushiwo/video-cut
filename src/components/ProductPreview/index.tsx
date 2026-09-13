@@ -343,7 +343,7 @@ export default function ProductPreview({
           value={Math.min(playhead, totalDuration)}
           onChange={(e) => seekInternal(Number(e.target.value))}
           aria-label="成品播放进度"
-          className="h-1 min-w-0 flex-1 cursor-pointer accent-[#4cc38a]"
+          className="h-1 min-w-0 flex-1 cursor-pointer accent-signal"
         />
         <span className="shrink-0 font-mono text-[10px] text-mute">
           {formatTime(playhead, false)} / {formatTime(totalDuration, false)}

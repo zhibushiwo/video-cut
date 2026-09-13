@@ -379,7 +379,7 @@ export default function EditorPage({
                     type="checkbox"
                     checked={rotateTranscode}
                     onChange={(e) => setRotateTranscode(e.target.checked)}
-                    className="accent-[#4cc38a]"
+                    className="accent-signal"
                   />
                   高级：重编码旋转（把方向画进像素，兼容不支持方向元数据的播放器）
                 </label>
@@ -543,7 +543,7 @@ function CropControls({
             type="checkbox"
             checked={lockRatio}
             onChange={(e) => onLockRatio(e.target.checked)}
-            className="accent-[#4cc38a]"
+            className="accent-signal"
           />
           锁定画面比例
         </label>

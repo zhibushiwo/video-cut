@@ -326,7 +326,7 @@ export default function CutPage({
                   type="checkbox"
                   checked={snap}
                   onChange={(e) => setSnap(e.target.checked)}
-                  className="accent-[#4cc38a]"
+                  className="accent-signal"
                 />
                 入点吸附关键帧
               </label>

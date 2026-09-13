@@ -3,11 +3,15 @@
  * UI 组件不得直接 import @tauri-apps/api 或各插件包。
  */
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, open } from "@tauri-apps/plugin-dialog";
 import { revealItemInDir } from "@tauri-apps/plugin-opener";
 import type {
+  CacheClearResult,
+  CacheUsage,
   EnvironmentInfo,
   FileThumbnail,
   HistoryEntry,
@@ -171,6 +175,43 @@ export function openLogsFolder(): Promise<void> {
 /** 目标路径是否已存在（导出名"同名才追加时间戳"判定，DESIGN 决策 #19） */
 export function fileExists(path: string): Promise<boolean> {
   return invoke("file_exists", { path });
+}
+
+/** 应用版本（设置页关于区展示） */
+export function getAppVersion(): Promise<string> {
+  return getVersion();
+}
+
+/** 缓存占用统计（代理 + 缩略图，M4-8） */
+export function cacheUsage(): Promise<CacheUsage> {
+  return invoke("cache_usage");
+}
+
+/** 清空缓存（被占用的文件跳过并计数，M4-8） */
+export function clearCache(): Promise<CacheClearResult> {
+  return invoke("clear_cache");
+}
+
+/** 关闭窗口守卫（DESIGN §9.9 / 决策 #17，固定行为）：
+ * 有未完成任务时拦截关闭并二次确认，确认后销毁窗口退出。 */
+export function onWindowCloseGuard(): Promise<UnlistenFn> {
+  return getCurrentWindow().onCloseRequested(async (event) => {
+    try {
+      const tasks = await listTasks();
+      const busy = tasks.some(
+        (t) => t.status === "pending" || t.status === "probing" || t.status === "running",
+      );
+      if (!busy) return;
+      event.preventDefault();
+      const ok = await ask("有任务正在处理，现在退出会中断这些任务。\n确定要退出吗？", {
+        title: "退出 video-cut",
+        kind: "warning",
+      });
+      if (ok) await getCurrentWindow().destroy();
+    } catch {
+      /* 任务查询失败时放行默认关闭行为 */
+    }
+  });
 }
 
 /** 确认对话框（危险操作二次确认），返回用户是否确认 */

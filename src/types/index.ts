@@ -59,6 +59,9 @@ export type QualityPreset = "high" | "balanced" | "small";
 /** 代理预览三态（DESIGN §3.7/§10/§12）：按需 / 始终代理 / 关闭 */
 export type ProxyMode = "auto" | "always" | "off";
 
+/** 主题色预设（DESIGN §9.1/决策 #16）：只换强调色 --color-signal，避开 warn 琥珀色相 */
+export type AccentChoice = "green" | "blue" | "violet" | "rose";
+
 /** 可锁定的编码器；"auto" = 按像素格式自动探测（DESIGN §3.5/§12） */
 export type EncoderChoice =
   | "auto"
@@ -84,6 +87,20 @@ export interface AppSettings {
   quality: QualityPreset;
   /** 任务浮层自动关闭秒数；0 = 不关闭（M7-5） */
   toastAutoCloseSec: number;
+  /** 主题色预设（M4-8） */
+  accent: AccentChoice;
+}
+
+/** 缓存占用（M4-8，与 Rust CacheUsage 对齐） */
+export interface CacheUsage {
+  proxyBytes: number;
+  thumbBytes: number;
+}
+
+/** 缓存清理结果：被占用跳过的文件数（Windows 文件占用常态） */
+export interface CacheClearResult {
+  removed: number;
+  skipped: number;
 }
 
 export type VideoTask =

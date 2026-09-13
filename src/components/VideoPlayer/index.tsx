@@ -163,7 +163,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               value={Math.min(cur, dur || 0)}
               onChange={(e) => commitSeek(Number(e.target.value))}
               aria-label="播放进度"
-              className="h-1 min-w-0 flex-1 cursor-pointer accent-[#4cc38a]"
+              className="h-1 min-w-0 flex-1 cursor-pointer accent-signal"
             />
             <span className="shrink-0 font-mono text-[11px] text-paper/80">
               {dur > 0 ? formatTime(dur, false) : "--:--"}
@@ -192,7 +192,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 if (nv > 0) setMuted(false);
               }}
               aria-label="音量"
-              className="h-1 w-16 shrink-0 cursor-pointer accent-[#4cc38a]"
+              className="h-1 w-16 shrink-0 cursor-pointer accent-signal"
             />
             <button
               type="button"
