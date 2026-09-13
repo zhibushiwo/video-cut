@@ -59,6 +59,11 @@ pub async fn submit_task(
                     .await?;
             super::crop::submit_crop(app, &state, input, rect, quality, output)
         }
+        VideoTask::Pipeline {
+            items,
+            output,
+            quality,
+        } => super::pipeline::submit_pipeline(app, &state, items, output, quality),
     }
 }
 
@@ -107,20 +112,30 @@ fn submit_cut(
         .to_string();
     let out_dir = PathBuf::from(&output_dir);
 
-    let items: Vec<CutItem> = segments
-        .iter()
-        .enumerate()
-        .map(|(i, s)| {
-            let name = format!("{}_part_{:03}.{}", stem, i + 1, ext);
-            CutItem {
-                final_path: out_dir.join(&name),
-                // 半成品保留真实扩展名（xxx.part.mp4），否则 ffmpeg 无法推断封装格式
-                part: out_dir.join(format!("{}_part_{:03}.part.{}", stem, i + 1, ext)),
-                start: s.start_sec,
-                dur: s.end_sec - s.start_sec,
-            }
-        })
-        .collect();
+    let items: Vec<CutItem> = {
+        // 提交级令牌：同名输出的并发任务不再互写半成品（DESIGN §8.2）
+        let token = super::pipeline::temp_token(&input);
+        segments
+            .iter()
+            .enumerate()
+            .map(|(i, s)| {
+                let name = format!("{}_part_{:03}.{}", stem, i + 1, ext);
+                CutItem {
+                    final_path: out_dir.join(&name),
+                    // 半成品保留真实扩展名（xxx.part.mp4），否则 ffmpeg 无法推断封装格式
+                    part: out_dir.join(format!(
+                        "{}_part_{:03}.{}.part.{}",
+                        stem,
+                        i + 1,
+                        token,
+                        ext
+                    )),
+                    start: s.start_sec,
+                    dur: s.end_sec - s.start_sec,
+                }
+            })
+            .collect()
+    };
 
     let mode_label = if precise { "精确剪切（重编码）" } else { "剪切" };
     let label = format!(

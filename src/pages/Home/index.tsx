@@ -17,6 +17,15 @@ interface Operation {
 
 const OPERATIONS: Operation[] = [
   {
+    page: "workbench",
+    title: "工作台",
+    desc: "多文件流水线：逐个剪切、旋转、放大，最后合成一个成品视频。",
+    tags: [
+      { label: "无损优先", tone: "signal" },
+      { label: "多文件", tone: "signal" },
+    ],
+  },
+  {
     page: "cut",
     title: "剪切",
     desc: "把一个视频切成多个片段，或截取任意区间。入点吸附关键帧，落点所见即所得。",

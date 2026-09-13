@@ -98,12 +98,12 @@ export default function CutPage({
       .finally(() => setKfLoading(false));
   }, []);
 
-  // 拖拽导入：挂载时消费初始文件（仅一次）
-  const consumedInitialRef = useRef(false);
+  // 拖拽导入：每次新的拖入都加载第一个文件（页面不跳转，App 层原地分发）
+  const consumedInitialRef = useRef<string[] | null>(null);
   useEffect(() => {
-    if (consumedInitialRef.current) return;
-    consumedInitialRef.current = true;
-    if (initialFiles && initialFiles[0]) void loadFile(initialFiles[0]);
+    if (!initialFiles || initialFiles === consumedInitialRef.current) return;
+    consumedInitialRef.current = initialFiles;
+    if (initialFiles[0]) void loadFile(initialFiles[0]);
   }, [initialFiles, loadFile]);
 
   const openFile = useCallback(async () => {

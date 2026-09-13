@@ -23,8 +23,30 @@ pub(crate) fn normalize_crop_rect(
     out_width: Option<u32>,
     out_height: Option<u32>,
 ) -> Result<(u32, u32, u32, u32, u32, u32), String> {
-    let src_w = info.video.width;
-    let src_h = info.video.height;
+    align_rect(
+        info.video.width,
+        info.video.height,
+        x,
+        y,
+        width,
+        height,
+        out_width,
+        out_height,
+    )
+}
+
+/// 选区校验核心（偶数对齐 + 越界检查），坐标系由调用方决定
+/// （源空间或工作台的显示空间）。
+pub(crate) fn align_rect(
+    src_w: u32,
+    src_h: u32,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    out_width: Option<u32>,
+    out_height: Option<u32>,
+) -> Result<(u32, u32, u32, u32, u32, u32), String> {
     // 偶数对齐：向内取整（yuv420p 编码要求偶数尺寸）
     let even = |v: u32| v - (v % 2);
     let width = even(width);
@@ -36,7 +58,7 @@ pub(crate) fn normalize_crop_rect(
     }
     if x + width > src_w || y + height > src_h {
         return Err(format!(
-            "裁剪区域越界：({x}+{width}, {y}+{height}) 超出源画面 {src_w}×{src_h}"
+            "裁剪区域越界：({x}+{width}, {y}+{height}) 超出画面 {src_w}×{src_h}"
         ));
     }
     let (out_w, out_h) = match (out_width, out_height) {
@@ -99,7 +121,9 @@ pub fn submit_crop(
         .and_then(|n| n.to_str())
         .ok_or_else(|| "输出文件名无效".to_string())?
         .to_string();
-    let part = out_dir.join(format!("{out_name}.part.mp4"));
+    // 半成品保留真实扩展名 + 提交级令牌，防并发任务互写（DESIGN §8.2）
+    let token = super::pipeline::temp_token(&output);
+    let part = out_dir.join(format!("{out_name}.part.{token}.mp4"));
 
     let label = format!("局部放大 {in_name}");
 

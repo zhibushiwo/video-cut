@@ -155,7 +155,22 @@ pub fn proxy_args(input: &str, output: &str) -> Vec<String> {
     .collect()
 }
 
+/// 解析 ffprobe 的 time_base 字符串（"1/60000"）为 mp4 timescale（60000）。
+/// 非 "1/N" 形式返回 0（调用方省略 timescale 控制）。
+pub fn parse_timescale(video_time_base: &str) -> u32 {
+    let (num, den) = video_time_base
+        .split_once('/')
+        .map(|(a, b)| (a.trim(), b.trim()))
+        .unwrap_or(("", ""));
+    match (num.parse::<u64>(), den.parse::<u64>()) {
+        (Ok(1), Ok(d)) if d > 0 && d <= u32::MAX as u64 => d as u32,
+        _ => 0,
+    }
+}
+
 /// 参数统一转码（DESIGN §6.3④）：scale + fps + format，libx264 + aac 192k。
+/// `video_timescale` > 0 时强制视频轨 timescale，保证与基准片段 time_base 一致
+/// （concat demuxer 对 tb 不一致的 copy 拼接会错乱第二段的时间戳，见 §6.3⑨⑩）。
 #[allow(dead_code)] // M2 起由 commands/merge.rs 使用
 pub fn normalize_args(
     input: &str,
@@ -163,10 +178,11 @@ pub fn normalize_args(
     height: u32,
     fps: f64,
     pix_fmt: &str,
+    video_timescale: u32,
     output: &str,
 ) -> Vec<String> {
     let vf = format!("scale={width}:{height}:flags=lanczos,fps={fps:.3},format={pix_fmt}");
-    [
+    let mut args: Vec<String> = [
         "-hide_banner",
         "-nostats",
         "-loglevel",
@@ -176,29 +192,20 @@ pub fn normalize_args(
         "-stats_period",
         "0.2",
         "-i",
-        input,
-        "-map",
-        "0:v:0",
-        "-map",
-        "0:a:0?",
-        "-vf",
-        &vf,
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-crf",
-        "20",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "192k",
-        "-y",
-        output,
     ]
     .iter()
     .map(|s| s.to_string())
-    .collect()
+    .collect();
+    args.push(input.into());
+    args.extend(["-map".into(), "0:v:0".into(), "-map".into(), "0:a:0?".into()]);
+    args.extend(["-vf".into(), vf, "-c:v".into(), "libx264".into()]);
+    args.extend(["-preset".into(), "medium".into(), "-crf".into(), "20".into()]);
+    args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "192k".into()]);
+    if video_timescale > 0 {
+        args.extend(["-video_track_timescale".into(), video_timescale.to_string()]);
+    }
+    args.extend(["-y".into(), output.into()]);
+    args
 }
 
 /// 合并 concat 列表内容（DESIGN §6.3③）：正斜杠 + 单引号包裹 + 单引号双写转义。
@@ -526,6 +533,120 @@ pub fn precise_cut_args(
     args
 }
 
+// ---------- 工作台流水线（DESIGN §3.8、§6.3⑨⑩） ----------
+
+/// 工作台无损片段：剪切（可选）+ 元数据旋转（可选）一条 copy 命令完成。
+/// `-display_rotation`（覆盖语义）与 `-ss` 同为输入选项，必须都在 `-i` 之前。
+pub fn pipeline_copy_args(
+    segment: Option<(f64, f64)>,
+    display_deg: i32,
+    hflip: bool,
+    vflip: bool,
+    input: &str,
+    output: &str,
+) -> Vec<String> {
+    let mut args: Vec<String> = [
+        "-hide_banner",
+        "-nostats",
+        "-loglevel",
+        "error",
+        "-progress",
+        "pipe:1",
+        "-stats_period",
+        "0.2",
+        "-display_rotation",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    args.push(display_deg.to_string());
+    if hflip {
+        args.push("-display_hflip".into());
+    }
+    if vflip {
+        args.push("-display_vflip".into());
+    }
+    if let Some((start, _)) = segment {
+        args.extend(["-ss".into(), fmt_sec(start)]);
+    }
+    args.extend(["-i".into(), input.into()]);
+    if let Some((_, dur)) = segment {
+        args.extend(["-t".into(), fmt_sec(dur)]);
+    }
+    args.extend([
+        "-map".into(),
+        "0".into(),
+        "-c".into(),
+        "copy".into(),
+        "-avoid_negative_ts".into(),
+        "make_zero".into(),
+        "-y".into(),
+        output.into(),
+    ]);
+    args
+}
+
+/// 工作台重编码片段：精确剪切（可选）+ 像素变换（可选）+ 裁剪放大（可选），
+/// 单次编码完成。`-display_rotation 0` 剥离源方向矩阵（防双重旋转）；
+/// 滤镜顺序固定：翻转（源像素空间）→ 旋转 → 裁剪（显示空间）→ 缩放。
+/// `video_timescale` > 0 时强制视频轨 timescale 与基准片段一致
+/// （concat demuxer 对 tb 不一致的 copy 拼接会错乱后续段时间戳，DESIGN §6.3⑨⑩）。
+#[allow(clippy::too_many_arguments)]
+pub fn pipeline_transcode_args(
+    segment: Option<(f64, f64)>,
+    bake_deg: i32,
+    bake_hflip: bool,
+    bake_vflip: bool,
+    crop: Option<(u32, u32, u32, u32, u32, u32)>, // (x, y, w, h, out_w, out_h) 显示空间
+    encoder: &str,
+    quality: QualityPreset,
+    video_timescale: u32,
+    input: &str,
+    output: &str,
+) -> Vec<String> {
+    let mut args: Vec<String> = [
+        "-hide_banner",
+        "-nostats",
+        "-loglevel",
+        "error",
+        "-progress",
+        "pipe:1",
+        "-stats_period",
+        "0.2",
+        "-display_rotation",
+        "0",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+    args.extend(["-i".into(), input.into()]);
+    if let Some((start, dur)) = segment {
+        args.extend(["-ss".into(), fmt_sec(start), "-t".into(), fmt_sec(dur)]);
+    }
+    args.extend(["-map".into(), "0:v:0".into(), "-map".into(), "0:a".into()]);
+
+    let mut vf_parts: Vec<String> = Vec::new();
+    let transform = transform_filter(bake_deg, bake_hflip, bake_vflip);
+    if !transform.is_empty() {
+        vf_parts.push(transform);
+    }
+    if let Some((x, y, w, h, out_w, out_h)) = crop {
+        vf_parts.push(format!("crop={w}:{h}:{x}:{y}"));
+        vf_parts.push(format!("scale={out_w}:{out_h}:flags=lanczos"));
+    }
+    if !vf_parts.is_empty() {
+        args.extend(["-vf".into(), vf_parts.join(",")]);
+    }
+    args.extend(["-c:v".into(), encoder.into()]);
+    args.extend(encoder_quality_args(encoder, quality));
+    args.extend(["-c:a".into(), "copy".into()]);
+    if video_timescale > 0 {
+        args.extend(["-video_track_timescale".into(), video_timescale.to_string()]);
+    }
+    args.extend(["-y".into(), output.into()]);
+    args
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -631,11 +752,25 @@ mod tests {
 
     #[test]
     fn normalize_args_builds_filter_chain() {
-        let args = normalize_args("in.mkv", 1920, 1080, 29.97, "yuv420p", "out.mp4");
+        let args = normalize_args("in.mkv", 1920, 1080, 29.97, "yuv420p", 0, "out.mp4");
         let vf_pos = args.iter().position(|a| a == "-vf").unwrap();
         assert_eq!(args[vf_pos + 1], "scale=1920:1080:flags=lanczos,fps=29.970,format=yuv420p");
         assert!(args.iter().any(|a| a == "libx264"));
         assert!(args.iter().any(|a| a == "192k"));
+        assert!(!args.contains(&"-video_track_timescale".to_string()));
+        // 指定 timescale 时写入对齐参数
+        let args = normalize_args("in.mkv", 1920, 1080, 29.97, "yuv420p", 60000, "out.mp4");
+        let ts = args.iter().position(|a| a == "-video_track_timescale").unwrap();
+        assert_eq!(args[ts + 1], "60000");
+    }
+
+    #[test]
+    fn parse_timescale_handles_fraction_strings() {
+        assert_eq!(parse_timescale("1/60000"), 60000);
+        assert_eq!(parse_timescale("1/15360"), 15360);
+        assert_eq!(parse_timescale("0/0"), 0);
+        assert_eq!(parse_timescale(""), 0);
+        assert_eq!(parse_timescale("2/60000"), 0);
     }
 
     #[test]
@@ -731,6 +866,82 @@ mod tests {
             encoder_quality_args("hevc_amf", QualityPreset::Balanced),
             vec!["-quality", "balanced"]
         );
+    }
+
+    #[test]
+    fn pipeline_copy_combines_cut_and_metadata_rotation() {
+        let args = pipeline_copy_args(Some((5.0, 10.0)), 90, true, false, "in.mp4", "out.mp4");
+        let rot = args.iter().position(|a| a == "-display_rotation").unwrap();
+        let ss = args.iter().position(|a| a == "-ss").unwrap();
+        let i = args.iter().position(|a| a == "-i").unwrap();
+        assert!(rot < ss && ss < i, "输入选项（display_rotation/ss）必须在 -i 之前");
+        assert_eq!(args[rot + 1], "90");
+        assert_eq!(args[ss + 1], "5.000");
+        let t = args.iter().position(|a| a == "-t").unwrap();
+        assert!(t > i, "-t 在 -i 之后");
+        assert_eq!(args[t + 1], "10.000");
+        assert!(args.contains(&"-display_hflip".to_string()));
+        assert!(args.windows(2).any(|w| w[0] == "-c" && w[1] == "copy"));
+    }
+
+    #[test]
+    fn pipeline_copy_whole_file_omits_seek() {
+        let args = pipeline_copy_args(None, 0, false, false, "in.mp4", "out.mp4");
+        assert!(!args.contains(&"-ss".to_string()));
+        assert!(!args.contains(&"-t".to_string()));
+        assert!(args.contains(&"-display_rotation".to_string()));
+    }
+
+    #[test]
+    fn pipeline_transcode_chains_transform_then_crop_then_scale() {
+        // 旋转 90 + 水平翻转 + 裁剪（显示空间坐标）
+        let args = pipeline_transcode_args(
+            Some((2.0, 3.0)),
+            90,
+            true,
+            false,
+            Some((10, 20, 300, 200, 600, 400)),
+            "libx264",
+            QualityPreset::Balanced,
+            60000,
+            "in.mp4",
+            "out.mp4",
+        );
+        let vf = &args[args.iter().position(|a| a == "-vf").unwrap() + 1];
+        assert_eq!(vf, "hflip,transpose=1,crop=300:200:10:20,scale=600:400:flags=lanczos");
+        // -ss 在 -i 之后（输出侧精确 seek）
+        let i = args.iter().position(|a| a == "-i").unwrap();
+        let ss = args.iter().position(|a| a == "-ss").unwrap();
+        assert!(ss > i);
+        // 剥离源方向矩阵
+        let dr = args.iter().position(|a| a == "-display_rotation").unwrap();
+        assert_eq!(args[dr + 1], "0");
+        assert!(dr < i, "-display_rotation 是输入选项");
+        let ca = args.iter().position(|a| a == "-c:a").unwrap();
+        assert_eq!(args[ca + 1], "copy");
+        // timescale 对齐参数在 -y 之前
+        let ts = args.iter().position(|a| a == "-video_track_timescale").unwrap();
+        assert_eq!(args[ts + 1], "60000");
+        assert!(ts < args.iter().position(|a| a == "-y").unwrap());
+    }
+
+    #[test]
+    fn pipeline_transcode_crop_only_matches_zoom_template() {
+        let args = pipeline_transcode_args(
+            None,
+            0,
+            false,
+            false,
+            Some((0, 0, 800, 600, 1920, 1080)),
+            "libx264",
+            QualityPreset::High,
+            0,
+            "in.mp4",
+            "out.mp4",
+        );
+        let vf = &args[args.iter().position(|a| a == "-vf").unwrap() + 1];
+        assert_eq!(vf, "crop=800:600:0:0,scale=1920:1080:flags=lanczos");
+        assert!(!args.contains(&"-video_track_timescale".to_string()));
     }
 
     #[test]

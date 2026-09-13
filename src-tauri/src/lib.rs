@@ -101,6 +101,34 @@ pub enum QualityPreset {
     Small,
 }
 
+/// 裁剪矩形：**显示空间**像素坐标（用户所见画面，含旋转效果；DESIGN §3.8）。
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CropRect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// 工作台单项配置：剪切区间 + 旋转组合 + 裁剪放大（DESIGN §3.8）。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PipelineItem {
+    pub input: String,
+    /// 剪切区间 [start, end)，None = 整段保留
+    pub segment: Option<Segment>,
+    /// 相对源方向的旋转增量（0/90/180/270，正=顺时针）
+    pub rotate_deg: i32,
+    pub hflip: bool,
+    pub vflip: bool,
+    /// 裁剪矩形（显示空间），None = 不裁剪
+    pub crop: Option<CropRect>,
+    /// 裁剪后放大输出尺寸，None = 放大回显示分辨率
+    pub out_width: Option<u32>,
+    pub out_height: Option<u32>,
+}
+
 /// 统一任务定义：前端 submit_task 的入参（DESIGN §7）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -142,6 +170,13 @@ pub enum VideoTask {
         quality: QualityPreset,
         output: String,
     },
+    /// 工作台流水线：逐片段处理（无损/重编码按计划）→ 定向统一 → concat（DESIGN §3.8）。
+    #[serde(rename_all = "camelCase")]
+    Pipeline {
+        items: Vec<PipelineItem>,
+        output: String,
+        quality: QualityPreset,
+    },
 }
 
 /// 全局任务管理器，经 tauri State 注入（DESIGN §8.2）。
@@ -164,6 +199,7 @@ pub fn run() {
             commands::media::cancel_task,
             commands::media::generate_thumbnails,
             commands::merge::check_merge,
+            commands::pipeline::check_pipeline,
             commands::cut::submit_task,
         ])
         .run(tauri::generate_context!())

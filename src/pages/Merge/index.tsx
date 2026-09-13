@@ -9,7 +9,7 @@ import {
 } from "../../services/tauri";
 import type { MergeComparison } from "../../types";
 import { audioSummary, videoSummary } from "../../utils/media";
-import { formatBytes } from "../../utils/time";
+import { formatBytes, withFileTimestamp } from "../../utils/time";
 
 export default function MergePage({
   onBack,
@@ -28,9 +28,23 @@ export default function MergePage({
   const [confirmNormalize, setConfirmNormalize] = useState(false);
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const dragFrom = useRef<number | null>(null);
+  // 拖拽导入：每次新的拖入都追加（App 层原地分发，页面不跳转）
+  const consumedInitialRef = useRef<string[] | null>(null);
 
   const outputDir =
     files.length > 0 ? files[0].replace(/[\\/][^\\/]+$/, "") : "";
+
+  useEffect(() => {
+    if (!initialFiles || initialFiles === consumedInitialRef.current) return;
+    consumedInitialRef.current = initialFiles;
+    setFiles((prev) => {
+      const next = [...prev];
+      for (const p of initialFiles) {
+        if (!next.includes(p)) next.push(p);
+      }
+      return next;
+    });
+  }, [initialFiles]);
 
   // 列表变化 → 重新检测（≥2 个文件时）
   useEffect(() => {
@@ -115,7 +129,7 @@ export default function MergePage({
       await submitTask({
         type: "merge",
         inputs: files,
-        output: `${outputDir.replace(/[\\/]+$/, "")}\\${outputName.trim()}`,
+        output: `${outputDir.replace(/[\\/]+$/, "")}\\${withFileTimestamp(outputName.trim())}`,
         forceTranscode: force,
       });
     } catch (err) {

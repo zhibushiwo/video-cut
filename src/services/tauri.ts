@@ -12,6 +12,8 @@ import type {
   FileThumbnail,
   MediaInfo,
   MergeComparison,
+  PipelineCheck,
+  PipelineItem,
   TaskProgressPayload,
   TaskSnapshot,
   TaskStatusPayload,
@@ -42,6 +44,11 @@ export function probeMedia(input: string): Promise<MediaInfo> {
 /** 合并前参数一致性检测（DESIGN §3.3 九项比对） */
 export function checkMerge(inputs: string[]): Promise<MergeComparison> {
   return invoke("check_merge", { inputs });
+}
+
+/** 工作台导出前检测：逐片段无损/重编码判定（DESIGN §3.8） */
+export function checkPipeline(items: PipelineItem[]): Promise<PipelineCheck> {
+  return invoke("check_pipeline", { items });
 }
 
 /** 批量提取首帧缩略图（带缓存） */

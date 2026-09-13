@@ -145,6 +145,30 @@ WebView2 的 `<video>` 对部分格式无法直接播放（详见第 10 节）�
 - UI 显示"当前为代理预览画面，导出使用原始文件"提示条
 - 用户可关闭该功能（此时不支持预览的格式显示占位提示，但仍可按数值剪切）
 
+### 3.8 工作台（Workbench，流水线组合）
+
+四个独立功能之外的第二种使用范式：**选中若干视频 → 逐个配置剪切/旋转/放大 → 合成一个成品**。
+
+- 每个文件为一个"片段"，可配置：
+  - **剪切**：至多一个区间（`[start, end)`，不设 = 整段保留）；多区间留待后续版本
+  - **旋转**：增量角度（0/90/180/270，正=顺时针）+ 水平/垂直翻转，与旋转页语义一致
+  - **放大**：显示空间中的裁剪矩形（偶数对齐），默认放大回显示分辨率
+- 导出 = 一个 `pipeline` 任务：先逐片段产出中间文件，再用 concat demuxer 拼接
+
+**片段处理计划（plan_items，纯函数，核心规则）**：
+
+- 每个片段的"目标朝向" T_i =（源方向元数据 + 用户增量）mod 360，翻转独立叠加
+- **规则 A（全程无损）**：所有片段均无裁剪且所有 T_i 相同 → 每个片段一条 copy 命令
+  （剪切 `-ss/-t` + 元数据旋转 `-display_rotation T_i` 同命令完成），concat copy 拼接
+- **规则 B（其余情况）**：以"无变换"为基准。无裁剪且 T_i 为恒等 → copy（显式覆写矩阵为 0）；
+  其余片段重编码，把**绝对变换**烘焙进像素（`-display_rotation 0` 剥离源矩阵防双重旋转）
+- 拼接正确性依据：concat 输出的显示矩阵取自第一个文件；copy 片段渲染朝向 = 矩阵，
+  重编码片段渲染朝向 = 烘焙像素 + 矩阵(0)。规则 B 下全片矩阵恒等，恒成立
+- **参数统一兜底**：中间文件产出后逐个与第 1 个片段做九项比对，不一致者
+  （如混入不同分辨率源、10bit/8bit 混用导致 H.264/H.265 混编）按 §6.3④ 定向归一化后再拼接。
+  检测面板在导出前预先提示哪些片段必然/可能重编码
+- 已知取舍：若某片段裁剪放大而其他片段旋转到非恒等方向，后者也需重编码（保方向一致性优先）
+
 ---
 
 ## 4. 无损性承诺矩阵
@@ -353,8 +377,12 @@ file 'D:/videos/second part.mp4'
 ffmpeg -i <input_i> -map 0:v:0 -map 0:a:0 \
   -vf "scale=<W>:<H>:flags=lanczos,fps=<fps>,format=<pix_fmt>" \
   -c:v <encoder> <质量参数> -c:a aac -b:a 192k \
+  -video_track_timescale <基准 time_base 分母> \
   -y <normalized_i.mp4>
 ```
+
+> 归一化输出同样要对齐基准 timescale，否则归一化后的片段与未归一化片段
+> 仍会在 concat 环节错乱时间戳。
 
 **⑤ 旋转（元数据级，无损）**
 
@@ -397,6 +425,40 @@ ffmpeg -i <input> -map 0:v:0 -map 0:a:0 \
 ```
 
 代理文件放应用缓存目录（按源文件路径 hash 命名），不污染用户输出目录；已有代理直接复用。
+
+**⑨ 工作台无损片段（剪切 + 元数据旋转一步完成）**
+
+```bash
+ffmpeg -hide_banner -nostats -progress pipe:1 -stats_period 0.2 \
+  -display_rotation <abs_deg> [-display_hflip] [-display_vflip] \
+  [-ss <start>] -i <input> [-t <duration>] \
+  -map 0 -c copy -avoid_negative_ts make_zero \
+  -y <intermediate.mp4>
+```
+
+要点：`-display_rotation/hflip/vflip` 与 `-ss` 同为输入选项，可共存于一条 copy 命令——
+"剪一段 + 转 90°"无需两次处理、仍是无损。`-display_rotation` 为**覆盖语义**（写入绝对角度，
+与源矩阵无关）。segment 为空（整段保留）时省略 `-ss/-t`。
+
+**⑩ 工作台重编码片段（精确剪切 + 像素变换 + 裁剪放大，单次编码）**
+
+```bash
+ffmpeg -hide_banner -nostats -progress pipe:1 \
+  -display_rotation 0 -i <input> [-ss <start>] [-t <duration>] \
+  -map 0:v:0 -map 0:a \
+  -vf "[hflip,][vflip,][transpose=N,][crop=w:h:x:y,]scale=<outW>:<outH>:flags=lanczos" \
+  -c:v <encoder> <质量参数> -c:a copy \
+  -video_track_timescale <基准段 timescale> \
+  -y <intermediate.mp4>
+```
+
+要点：`-display_rotation 0` 剥离源方向矩阵，旋转全部烘进像素（防双重旋转）；
+滤镜顺序固定为 **翻转（源像素空间）→ 旋转 → 裁剪（显示空间）→ 缩放**——
+裁剪矩形按用户所见（显示空间）定义，90°/270° 时以交换后的宽高做边界校验。
+各子段可选，链为空时不加 `-vf`。
+`-video_track_timescale`（取第 1 个片段的源 video time_base 分母）必须设置：
+libx264 默认选 1/15360，与 copy 片段的 1/60000 不一致时，concat demuxer 的
+copy 拼接会把后续段的时间戳压缩错乱（实测 23s 被压成 2.1s）。
 
 ### 6.4 进度解析协议（progress.rs）
 
@@ -482,19 +544,36 @@ pub enum CutMode { Fast, Precise }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum Rotation { Cw90, Ccw90, R180, HFlip, VFlip }
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum QualityPreset { High, Balanced, Small }
+
+/// 工作台单项：裁剪矩形为**显示空间**像素坐标（用户所见画面，含旋转效果）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CropRect { pub x: u32, pub y: u32, pub width: u32, pub height: u32 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PipelineItem {
+    pub input: String,
+    pub segment: Option<Segment>,   // None = 整段保留
+    pub rotate_deg: i32,            // 相对源方向的增量（0/90/180/270，正=顺时针）
+    pub hflip: bool,
+    pub vflip: bool,
+    pub crop: Option<CropRect>,     // None = 不裁剪
+    pub out_width: Option<u32>,     // 裁剪后放大输出尺寸，None = 显示分辨率
+    pub out_height: Option<u32>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum VideoTask {
     Cut { input: String, segments: Vec<Segment>, output_dir: String, mode: CutMode },
     Merge { inputs: Vec<String>, output: String, force_transcode: bool },
-    Rotate { input: String, rotation: Rotation, output: String, transcode: bool },
+    // rotate_deg 为相对源方向的增量，翻转独立叠加；无损路径换算绝对显示矩阵
+    Rotate { input: String, rotate_deg: i32, hflip: bool, vflip: bool, output: String, transcode: bool, quality: QualityPreset },
     CropZoom { input: String, x: u32, y: u32, width: u32, height: u32, out_width: Option<u32>, out_height: Option<u32>, quality: QualityPreset, output: String },
+    // 工作台流水线：逐片段处理 → 定向统一 → concat（§3.8）
+    Pipeline { items: Vec<PipelineItem>, output: String, quality: QualityPreset },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -611,6 +690,18 @@ Home ──点击功能──▶ Cut / Merge / Editor(Rotate|Crop)
 - 失败时展开显示 ffmpeg stderr 最后若干行 + "复制日志"按钮
 - Completed 项提供"打开所在文件夹"（`tauri-plugin-opener`）
 
+### 9.8 Workbench（工作台）
+
+- 与 Home 并列的入口；列表复用合并页的拖拽排序 + 首帧缩略图
+- 行内展开当前片段的编辑器（一次只展开一个），三个标签页：
+  - **剪切**：入点/出点时间码输入 + "设为当前帧"（取播放头位置），清除按钮
+  - **旋转**：与旋转页一致的组合按钮（叠加式），预览实时 CSS 变换
+  - **放大**：在**显示空间**（旋转后的画面）上框选/移动/数值微调；修改旋转会清空已框选区域
+- 预览实现：外层容器按显示宽高比（90°/270° 时交换）布局，内层视频盒反向旋转回源比例，
+  裁剪叠加层贴外层——坐标即所见即所得
+- 检测面板：每行"无损/重编码"徽标 + 原因；底部汇总提示（参数不一致将自动统一）
+- 底部：质量档位 + 输出文件名 + 导出按钮（全程无损=signal 徽标，否则 warn 徽标）
+
 ---
 
 ## 10. 格式支持矩阵
@@ -649,6 +740,34 @@ Home ──点击功能──▶ Cut / Merge / Editor(Rotate|Crop)
 - 使用 `tauri-plugin-store`（JSON 文件），**不引入 SQLite**（v1 无关系型数据需求）
 - v1 配置项：默认输出目录、默认剪切模式（极速/精确）、关键帧吸附开关、代理预览开关/强制代理、编码器选择（自动/锁定）、质量档位
 - （第四阶段）历史记录同样以 JSON 追加存储即可
+
+### 12.1 日志系统（M4-7，第四阶段最后一项）
+
+**目标**：任何一次"导出失败 / 结果不对"都能只靠日志回查定位，不需要现场复现（M5 排查 concat 时间戳错乱时全靠临时加日志 + 无头复现，代价过高）。
+
+**技术选型**：Rust `log` 门面 + `fern` 实现（轻量、同步写、无异步运行时依赖；不引入 tauri-plugin-log，少一个插件依赖）。前端不直接接日志框架，错误经 invoke `append_frontend_log(level, message)` 转发写入同一份文件。
+
+**落盘**：
+
+- 位置：`app_log_dir()/logs/video-cut.YYYY-MM-DD.log`（Windows 即 `%LOCALAPPDATA%\<bundle-id>\logs\`）
+- 滚动：按天一个文件，启动时清理 7 天前的旧日志
+- 格式：单行 UTF-8，`2026-09-13 15:48:08.123 [INFO] [pipeline] ...`
+- 级别：release 默认 `info`，debug 构建默认 `debug`；环境变量 `VIDEO_CUT_LOG=debug|trace` 可覆盖；写文件为同步追加（事件频率低，无性能顾虑）
+
+**记录内容（事件清单）**：
+
+| 事件 | 级别 | 内容 |
+| --- | --- | --- |
+| 应用启动 | info | 应用版本、FFmpeg/ffprobe 版本与路径 |
+| 任务提交 | info | 任务类型 + 完整参数载荷（即现有 `[pipeline] item i: ...` 扩展到全部任务类型，替代 eprintln） |
+| ffmpeg 执行 | debug | 完整命令行 argv |
+| 任务结束 | info | 成功：输出路径 + 耗时；失败：退出码 + stderr 尾部全文 |
+| probe | debug | 容器/编解码摘要（不落 probe 原始 JSON） |
+| 前端错误 | error | window.onerror / unhandledrejection 捕获后转发 |
+
+**边界与安全**：只记录文件路径不记录内容；路径含用户名属预期；任务取消与失败都落盘。
+
+**UI 入口**：任务面板失败行补上 DESIGN 欠的"复制日志"按钮（复制该任务 stderr 尾部）；面板顶部加"打开日志文件夹"（`tauri-plugin-opener`）。
 
 ---
 
@@ -696,6 +815,11 @@ Home ──点击功能──▶ Cut / Merge / Editor(Rotate|Crop)
 - 元数据级旋转（`-display_rotation`）+ 重编码旋转高级项
 - Crop 框选交互 + 硬件编码器探测/回退 + 质量档位
 - 精确剪切（重编码路径）顺带落地（复用编码器基建）
+
+**阶段 3.5：工作台（流水线组合，§3.8）**
+- 多文件逐段剪切/旋转/放大配置，显示空间裁剪预览
+- plan_items 无损优先计划 + 检测面板 + 定向参数统一
+- 单任务串行子步骤（进度加权、取消清理中间文件）
 
 **阶段 4：体验增强**
 - 任务历史记录、批量处理、最近文件

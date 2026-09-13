@@ -1,9 +1,12 @@
+import { Volume2, VolumeX } from "lucide-react";
 import {
   forwardRef,
   useEffect,
   useImperativeHandle,
   useRef,
+  useState,
 } from "react";
+import { formatTime } from "../../utils/time";
 
 export interface VideoPlayerHandle {
   seek(t: number): void;
@@ -20,19 +23,33 @@ interface VideoPlayerProps {
   onError?: () => void;
   /** 预览提示条文案（如"当前为代理预览画面"） */
   banner?: string | null;
+  /** 填满父容器（工作台旋转预览的内层盒），默认按宽度自适应并限高 */
+  fill?: boolean;
+  /** 底部控制条（进度 + 时间 + 音量），默认开启 */
+  controls?: boolean;
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
-  function VideoPlayer({ src, onTime, onLoadedMetadata, onError, banner }, ref) {
+  function VideoPlayer(
+    { src, onTime, onLoadedMetadata, onError, banner, fill, controls = true },
+    ref,
+  ) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const rafRef = useRef(0);
     const onTimeRef = useRef(onTime);
     onTimeRef.current = onTime;
+    const [cur, setCur] = useState(0);
+    const [dur, setDur] = useState(0);
+    const [vol, setVol] = useState(1);
+    const [muted, setMuted] = useState(false);
 
     useImperativeHandle(ref, () => ({
       seek(t: number) {
         const v = videoRef.current;
-        if (v) v.currentTime = t;
+        if (v) {
+          v.currentTime = t;
+          setCur(t);
+        }
       },
       play() {
         void videoRef.current?.play();
@@ -45,7 +62,15 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     useEffect(() => {
       const v = videoRef.current;
       if (!v) return;
+      v.volume = vol;
+      v.muted = muted;
+    }, [vol, muted]);
+
+    useEffect(() => {
+      const v = videoRef.current;
+      if (!v) return;
       const tick = () => {
+        setCur(v.currentTime);
         onTimeRef.current?.(v.currentTime);
         rafRef.current = requestAnimationFrame(tick);
       };
@@ -55,6 +80,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       };
       const onStop = () => {
         cancelAnimationFrame(rafRef.current);
+        setCur(v.currentTime);
         onTimeRef.current?.(v.currentTime);
       };
       v.addEventListener("play", onPlay);
@@ -68,25 +94,92 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       };
     }, []);
 
+    const commitSeek = (t: number) => {
+      const v = videoRef.current;
+      if (!v) return;
+      v.currentTime = t;
+      setCur(t);
+    };
+
     return (
-      <div className="relative overflow-hidden rounded-md border border-hairline bg-black">
+      <div
+        className={
+          fill
+            ? "relative h-full w-full overflow-hidden bg-black"
+            : "relative overflow-hidden rounded-md border border-hairline bg-black"
+        }
+      >
         <video
           ref={videoRef}
           src={src}
           preload="metadata"
-          className="mx-auto max-h-[44vh] w-full cursor-pointer bg-black"
+          className={
+            fill
+              ? "h-full w-full cursor-pointer bg-black"
+              : "mx-auto max-h-[44vh] w-full cursor-pointer bg-black"
+          }
           onClick={() => {
             const v = videoRef.current;
             if (!v) return;
             if (v.paused) void v.play();
             else v.pause();
           }}
-          onLoadedMetadata={(e) => onLoadedMetadata?.(e.currentTarget.duration)}
+          onLoadedMetadata={(e) => {
+            const d = e.currentTarget.duration;
+            if (Number.isFinite(d) && d > 0) setDur(d);
+            onLoadedMetadata?.(e.currentTarget.duration);
+          }}
           onError={() => onError?.()}
         />
         {banner && (
           <div className="absolute left-2 top-2 rounded bg-ink/80 px-2 py-1 text-xs text-warn backdrop-blur-sm">
             {banner}
+          </div>
+        )}
+        {controls && (
+          <div className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-2.5 pb-1.5 pt-5">
+            <span className="shrink-0 font-mono text-[11px] text-paper/80">
+              {formatTime(cur, false)}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={dur || 0}
+              step={0.05}
+              value={Math.min(cur, dur || 0)}
+              onChange={(e) => commitSeek(Number(e.target.value))}
+              aria-label="播放进度"
+              className="h-1 min-w-0 flex-1 cursor-pointer accent-[#4cc38a]"
+            />
+            <span className="shrink-0 font-mono text-[11px] text-paper/80">
+              {dur > 0 ? formatTime(dur, false) : "--:--"}
+            </span>
+            <button
+              type="button"
+              onClick={() => setMuted((m) => !m)}
+              aria-label={muted || vol === 0 ? "取消静音" : "静音"}
+              className="shrink-0 text-paper/80 transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+            >
+              {muted || vol === 0 ? (
+                <VolumeX className="h-4 w-4" />
+              ) : (
+                <Volume2 className="h-4 w-4" />
+              )}
+            </button>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.05}
+              value={muted ? 0 : vol}
+              onChange={(e) => {
+                const nv = Number(e.target.value);
+                setVol(nv);
+                if (nv > 0) setMuted(false);
+              }}
+              aria-label="音量"
+              className="h-1 w-16 shrink-0 cursor-pointer accent-[#4cc38a]"
+            />
           </div>
         )}
       </div>

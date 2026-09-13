@@ -3,7 +3,7 @@
  */
 
 /** 前端导航状态（App 顶层 state 切换，DESIGN §9.2） */
-export type PageName = "home" | "cut" | "merge" | "rotate" | "crop";
+export type PageName = "home" | "cut" | "merge" | "rotate" | "crop" | "workbench";
 
 export interface EnvironmentInfo {
   ok: boolean;
@@ -80,7 +80,43 @@ export type VideoTask =
       outHeight: number | null;
       quality: QualityPreset;
       output: string;
+    }
+  | {
+      type: "pipeline";
+      items: PipelineItem[];
+      output: string;
+      quality: QualityPreset;
     };
+
+/** 工作台单项配置（DESIGN §3.8）：裁剪矩形为显示空间像素坐标 */
+export interface PipelineItem {
+  input: string;
+  /** 剪切区间 [start, end)，null = 整段保留 */
+  segment: Segment | null;
+  /** 相对源方向的旋转增量（0/90/180/270，正=顺时针） */
+  rotateDeg: number;
+  hflip: boolean;
+  vflip: boolean;
+  crop: { x: number; y: number; width: number; height: number } | null;
+  outWidth: number | null;
+  outHeight: number | null;
+}
+
+/** 工作台单片段检测结果 */
+export interface PipelineItemCheck {
+  input: string;
+  facts: MergeFileFacts;
+  copy: boolean;
+  reasons: string[];
+  displayDeg: number;
+}
+
+/** 工作台导出前检测结果 */
+export interface PipelineCheck {
+  items: PipelineItemCheck[];
+  allLossless: boolean;
+  warnings: string[];
+}
 
 export type TaskStatus =
   | "pending"

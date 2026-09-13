@@ -3,6 +3,7 @@ pub mod crop;
 pub mod cut;
 pub mod media;
 pub mod merge;
+pub mod pipeline;
 pub mod rotate;
 
 /// FNV-1a 64：为字符串生成稳定哈希（代理缓存 / 临时文件命名，跨进程一致）。

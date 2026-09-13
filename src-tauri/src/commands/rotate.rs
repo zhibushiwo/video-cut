@@ -50,7 +50,9 @@ pub fn submit_rotate(
         .and_then(|n| n.to_str())
         .ok_or_else(|| "输出文件名无效".to_string())?
         .to_string();
-    let part = out_dir.join(format!("{out_name}.part.mp4"));
+    // 半成品保留真实扩展名 + 提交级令牌，防并发任务互写（DESIGN §8.2）
+    let token = super::pipeline::temp_token(&output);
+    let part = out_dir.join(format!("{out_name}.part.{token}.mp4"));
 
     let label = if transcode {
         format!("旋转（重编码）{in_name}")

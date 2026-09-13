@@ -12,9 +12,9 @@ use crate::ffmpeg::probe::{self, MergeFileFacts};
 use crate::ffmpeg::command;
 use crate::task::manager::{Job, TaskContext, TauriEmitter};
 use crate::task::worker;
-use crate::AppTasks;
+use crate::{AppTasks, MediaInfo};
 
-use super::fnv1a;
+use super::pipeline::temp_token;
 
 /// 全部文件的九项比对结果（DESIGN §3.3）。
 #[derive(Debug, Clone, Serialize)]
@@ -25,90 +25,108 @@ pub struct MergeComparison {
     pub differences: Vec<String>,
 }
 
+/// 两个文件的九项比对（DESIGN §3.3），`who` 标注差异来源。
+/// compare_merge_facts 与工作台的定向统一（§3.8）共用。
+pub(crate) fn diff_pair(
+    who: &str,
+    base: &MediaInfo,
+    base_time_base: &str,
+    cur: &MediaInfo,
+    cur_time_base: &str,
+) -> Vec<String> {
+    let first = base;
+    let mut differences = Vec::new();
+    if cur.video.codec != first.video.codec {
+        differences.push(format!(
+            "{who}视频编码不一致：{} ≠ {}",
+            cur.video.codec, first.video.codec
+        ));
+    }
+    if cur.video.profile != first.video.profile {
+        differences.push(format!(
+            "{who}编码 profile 不一致：{:?} ≠ {:?}",
+            cur.video.profile, first.video.profile
+        ));
+    }
+    if (cur.video.width, cur.video.height) != (first.video.width, first.video.height) {
+        differences.push(format!(
+            "{who}分辨率不一致：{}×{} ≠ {}×{}",
+            cur.video.width, cur.video.height, first.video.width, first.video.height
+        ));
+    }
+    if cur.video.pix_fmt != first.video.pix_fmt {
+        differences.push(format!(
+            "{who}像素格式不一致：{} ≠ {}",
+            cur.video.pix_fmt, first.video.pix_fmt
+        ));
+    }
+    if (cur.video.frame_rate - first.video.frame_rate).abs() > 0.01 {
+        differences.push(format!(
+            "{who}帧率不一致：{:.3} ≠ {:.3}",
+            cur.video.frame_rate, first.video.frame_rate
+        ));
+    }
+    if cur_time_base != base_time_base {
+        differences.push(format!(
+            "{who}时间基不一致：{} ≠ {}",
+            cur_time_base, base_time_base
+        ));
+    }
+    if cur.audio.len() != first.audio.len() {
+        differences.push(format!(
+            "{who}音轨数量不一致：{} ≠ {}",
+            cur.audio.len(),
+            first.audio.len()
+        ));
+    } else {
+        for (j, (a, b)) in cur.audio.iter().zip(first.audio.iter()).enumerate() {
+            if a.codec != b.codec {
+                differences.push(format!(
+                    "{who}第 {} 条音轨编码不一致：{} ≠ {}",
+                    j + 1,
+                    a.codec,
+                    b.codec
+                ));
+            }
+            if a.sample_rate != b.sample_rate {
+                differences.push(format!(
+                    "{who}第 {} 条音轨采样率不一致：{} ≠ {}",
+                    j + 1,
+                    a.sample_rate,
+                    b.sample_rate
+                ));
+            }
+            if a.channels != b.channels {
+                differences.push(format!(
+                    "{who}第 {} 条音轨声道不一致：{} ≠ {}",
+                    j + 1,
+                    a.channels,
+                    b.channels
+                ));
+            }
+        }
+    }
+    if cur.subtitle_count != first.subtitle_count {
+        differences.push(format!(
+            "{who}字幕流数量不一致：{} ≠ {}",
+            cur.subtitle_count, first.subtitle_count
+        ));
+    }
+    differences
+}
+
 /// 九项比对：视频编码+profile、分辨率、像素格式、帧率、time_base、
 /// 音轨数量与各音轨（编码/采样率/声道）、字幕流数量。纯函数，可单测。
 pub fn compare_merge_facts(files: &[MergeFileFacts]) -> MergeComparison {
-    let first = &files[0].info;
     let mut differences = Vec::new();
     for (idx, f) in files.iter().enumerate().skip(1) {
-        let cur = &f.info;
-        let who = format!("第 {} 个文件", idx + 1);
-        if cur.video.codec != first.video.codec {
-            differences.push(format!(
-                "{who}视频编码不一致：{} ≠ {}",
-                cur.video.codec, first.video.codec
-            ));
-        }
-        if cur.video.profile != first.video.profile {
-            differences.push(format!(
-                "{who}编码 profile 不一致：{:?} ≠ {:?}",
-                cur.video.profile, first.video.profile
-            ));
-        }
-        if (cur.video.width, cur.video.height) != (first.video.width, first.video.height) {
-            differences.push(format!(
-                "{who}分辨率不一致：{}×{} ≠ {}×{}",
-                cur.video.width, cur.video.height, first.video.width, first.video.height
-            ));
-        }
-        if cur.video.pix_fmt != first.video.pix_fmt {
-            differences.push(format!(
-                "{who}像素格式不一致：{} ≠ {}",
-                cur.video.pix_fmt, first.video.pix_fmt
-            ));
-        }
-        if (cur.video.frame_rate - first.video.frame_rate).abs() > 0.01 {
-            differences.push(format!(
-                "{who}帧率不一致：{:.3} ≠ {:.3}",
-                cur.video.frame_rate, first.video.frame_rate
-            ));
-        }
-        if f.video_time_base != files[0].video_time_base {
-            differences.push(format!(
-                "{who}时间基不一致：{} ≠ {}",
-                f.video_time_base, files[0].video_time_base
-            ));
-        }
-        if cur.audio.len() != first.audio.len() {
-            differences.push(format!(
-                "{who}音轨数量不一致：{} ≠ {}",
-                cur.audio.len(),
-                first.audio.len()
-            ));
-        } else {
-            for (j, (a, b)) in cur.audio.iter().zip(first.audio.iter()).enumerate() {
-                if a.codec != b.codec {
-                    differences.push(format!(
-                        "{who}第 {} 条音轨编码不一致：{} ≠ {}",
-                        j + 1,
-                        a.codec,
-                        b.codec
-                    ));
-                }
-                if a.sample_rate != b.sample_rate {
-                    differences.push(format!(
-                        "{who}第 {} 条音轨采样率不一致：{} ≠ {}",
-                        j + 1,
-                        a.sample_rate,
-                        b.sample_rate
-                    ));
-                }
-                if a.channels != b.channels {
-                    differences.push(format!(
-                        "{who}第 {} 条音轨声道不一致：{} ≠ {}",
-                        j + 1,
-                        a.channels,
-                        b.channels
-                    ));
-                }
-            }
-        }
-        if cur.subtitle_count != first.subtitle_count {
-            differences.push(format!(
-                "{who}字幕流数量不一致：{} ≠ {}",
-                cur.subtitle_count, first.subtitle_count
-            ));
-        }
+        differences.extend(diff_pair(
+            &format!("第 {} 个文件", idx + 1),
+            &files[0].info,
+            &files[0].video_time_base,
+            &f.info,
+            &f.video_time_base,
+        ));
     }
     MergeComparison {
         files: files.to_vec(),
@@ -167,9 +185,10 @@ pub fn submit_merge(
         .and_then(|n| n.to_str())
         .ok_or_else(|| "输出文件名无效".to_string())?
         .to_string();
-    // 半成品保留真实扩展名（DESIGN §8.2）
-    let part = out_dir.join(format!("{out_name}.part.mp4"));
-    let list_path = out_dir.join(format!(".concat_{:016x}.txt", fnv1a(output.as_bytes())));
+    // 半成品保留真实扩展名（DESIGN §8.2）；令牌防并发任务互写
+    let token = temp_token(&output);
+    let part = out_dir.join(format!("{out_name}.part.{token}.mp4"));
+    let list_path = out_dir.join(format!(".concat_{token}.txt"));
 
     let label = format!("合并 {} 个文件 → {out_name}", inputs.len());
     let total_steps_base = inputs.len();
@@ -221,8 +240,7 @@ pub fn submit_merge(
                     return Err("已取消".into());
                 }
                 let inter = out_dir.join(format!(
-                    ".merge_{:016x}_{:03}.mp4",
-                    fnv1a(job_output.as_bytes()),
+                    ".merge_{token}_{:03}.mp4",
                     i
                 ));
                 temps.push(inter.clone());
@@ -238,6 +256,7 @@ pub fn submit_merge(
                         base.video.height,
                         base.video.frame_rate,
                         &base.video.pix_fmt,
+                        command::parse_timescale(&facts[0].video_time_base),
                         &inter.to_string_lossy(),
                     ),
                     dur,
