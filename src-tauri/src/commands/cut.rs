@@ -20,6 +20,11 @@ pub async fn submit_task(
     state: State<'_, AppTasks>,
     task: VideoTask,
 ) -> Result<String, String> {
+    // 任务提交载荷全量入日志（DESIGN §12.1），排查"导出结果不对"类问题
+    log::info!(
+        "任务提交：{}",
+        serde_json::to_string(&task).unwrap_or_else(|_| format!("{task:?}"))
+    );
     match task {
         VideoTask::Cut {
             input,

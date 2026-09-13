@@ -7,6 +7,7 @@ use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 
 use super::manager::{EventSink, Job, Shared, TaskContext, TaskHandle};
+use crate::ffmpeg::command;
 use crate::ffmpeg::progress::ProgressParser;
 use crate::TaskStatus;
 
@@ -24,7 +25,11 @@ pub(crate) fn run_ffmpeg(
     total_sec: f64,
     on_progress: &dyn Fn(f64, Option<f64>),
 ) -> Result<(), String> {
-    let mut child = Command::new(ffmpeg)
+    let mut spawn_cmd = Command::new(ffmpeg);
+    // GUI 子系统下防 CMD 弹窗（DESIGN §6.2）
+    command::spawn_hidden(&mut spawn_cmd);
+    log::debug!("ffmpeg argv：{} {}", ffmpeg.display(), args.join(" "));
+    let mut child = spawn_cmd
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

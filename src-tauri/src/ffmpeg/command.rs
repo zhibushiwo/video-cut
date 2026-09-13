@@ -30,6 +30,22 @@ pub fn resolve_sidecar(name: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+/// spawn ffmpeg/ffprobe 前必须调用：隐藏子进程控制台窗口（DESIGN §6.2）。
+/// 主程序 release 是 GUI 子系统（windows_subsystem="windows"），直接 spawn 控制台
+/// 程序会闪出 CMD 窗口；CREATE_NO_WINDOW 与 tauri-plugin-shell 的处理一致。
+pub(crate) fn spawn_hidden(cmd: &mut Command) {
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = cmd;
+    }
+}
+
 async fn probe_version(app: &AppHandle, name: &str) -> Result<String, String> {
     let cmd = app
         .shell()
@@ -282,7 +298,9 @@ fn encoder_works(encoder: &str) -> bool {
     let Ok(ffmpeg) = resolve_sidecar("ffmpeg") else {
         return false;
     };
-    Command::new(&ffmpeg)
+    let mut cmd = Command::new(&ffmpeg);
+    spawn_hidden(&mut cmd);
+    cmd
         .args([
             "-v",
             "error",

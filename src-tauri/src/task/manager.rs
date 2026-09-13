@@ -189,6 +189,34 @@ impl Shared {
         if !handle.mark_terminal() {
             return;
         }
+        // 终态全量入日志（DESIGN §12.1）：成功记输出与耗时，失败记 stderr 尾部全文
+        let status = *handle.status.lock().unwrap();
+        let started = *handle.started_at.lock().unwrap();
+        let elapsed = if started > 0 {
+            format!("{}s", (crate::history::now_ms() - started) / 1000)
+        } else {
+            "未执行".into()
+        };
+        match status {
+            TaskStatus::Completed => {
+                log::info!(
+                    "任务完成（耗时 {elapsed}）：{}，输出：{:?}",
+                    handle.label,
+                    handle.outputs.lock().unwrap()
+                );
+            }
+            TaskStatus::Failed => {
+                log::error!(
+                    "任务失败（{elapsed}）：{}：{}",
+                    handle.label,
+                    handle.error.lock().unwrap().as_deref().unwrap_or("未知错误")
+                );
+            }
+            TaskStatus::Cancelled => {
+                log::info!("任务取消：{}", handle.label);
+            }
+            _ => {}
+        }
         if let Some(cb) = self.on_terminal.lock().unwrap().as_ref() {
             cb(handle);
         }

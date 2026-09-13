@@ -16,13 +16,47 @@ use super::fnv1a;
 /// 检查内置 ffmpeg/ffprobe 可用性与版本（DESIGN §6.1、§13）。
 #[tauri::command]
 pub async fn check_environment(app: AppHandle) -> EnvironmentInfo {
-    command::check_environment(&app).await
+    let info = command::check_environment(&app).await;
+    log::info!("环境检查 ok={}", info.ok);
+    info
 }
 
 /// 解析媒体信息（DESIGN §3.1）。
 #[tauri::command]
 pub async fn probe_media(app: AppHandle, input: String) -> Result<MediaInfo, String> {
-    probe::probe_media(&app, &input).await
+    let info = probe::probe_media(&app, &input).await?;
+    log::debug!(
+        "probe {}：{} {}×{}（{:.3}s）",
+        input,
+        info.video.codec,
+        info.video.width,
+        info.video.height,
+        info.duration_sec
+    );
+    Ok(info)
+}
+
+/// 前端错误转发落盘（DESIGN §12.1）：window.onerror / unhandledrejection 捕获后调用。
+#[tauri::command]
+pub fn append_frontend_log(level: String, message: String) {
+    let lvl = match level.as_str() {
+        "error" => log::Level::Error,
+        "warn" => log::Level::Warn,
+        "info" => log::Level::Info,
+        _ => log::Level::Debug,
+    };
+    log::log!(lvl, "[frontend] {message}");
+}
+
+/// 打开日志文件夹（资源管理器，DESIGN §12.1 的任务面板入口）。
+#[tauri::command]
+pub fn open_log_dir(app: AppHandle) -> Result<(), String> {
+    let dir = app
+        .path()
+        .app_log_dir()
+        .map_err(|e| format!("无法定位日志目录：{e}"))?;
+    tauri_plugin_opener::open_path(dir, None::<&str>)
+        .map_err(|e| format!("打开日志文件夹失败：{e}"))
 }
 
 /// 扫描关键帧时间点（DESIGN §3.1、§6.5）。长视频可能耗时数秒。
@@ -161,7 +195,9 @@ fn generate_thumbnails_sync(
     for input in inputs {
         let path = cache_dir.join(format!("{:016x}.jpg", fnv1a(input.as_bytes())));
         if !path.exists() {
-            let status = std::process::Command::new(&ffmpeg)
+            let mut cmd = std::process::Command::new(&ffmpeg);
+            command::spawn_hidden(&mut cmd);
+            let status = cmd
                 .args(command::thumbnail_args(
                     input,
                     &path.to_string_lossy(),

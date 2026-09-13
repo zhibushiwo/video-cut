@@ -5,6 +5,7 @@ import {
   listTasks,
   onTaskProgress,
   onTaskStatus,
+  openLogsFolder,
   revealInFolder,
 } from "../../services/tauri";
 import type { TaskSnapshot } from "../../types";
@@ -21,6 +22,30 @@ interface TaskRow {
  */
 export default function TaskProgress() {
   const [rows, setRows] = useState<Map<string, TaskRow>>(new Map());
+  /** 复制日志按钮的短暂反馈 */
+  const [copied, setCopied] = useState<Set<string>>(new Set());
+
+  const copyLog = async (id: string, text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // WebView2 非 https 源等场景的兜底
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    setCopied((prev) => new Set(prev).add(id));
+    setTimeout(() => {
+      setCopied((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }, 1500);
+  };
 
   useEffect(() => {
     let alive = true;
@@ -118,6 +143,16 @@ export default function TaskProgress() {
 
   return (
     <div className="fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2">
+      <div className="flex items-center justify-between rounded-md border border-hairline bg-panel/95 px-3 py-1.5 backdrop-blur">
+        <span className="text-xs font-medium text-mute">任务</span>
+        <button
+          type="button"
+          onClick={() => void openLogsFolder()}
+          className="text-[11px] text-mute transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+        >
+          打开日志文件夹
+        </button>
+      </div>
       {[...rows.values()].map(({ snap, percent, speed }) => {
         const showPercent = percent ?? snap.progress;
         return (
@@ -184,9 +219,18 @@ export default function TaskProgress() {
               {snap.status === "completed" && <span className="text-signal">完成</span>}
               {snap.status === "cancelled" && <span>已取消</span>}
               {snap.status === "failed" && (
-                <span className="truncate text-warn" title={snap.error ?? ""}>
-                  {snap.error ?? "失败"}
-                </span>
+                <>
+                  <span className="min-w-0 flex-1 truncate text-warn" title={snap.error ?? ""}>
+                    {snap.error ?? "失败"}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void copyLog(snap.id, snap.error ?? "")}
+                    className="shrink-0 text-[11px] text-warn transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                  >
+                    {copied.has(snap.id) ? "已复制" : "复制日志"}
+                  </button>
+                </>
               )}
             </div>
           </div>

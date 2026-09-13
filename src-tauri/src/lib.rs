@@ -1,6 +1,7 @@
 mod commands;
 mod ffmpeg;
 mod history;
+mod logger;
 mod task;
 
 use serde::{Deserialize, Serialize};
@@ -198,6 +199,15 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(AppTasks(TaskManager::new(2)))
         .setup(|app| {
+            // 日志系统（DESIGN §12.1）：尽早初始化；失败不阻塞启动
+            if let Err(e) = logger::init(app.handle()) {
+                eprintln!("[logger] 初始化失败：{e}");
+            }
+            log::info!(
+                "应用启动 version={}（debug={}）",
+                app.package_info().version,
+                cfg!(debug_assertions)
+            );
             // 任务终态 → 历史落盘（DESIGN §12）。须在首个任务提交前接好。
             let handle = app.handle().clone();
             app.state::<AppTasks>()
@@ -245,6 +255,8 @@ pub fn run() {
             commands::merge::check_merge,
             commands::pipeline::check_pipeline,
             commands::cut::submit_task,
+            commands::media::append_frontend_log,
+            commands::media::open_log_dir,
             commands::history::list_history,
             commands::history::clear_history,
         ])

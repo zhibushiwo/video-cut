@@ -267,15 +267,11 @@ pub fn submit_pipeline(
 
     let label = format!("工作台 {} 个片段 → {out_name}", items.len());
     let n = items.len();
-    if cfg!(debug_assertions) {
-        eprintln!("[pipeline] {label}");
-        for (i, it) in items.iter().enumerate() {
-            eprintln!(
-                "[pipeline] item {i}: {} seg={:?} rot={}° hflip={} vflip={} crop={:?}",
-                it.input, it.segment, it.rotate_deg, it.hflip, it.vflip, it.crop
-            );
-        }
-    }
+    log::info!("[pipeline] {label}");
+    log::debug!(
+        "[pipeline] 提交载荷：{}",
+        serde_json::to_string(&items).unwrap_or_default()
+    );
 
     let job: Job = Box::new(move |ctx: &TaskContext| {
         let mut temps: Vec<PathBuf> = vec![list_path.clone()];

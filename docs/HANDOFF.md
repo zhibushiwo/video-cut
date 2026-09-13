@@ -87,6 +87,13 @@
 2. **局部放大无法播放**：裁剪框选层是 `absolute inset-0` 覆盖整个视频盒（含 VideoPlayer 控制条），所有点击被拦截；旋转页无此层所以正常。修复 = VideoPlayer 增加 `overlay` 插槽（渲染在 video/banner 之后、控制条之前，DOM 顺序保证控制条仍在上层可点），Editor 裁剪层迁入。
 3. **合并页拖拽失效**（Workbench 素材列表同模式同病）：HTML5 DnD（`draggable`+`onDrop`）在 Tauri Windows 下被文件拖拽通道吞掉（WebView2 拖拽接管，已知冲突）。修复 = `hooks/useDragSort` 指针事件实现：grip 手柄 pointerdown → 4px 死区 → move 命中 `[data-sort-row]` 行 → up 提交 reorder；视觉反馈为拖动行半透明 + 目标行信号色 box-shadow 边界线。**工作台 2.0（M6-3）的池↔时间轴拖拽也必须用此方案**（DESIGN 决策 #18）。
 
+## M4-7 日志系统要点（DESIGN §12.1，2026-09-14 实施）
+
+- `logger.rs`：fern 单 dispatch 写 `app_log_dir()/video-cut.YYYY-MM-DD.log`（目录已含 logs，勿再拼）；启动清理 7 天前 .log（按 mtime）；级别 release=info / debug 构建=debug，`VIDEO_CUT_LOG=debug|trace` 覆盖；**跨天不切文件**（下次启动切换，已知简化）；格式 `YYYY-MM-DD HH:MM:SS.mmm [INFO] [target] msg`
+- 埋点位置：任务提交载荷（cut.rs submit_task 入口，serde_json 全量）、ffmpeg argv（worker::run_ffmpeg，debug 级）、任务终态（manager::record_terminal，完成=输出+耗时 / 失败=stderr 尾部全文 / 取消）、probe 摘要（media.rs，debug）、应用启动版本（lib.rs setup）
+- 前端错误：main.tsx 全局 error + unhandledrejection → `append_frontend_log`（转发失败静默防循环）；失败行"复制日志"= 剪贴板写 TaskSnapshot.error（execCommand 兜底）；面板顶部"打开日志文件夹" = `open_log_dir` 命令（plugin-opener open_path）
+- pipeline 的 `[pipeline] item i` eprintln 已替换为 log（载荷入 debug 日志）
+
 ## 待办
 
 1. 用户手测：M7-1/2/3 三项修复（非视频拖入遮罩消失 / 放大页可播放 / 列表拖拽排序）；落地页右上角导航跳转

@@ -72,7 +72,9 @@ pub async fn probe_merge_facts(app: &AppHandle, input: &str) -> Result<MergeFile
 
 /// 同步版本：任务作业线程内做最终校验用。
 pub fn probe_merge_facts_sync(ffprobe: &Path, input: &str) -> Result<MergeFileFacts, String> {
-    let out = Command::new(ffprobe)
+    let mut cmd = Command::new(ffprobe);
+    super::command::spawn_hidden(&mut cmd);
+    let out = cmd
         .args(["-v", "error", "-print_format", "json", "-show_format", "-show_streams", input])
         .output()
         .map_err(|e| format!("无法启动 ffprobe：{e}"))?;
@@ -109,7 +111,9 @@ pub async fn list_keyframes(app: &AppHandle, input: &str) -> Result<Vec<f64>, St
 
 /// 同步读取容器总时长（秒）。任务作业线程内使用（磁盘预检 / 代理进度）。
 pub fn probe_duration_sync(ffprobe: &Path, input: &str) -> Result<f64, String> {
-    let out = Command::new(ffprobe)
+    let mut cmd = Command::new(ffprobe);
+    super::command::spawn_hidden(&mut cmd);
+    let out = cmd
         .args([
             "-v",
             "error",

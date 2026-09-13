@@ -153,6 +153,19 @@ export function revealInFolder(path: string): Promise<void> {
   return revealItemInDir(path);
 }
 
+/** 前端错误转发到日志文件（DESIGN §12.1，main.tsx 全局捕获后调用） */
+export function appendFrontendLog(
+  level: "error" | "warn" | "info" | "debug",
+  message: string,
+): Promise<void> {
+  return invoke("append_frontend_log", { level, message });
+}
+
+/** 打开日志文件夹（资源管理器，任务面板入口，DESIGN §12.1） */
+export function openLogsFolder(): Promise<void> {
+  return invoke("open_log_dir");
+}
+
 /** 确认对话框（危险操作二次确认），返回用户是否确认 */
 export function confirmDialog(message: string, title: string): Promise<boolean> {
   return ask(message, { title, kind: "warning" });
