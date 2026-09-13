@@ -86,6 +86,11 @@ export function listTasks(): Promise<TaskSnapshot[]> {
   return invoke("list_tasks");
 }
 
+/** 清除已到终态的任务记录，返回清除数（DESIGN §5.4） */
+export function clearFinishedTasks(): Promise<number> {
+  return invoke("clear_finished_tasks");
+}
+
 export function generateProxy(
   input: string,
 ): Promise<{ taskId: string | null; proxyPath: string }> {

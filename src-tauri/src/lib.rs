@@ -247,6 +247,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::media::check_environment,
             commands::media::list_tasks,
+            commands::media::clear_finished_tasks,
             commands::media::probe_media,
             commands::media::list_keyframes,
             commands::media::generate_proxy,

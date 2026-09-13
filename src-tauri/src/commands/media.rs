@@ -1,7 +1,8 @@
 //! 媒体探测、代理生成与任务查询命令（DESIGN §5.4）。
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, State};
@@ -217,7 +218,14 @@ pub struct FileThumbnail {
     pub thumb_path: String,
 }
 
-/// 生成预览代理（DESIGN §3.7、§6.3⑧）。已有缓存时直接复用。
+/// 同源代理生成中去重表：input → taskId（code review P2）。
+fn pending_proxies() -> &'static Mutex<HashMap<String, String>> {
+    static PENDING: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    PENDING.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// 生成预览代理（DESIGN §3.7、§6.3⑧）。已有缓存时直接复用；
+/// 同源代理已在生成中时复用其 taskId，不重复提交（code review P2）。
 #[tauri::command]
 pub fn generate_proxy(
     app: AppHandle,
@@ -239,6 +247,17 @@ pub fn generate_proxy(
         });
     }
 
+    // 进行中去重：同源代理生成中 → 返回既有 taskId，前端监听同一任务的完成事件
+    {
+        let mut pending = pending_proxies().lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(running_id) = pending.get(&input) {
+            return Ok(ProxyStart {
+                task_id: Some(running_id.clone()),
+                proxy_path: path_to_string(&output),
+            });
+        }
+    }
+
     let ffmpeg = command::resolve_sidecar("ffmpeg")?;
     let ffprobe = command::resolve_sidecar("ffprobe")?;
     // 半成品保留真实扩展名（.part.mp4），否则 ffmpeg 无法推断封装格式
@@ -254,44 +273,49 @@ pub fn generate_proxy(
 
     let job_input = input.clone();
     let job: Job = Box::new(move |ctx: &TaskContext| {
-        let total_sec = probe::probe_duration_sync(&ffprobe, &job_input).unwrap_or(0.0);
-        let last = std::cell::Cell::new(
-            std::time::Instant::now() - std::time::Duration::from_millis(250),
-        );
-        let result = worker::run_ffmpeg(
-            ctx,
-            &ffmpeg,
-            &command::proxy_args(&job_input, &part.to_string_lossy()),
-            total_sec,
-            &|local, _| {
-                if total_sec <= 0.0 {
-                    return;
-                }
-                let now = std::time::Instant::now();
-                if now.duration_since(last.get()) >= std::time::Duration::from_millis(200)
-                    || local >= 1.0
-                {
-                    last.set(now);
-                    ctx.set_progress(local);
-                }
-            },
-        );
-        match result {
-            Ok(()) => {
-                let _ = std::fs::remove_file(&job_output);
-                std::fs::rename(&part, &job_output)
-                    .map_err(|e| format!("重命名代理文件失败：{e}"))?;
-                ctx.add_output(path_to_string(&job_output));
-                Ok(())
-            }
-            Err(e) => {
+        let result = (|| -> Result<(), String> {
+            let total_sec = probe::probe_duration_sync(&ffprobe, &job_input).unwrap_or(0.0);
+            let last = std::cell::Cell::new(
+                std::time::Instant::now() - std::time::Duration::from_millis(250),
+            );
+            if let Err(e) = worker::run_ffmpeg(
+                ctx,
+                &ffmpeg,
+                &command::proxy_args(&job_input, &part.to_string_lossy()),
+                total_sec,
+                &|local, _| {
+                    if total_sec <= 0.0 {
+                        return;
+                    }
+                    let now = std::time::Instant::now();
+                    if now.duration_since(last.get()) >= std::time::Duration::from_millis(200)
+                        || local >= 1.0
+                    {
+                        last.set(now);
+                        ctx.set_progress(local);
+                    }
+                },
+            ) {
                 let _ = std::fs::remove_file(&part);
-                Err(e)
+                return Err(e);
             }
-        }
+            let _ = std::fs::remove_file(&job_output);
+            std::fs::rename(&part, &job_output).map_err(|e| format!("重命名代理文件失败：{e}"))?;
+            ctx.add_output(path_to_string(&job_output));
+            Ok(())
+        })();
+        pending_proxies()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&job_input);
+        result
     });
 
     let task_id = state.0.submit(Arc::new(TauriEmitter(app)), "proxy", &label, job);
+    pending_proxies()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(input, task_id.clone());
     Ok(ProxyStart {
         task_id: Some(task_id),
         proxy_path: path_to_string(&output),
@@ -436,6 +460,12 @@ fn generate_clip_thumbs_sync(
 #[tauri::command]
 pub fn list_tasks(state: State<'_, AppTasks>) -> Vec<TaskSnapshot> {
     state.0.snapshot()
+}
+
+/// 清除已到终态的任务记录（DESIGN §5.4），返回清除数。
+#[tauri::command]
+pub fn clear_finished_tasks(state: State<'_, AppTasks>) -> usize {
+    state.0.clear_finished()
 }
 
 fn path_to_string(p: &PathBuf) -> String {

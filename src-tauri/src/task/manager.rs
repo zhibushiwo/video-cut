@@ -323,6 +323,30 @@ impl TaskManager {
         true
     }
 
+    /// 清除已到终态（完成/失败/取消）的任务记录，返回清除数（DESIGN §5.4 clear_finished_tasks）。
+    /// 运行中/排队中的任务不受影响。
+    pub fn clear_finished(&self) -> usize {
+        let mut inner = self.shared.inner.lock().unwrap();
+        let keep: Vec<String> = inner
+            .order
+            .iter()
+            .filter(|id| {
+                inner.tasks.get(*id).is_some_and(|e| {
+                    matches!(
+                        *e.handle.status.lock().unwrap(),
+                        TaskStatus::Pending | TaskStatus::Probing | TaskStatus::Running
+                    )
+                })
+            })
+            .cloned()
+            .collect();
+        let removed = inner.order.len() - keep.len();
+        let keep_set: std::collections::HashSet<String> = keep.iter().cloned().collect();
+        inner.tasks.retain(|id, _| keep_set.contains(id));
+        inner.order = keep;
+        removed
+    }
+
     pub fn snapshot(&self) -> Vec<TaskSnapshot> {
         let inner = self.shared.inner.lock().unwrap();
         inner

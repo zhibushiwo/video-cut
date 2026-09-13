@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import {
   cancelTask,
+  clearFinishedTasks,
   listTasks,
   onTaskProgress,
   onTaskStatus,
@@ -156,6 +157,33 @@ export default function TaskProgress({ autoCloseSec = 0 }: { autoCloseSec?: numb
 
   if (rows.size === 0) return null;
 
+  const hasTerminal = [...rows.values()].some(
+    (r) =>
+      r.snap.status === "completed" ||
+      r.snap.status === "failed" ||
+      r.snap.status === "cancelled",
+  );
+  const clearFinished = async () => {
+    try {
+      await clearFinishedTasks();
+    } catch {
+      /* 后端清理失败也照常清前端展示 */
+    }
+    setRows((prev) => {
+      const next = new Map(prev);
+      for (const [id, r] of next) {
+        if (
+          r.snap.status === "completed" ||
+          r.snap.status === "failed" ||
+          r.snap.status === "cancelled"
+        ) {
+          next.delete(id);
+        }
+      }
+      return next;
+    });
+  };
+
   const dismiss = (id: string) => {
     // 手动关闭时清掉待触发的自动关闭定时器
     const t = timersRef.current.get(id);
@@ -174,13 +202,24 @@ export default function TaskProgress({ autoCloseSec = 0 }: { autoCloseSec?: numb
     <div className="fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2">
       <div className="flex items-center justify-between rounded-md border border-hairline bg-panel/95 px-3 py-1.5 backdrop-blur">
         <span className="text-xs font-medium text-mute">任务</span>
-        <button
-          type="button"
-          onClick={() => void openLogsFolder()}
-          className="text-[11px] text-mute transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-        >
-          打开日志文件夹
-        </button>
+        <div className="flex items-center gap-2">
+          {hasTerminal && (
+            <button
+              type="button"
+              onClick={() => void clearFinished()}
+              className="text-[11px] text-mute transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+            >
+              清空已完成
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => void openLogsFolder()}
+            className="text-[11px] text-mute transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+          >
+            打开日志文件夹
+          </button>
+        </div>
       </div>
       {[...rows.values()].map(({ snap, percent, speed }) => {
         const showPercent = percent ?? snap.progress;
