@@ -2,6 +2,7 @@ import { ArrowLeft, Film, GripVertical, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   checkMerge,
+  fileExists,
   fileSrc,
   generateThumbnails,
   pickVideos,
@@ -132,10 +133,15 @@ export default function MergePage({
     setSubmitting(true);
     setError(null);
     try {
+      const dir = outputDir.replace(/[\\/]+$/, "");
+      const name = outputName.trim();
+      // 同名才追加时间戳（DESIGN 决策 #19）：目标已存在时自动改名防覆盖
+      const base = `${dir}\\${name}`;
+      const target = (await fileExists(base)) ? `${dir}\\${withFileTimestamp(name)}` : base;
       await submitTask({
         type: "merge",
         inputs: files,
-        output: `${outputDir.replace(/[\\/]+$/, "")}\\${withFileTimestamp(outputName.trim())}`,
+        output: target,
         forceTranscode: force,
       });
     } catch (err) {

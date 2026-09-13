@@ -166,6 +166,11 @@ export function openLogsFolder(): Promise<void> {
   return invoke("open_log_dir");
 }
 
+/** 目标路径是否已存在（导出名"同名才追加时间戳"判定，DESIGN 决策 #19） */
+export function fileExists(path: string): Promise<boolean> {
+  return invoke("file_exists", { path });
+}
+
 /** 确认对话框（危险操作二次确认），返回用户是否确认 */
 export function confirmDialog(message: string, title: string): Promise<boolean> {
   return ask(message, { title, kind: "warning" });

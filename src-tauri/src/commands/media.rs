@@ -48,6 +48,12 @@ pub fn append_frontend_log(level: String, message: String) {
     log::log!(lvl, "[frontend] {message}");
 }
 
+/// 目标路径是否已存在（导出名"同名才追加时间戳"判定用，DESIGN §8.3 / 决策 #19）。
+#[tauri::command]
+pub fn file_exists(path: String) -> bool {
+    std::path::Path::new(&path).exists()
+}
+
 /// 打开日志文件夹（资源管理器，DESIGN §12.1 的任务面板入口）。
 #[tauri::command]
 pub fn open_log_dir(app: AppHandle) -> Result<(), String> {

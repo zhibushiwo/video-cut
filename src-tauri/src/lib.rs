@@ -256,6 +256,7 @@ pub fn run() {
             commands::pipeline::check_pipeline,
             commands::cut::submit_task,
             commands::media::append_frontend_log,
+            commands::media::file_exists,
             commands::media::open_log_dir,
             commands::history::list_history,
             commands::history::clear_history,

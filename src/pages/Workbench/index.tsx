@@ -30,6 +30,7 @@ import {
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
 import {
   checkPipeline,
+  fileExists,
   fileSrc,
   generateProxy,
   generateThumbnails,
@@ -320,10 +321,15 @@ export default function WorkbenchPage({
     setSubmitting(true);
     setError(null);
     try {
+      const dir = outputDir.replace(/[\\/]+$/, "");
+      const name = outputName.trim();
+      // 同名才追加时间戳（DESIGN 决策 #19）：目标已存在时自动改名防覆盖
+      const base = `${dir}\\${name}`;
+      const target = (await fileExists(base)) ? `${dir}\\${withFileTimestamp(name)}` : base;
       await submitTask({
         type: "pipeline",
         items: payload,
-        output: `${outputDir.replace(/[\\/]+$/, "")}\\${withFileTimestamp(outputName.trim())}`,
+        output: target,
         quality,
         encoder: settings.encoder === "auto" ? null : settings.encoder,
       });
