@@ -249,7 +249,7 @@ pub fn generate_proxy(
 
     // 进行中去重：同源代理生成中 → 返回既有 taskId，前端监听同一任务的完成事件
     {
-        let mut pending = pending_proxies().lock().unwrap_or_else(|e| e.into_inner());
+        let pending = pending_proxies().lock().unwrap_or_else(|e| e.into_inner());
         if let Some(running_id) = pending.get(&input) {
             return Ok(ProxyStart {
                 task_id: Some(running_id.clone()),

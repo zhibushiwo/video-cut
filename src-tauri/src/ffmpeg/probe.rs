@@ -1,7 +1,9 @@
 //! ffprobe 封装：媒体信息 JSON 解析与关键帧扫描（DESIGN §6.5）。
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -9,6 +11,63 @@ use tauri::AppHandle;
 use tauri_plugin_shell::ShellExt;
 
 use crate::{AudioStreamInfo, MediaInfo, VideoStreamInfo};
+
+// ---------- 探测结果缓存（B1/M8，DESIGN §6.5、决策 #22） ----------
+
+/// 缓存键 = (路径, size, mtime_ns)：文件被替换或改动后键变化，天然失效。
+type ProbeKey = (String, u64, u128);
+
+macro_rules! probe_cache {
+    ($name:ident, $val:ty) => {
+        fn $name() -> &'static Mutex<HashMap<ProbeKey, $val>> {
+            static CACHE: OnceLock<Mutex<HashMap<ProbeKey, $val>>> = OnceLock::new();
+            CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+        }
+    };
+}
+
+probe_cache!(media_cache, MediaInfo);
+probe_cache!(facts_cache, MergeFileFacts);
+probe_cache!(keyframe_cache, Vec<f64>);
+probe_cache!(duration_cache, f64);
+
+/// 条目数上限：pipeline 中间文件路径每次任务都不同，粗粒度清理防缓慢膨胀。
+const PROBE_CACHE_CAP: usize = 512;
+
+/// 读取缓存键；元数据读不到（文件被删/被占锁）返回 None，调用方直接走原路探测。
+fn probe_key(path: &str) -> Option<ProbeKey> {
+    let md = std::fs::metadata(path).ok()?;
+    let mtime = md
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    Some((path.to_string(), md.len(), mtime))
+}
+
+fn cache_get<T: Clone>(
+    cache: fn() -> &'static Mutex<HashMap<ProbeKey, T>>,
+    key: &Option<ProbeKey>,
+) -> Option<T> {
+    let key = key.as_ref()?;
+    cache().lock().ok().and_then(|m| m.get(key).cloned())
+}
+
+/// 仅缓存成功结果——探测失败可能是暂态（文件被占用等），不应固化。
+fn cache_put<T: Clone>(
+    cache: fn() -> &'static Mutex<HashMap<ProbeKey, T>>,
+    key: &Option<ProbeKey>,
+    value: &T,
+) {
+    let Some(key) = key else { return };
+    if let Ok(mut m) = cache().lock() {
+        if m.len() >= PROBE_CACHE_CAP {
+            m.clear();
+        }
+        m.insert(key.clone(), value.clone());
+    }
+}
 
 async fn run_ffprobe(app: &AppHandle, args: &[&str], input: &str) -> Result<String, String> {
     let cmd = app
@@ -40,6 +99,10 @@ pub struct MergeFileFacts {
 
 /// 解析媒体信息（DESIGN §6.5：`-print_format json -show_format -show_streams`）。
 pub async fn probe_media(app: &AppHandle, input: &str) -> Result<MediaInfo, String> {
+    let key = probe_key(input);
+    if let Some(v) = cache_get(media_cache, &key) {
+        return Ok(v);
+    }
     let out = run_ffprobe(
         app,
         &[
@@ -54,11 +117,17 @@ pub async fn probe_media(app: &AppHandle, input: &str) -> Result<MediaInfo, Stri
     .await?;
     let v: Value =
         serde_json::from_str(&out).map_err(|e| format!("ffprobe 输出解析失败：{e}"))?;
-    parse_media_json(&v)
+    let info = parse_media_json(&v)?;
+    cache_put(media_cache, &key, &info);
+    Ok(info)
 }
 
 /// 解析合并检测事实（异步命令入口用）。
 pub async fn probe_merge_facts(app: &AppHandle, input: &str) -> Result<MergeFileFacts, String> {
+    let key = probe_key(input);
+    if let Some(v) = cache_get(facts_cache, &key) {
+        return Ok(v);
+    }
     let out = run_ffprobe(
         app,
         &["-print_format", "json", "-show_format", "-show_streams"],
@@ -67,11 +136,17 @@ pub async fn probe_merge_facts(app: &AppHandle, input: &str) -> Result<MergeFile
     .await?;
     let v: Value =
         serde_json::from_str(&out).map_err(|e| format!("ffprobe 输出解析失败：{e}"))?;
-    parse_merge_facts(&v)
+    let facts = parse_merge_facts(&v)?;
+    cache_put(facts_cache, &key, &facts);
+    Ok(facts)
 }
 
 /// 同步版本：任务作业线程内做最终校验用。
 pub fn probe_merge_facts_sync(ffprobe: &Path, input: &str) -> Result<MergeFileFacts, String> {
+    let key = probe_key(input);
+    if let Some(v) = cache_get(facts_cache, &key) {
+        return Ok(v);
+    }
     let mut cmd = Command::new(ffprobe);
     super::command::spawn_hidden(&mut cmd);
     let out = cmd
@@ -86,11 +161,17 @@ pub fn probe_merge_facts_sync(ffprobe: &Path, input: &str) -> Result<MergeFileFa
     }
     let v: Value = serde_json::from_str(&String::from_utf8_lossy(&out.stdout))
         .map_err(|e| format!("ffprobe 输出解析失败：{e}"))?;
-    parse_merge_facts(&v)
+    let facts = parse_merge_facts(&v)?;
+    cache_put(facts_cache, &key, &facts);
+    Ok(facts)
 }
 
 /// 扫描关键帧时间点（秒，升序）。只解码关键帧，长视频仍需数秒（DESIGN §6.5）。
 pub async fn list_keyframes(app: &AppHandle, input: &str) -> Result<Vec<f64>, String> {
+    let key = probe_key(input);
+    if let Some(v) = cache_get(keyframe_cache, &key) {
+        return Ok(v);
+    }
     let out = run_ffprobe(
         app,
         &[
@@ -106,11 +187,17 @@ pub async fn list_keyframes(app: &AppHandle, input: &str) -> Result<Vec<f64>, St
         input,
     )
     .await?;
-    Ok(parse_keyframes(&out))
+    let frames = parse_keyframes(&out);
+    cache_put(keyframe_cache, &key, &frames);
+    Ok(frames)
 }
 
 /// 同步读取容器总时长（秒）。任务作业线程内使用（磁盘预检 / 代理进度）。
 pub fn probe_duration_sync(ffprobe: &Path, input: &str) -> Result<f64, String> {
+    let key = probe_key(input);
+    if let Some(v) = cache_get(duration_cache, &key) {
+        return Ok(v);
+    }
     let mut cmd = Command::new(ffprobe);
     super::command::spawn_hidden(&mut cmd);
     let out = cmd
@@ -131,10 +218,12 @@ pub fn probe_duration_sync(ffprobe: &Path, input: &str) -> Result<f64, String> {
             String::from_utf8_lossy(&out.stderr).trim()
         ));
     }
-    String::from_utf8_lossy(&out.stdout)
+    let duration = String::from_utf8_lossy(&out.stdout)
         .trim()
         .parse::<f64>()
-        .map_err(|e| format!("时长解析失败：{e}"))
+        .map_err(|e| format!("时长解析失败：{e}"))?;
+    cache_put(duration_cache, &key, &duration);
+    Ok(duration)
 }
 
 // ---------- 纯解析函数（可单测） ----------
@@ -350,5 +439,55 @@ mod tests {
     fn keyframe_csv_skips_na_lines() {
         let csv = "0.000000\nN/A\n1.504000\n3.003000\n";
         assert_eq!(parse_keyframes(csv), vec![0.0, 1.504, 3.003]);
+    }
+
+    // ---------- 缓存（B1/M8） ----------
+
+    probe_cache!(scratch_cache, f64);
+    // cap 测试专用：整体清空会波及同缓存的其他并发测试，不能与 scratch 混用
+    probe_cache!(cap_cache, f64);
+
+    fn temp_file(tag: &str, size: usize) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!("video-cut-cache-test-{}-{tag}.bin", std::process::id()));
+        std::fs::write(&p, vec![0u8; size]).unwrap();
+        p
+    }
+
+    #[test]
+    fn probe_key_changes_when_file_changes() {
+        let p = temp_file("key", 16);
+        let a = probe_key(p.to_str().unwrap());
+        std::fs::write(&p, vec![0u8; 32]).unwrap();
+        let b = probe_key(p.to_str().unwrap());
+        assert_ne!(a, b, "size 变化应换键（mtime+size 双保险）");
+        assert!(probe_key("no/such/video-cut-cache-test-file.bin").is_none());
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn cache_roundtrip_hits_same_file() {
+        let p = temp_file("roundtrip", 8);
+        let key = probe_key(p.to_str().unwrap());
+        assert!(cache_get(scratch_cache, &key).is_none());
+        cache_put(scratch_cache, &key, &1.25);
+        // 同路径同内容 → 键相同 → 命中
+        assert_eq!(cache_get(scratch_cache, &probe_key(p.to_str().unwrap())), Some(1.25));
+        let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn cache_clears_at_cap() {
+        let p = temp_file("cap", 8);
+        let key = probe_key(p.to_str().unwrap()).unwrap();
+        for i in 0..PROBE_CACHE_CAP {
+            cache_put(cap_cache, &Some((format!("cap-{i}"), i as u64, i as u128)), &0.0);
+        }
+        assert_eq!(cap_cache().lock().unwrap().len(), PROBE_CACHE_CAP);
+        cache_put(cap_cache, &Some(key.clone()), &2.5);
+        let m = cap_cache().lock().unwrap();
+        assert_eq!(m.len(), 1, "第 513 条应触发整体清空后写入");
+        assert_eq!(m.get(&key), Some(&2.5));
+        drop(m);
+        let _ = std::fs::remove_file(&p);
     }
 }
