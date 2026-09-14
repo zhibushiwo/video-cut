@@ -1,5 +1,6 @@
 mod commands;
-mod ffmpeg;
+// pub 供 tests/e2e.rs 复用命令构建器与探测（DESIGN §6.6），非对外 API 承诺
+pub mod ffmpeg;
 mod history;
 mod logger;
 mod task;
