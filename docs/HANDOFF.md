@@ -19,6 +19,7 @@
 | M4 打磨 | M4-1/2/3/5/6/7/8 全部 ✅（M4-5 实机冒烟待用户）；M4-4 取消立项（决策 #20，批量能力由 M6-8 实现） | 第三批 + M4-3 提交 |
 | M6 工作台 2.0（多片段/片段池/合成时间轴/成品连播） | M6-0~M6-8 全部 ✅（M6-7 e2e 手测归用户统一验证） | 本批提交 |
 | M7 反馈修复与体验 | M7-1~M7-9 全部 ✅（第一批 bug 修复与快改 + 第三批打包项） | 各批次提交 |
+| M8 候选池晋升批次 1（B1 probe 缓存 / B2 磁盘预检推广 / B14 e2e） | ✅ | `a0df7d7`(docs) `c7b67da` `8d8dc65` `09e717d` |
 
 ## M4-1 设置页要点（DESIGN §9.9、§12）
 
@@ -66,7 +67,7 @@
 - **release 是 GUI 子系统**（main.rs `windows_subsystem="windows"`）：Rust 侧直接 spawn ffmpeg/ffprobe 会闪 CMD 窗口（用户装包实测反馈，2026-09-13 修复）。所有直接 spawn 必须先调 `command::spawn_hidden`（CREATE_NO_WINDOW；五处已接线：probe×2、缩略图、worker、编码器探测）；经 shell 插件的 sidecar 调用插件已内置处理。dev 是 console 子系统，看不到此问题。
 - 任务系统：并发 2、kill 取消、`.part`→rename、事件 `task-status`/`task-progress`（payload camelCase）。`submit_pipeline` 有 debug 日志（`[pipeline] item i: …`）打印收到的载荷，e2e 排查时看 tauri dev 控制台。
 - 前端 `services/tauri.ts` 是唯一 IPC 入口；主题令牌在 `global.css`（signal 绿=无损，warn 琥珀=重编码，mono 只用于时间码）。
-- 测试：52 个 Rust 单测；e2e 素材 = `video/merge_test_a/b.mp4`（`gen-fixtures.ps1` 产物，参数一致可无损拼）+ `video/极乐净土 1080p ultra.mp4`（1GB）。
+- 测试：60 个 Rust 单测 + 3 个命令级 e2e（`tests/e2e.rs`，真实 sidecar 跑核心链路，sidecar 缺失自动跳过）；手工 e2e 素材 = `video/merge_test_a/b.mp4`（`gen-fixtures.ps1` 产物，参数一致可无损拼）+ `video/极乐净土 1080p ultra.mp4`（1GB）。
 - UI 自动化经验：WebView2 a11y 树常要等一会才出内容；文件对话框行元素 AXPress 是"打开"不是"选中"（多选用文件名输入框 set_value + 打开按钮）；受控输入框用坐标点击 + ctrl+a + 键入 + Enter 提交；底部任务通知浮层会遮挡导出按钮，操作前先关掉。
 
 ## M5 提交内容（`9b96210`，22 文件 +2467/-273）
@@ -131,6 +132,13 @@
 - **批量能力（M6-8 = 原 M4-4）**：SourceCards 卡片右上角圆形勾选（选中态边框 signal）→ 批量条（全选/清除/各建全段片段/RotateControls+旋转应用到片段）；applyBatchRot 计数在 updater 外算（StrictMode 双调用会翻倍——已踩）
 - **片段起点帧缩略图（M6-8）**：`thumbnail_args(input, start_sec, output)`；`generate_clip_thumbnails` 缓存 key = fnv1a("路径@时间两位小数")，单个失败跳过；前端 clipThumbs map（key 同构）+ requestedThumbsRef 去重，池卡优先用起点帧、回退源首帧
 
+## M8 候选池晋升批次 1 要点（B1/B2/B14，2026-09-14）
+
+- **B1 probe 缓存**（`probe.rs`，决策 #22）：五个探测入口（media/facts 异步、facts/duration 同步、关键帧）进程内缓存，键 = (路径, size, mtime_ns) 天然失效；仅缓存成功结果；条目 ≥512 整体清空（pipeline 中间文件路径每任务唯一）。异步与作业线程共用同一缓存，无跨 await 持锁
+- **B2 磁盘预检**（`commands/mod.rs::require_disk_space`，DESIGN §8.2 估算表）：cut（改用公共函数）/rotate/crop/merge/pipeline/proxy 全部接入，**在作业线程内运行时检查**；merge 两段式（先 Σ输入，进重编码路径前再 2×Σ）；estimate=0（元数据读不到）跳过
+- **B14 e2e**（`src-tauri/tests/e2e.rs`，决策 #23）：夹具自建（sidecar lavfi 320×240 h264+aac，`-g 30` 关键帧确定）；三条链 = 极速剪切×2→concat、精确剪切、pipeline 全链（copy + 裁剪/翻转重编码 + timescale 对齐 + normalize + concat）；断言时长 ±0.3/±0.5s + `-v error -f null -` 全帧可解码（concat 接缝 dts 重复为 null muxer 已知无害投诉，单独放行该行）；sidecar 缺失打印 skip 直接通过；`lib.rs` 的 `ffmpeg` 模块改 pub 供测试复用
+- 测试基线：60 单测 + 3 e2e（tsc/build 不受影响）；单测注意：cap 测试用独立缓存实例，避免与并行测试的整体清空互相干扰
+
 ## Code Review（2026-09-14，全量走读）
 
 **已修（`dc1b395` P1 / `0858e9b` P2）**：
@@ -152,4 +160,4 @@
 
 1. **用户统一手测**：M7-1/2/3 bug 修复、第一批快改、工作台 2.0 全流程（含连播/批量/片段缩略图/拖出移除）、快捷键（剪切页与工作台各模式）、M4-8（主题色/缓存/关闭确认/重置与关于）；**M4-5 实机冒烟**——NSIS 包装干净环境，验证中文向导/新图标/全功能/SmartScreen
 2. 遗留小项：规则 B 下"有片段裁剪 + 其他片段非恒等旋转"时后者也转码（已文档化）；硬编路径未在真 GPU 上验证；旋转覆盖源 flip 元数据（罕见）；代理关闭时不支持格式仅显示提示条；日志跨天不切文件；时间轴块边缘拖动微调未做（M6-8 未列入的剩余候选）；README 截图待补
-3. 功能候选池：DESIGN §16 / PLAN 候选池（B1–B16，2026-09-14 整理，未排期）；建议下一批 = B1 probe 缓存 + B2 磁盘预检推广 + B14 e2e 自动化，功能面优先 B6 音频提取 / B7 Smart cut；i18n 已明确不做
+3. 功能候选池：DESIGN §16 / PLAN 候选池（B3–B13/B15–B17 未排期；B1/B2/B14 已随 M8 完成）；建议下一批 = B6 音频提取 + B12 任务通知（功能体感），工程面优先 B15（发布前 asset scope 收窄是硬门槛）；i18n 已明确不做
