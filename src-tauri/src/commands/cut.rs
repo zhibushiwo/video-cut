@@ -166,21 +166,15 @@ fn submit_cut(
     let total_segments = items.len();
 
     let job_input = input.clone();
+    let job_out_dir = out_dir.clone();
     let job: Job = Box::new(move |ctx: &TaskContext| {
         // 磁盘空间预检（DESIGN §8.2）：估算 ≈ 源大小 × 片段时长占比
-        let source_size = std::fs::metadata(&job_input).map(|m| m.len()).unwrap_or(0);
         let total_duration = probe::probe_duration_sync(&ffprobe, &job_input).unwrap_or(0.0);
-        if source_size > 0 && total_duration > 0.0 {
+        if total_duration > 0.0 {
             let want_sec: f64 = items.iter().map(|it| it.dur).sum();
-            let estimate = (source_size as f64 * (want_sec / total_duration).min(1.0)) as u64;
-            let available = fs4::available_space(&out_dir).unwrap_or(u64::MAX);
-            if available < estimate {
-                return Err(format!(
-                    "输出磁盘空间不足：预计需要约 {:.2} GB，可用 {:.2} GB",
-                    estimate as f64 / 1e9,
-                    available as f64 / 1e9
-                ));
-            }
+            let estimate =
+                (super::file_size(&job_input) as f64 * (want_sec / total_duration).min(1.0)) as u64;
+            super::require_disk_space(&job_out_dir, estimate)?;
         }
 
         // 精确模式：优先设置中锁定的编码器，否则按源像素格式自动探测（10bit → HEVC 路径）

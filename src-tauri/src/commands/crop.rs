@@ -129,7 +129,11 @@ pub fn submit_crop(
     let label = format!("局部放大 {in_name}");
 
     let job_input = input.clone();
+    let job_out_dir = out_dir.clone();
     let job: Job = Box::new(move |ctx: &TaskContext| {
+        // 磁盘空间预检（DESIGN §8.2）：重编码输出与源同码率量级
+        super::require_disk_space(&job_out_dir, super::file_size(&job_input))?;
+
         let facts = probe::probe_merge_facts_sync(&ffprobe, &job_input)
             .map_err(|e| format!("{}：{e}", in_name))?;
         let duration = facts.info.duration_sec;

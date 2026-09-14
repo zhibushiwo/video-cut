@@ -272,8 +272,11 @@ pub fn generate_proxy(
     );
 
     let job_input = input.clone();
+    let job_cache_dir = cache_dir.clone();
     let job: Job = Box::new(move |ctx: &TaskContext| {
         let result = (|| -> Result<(), String> {
+            // 磁盘空间预检（DESIGN §8.2）：代理写入缓存目录，按源大小保守估算
+            super::require_disk_space(&job_cache_dir, super::file_size(&job_input))?;
             let total_sec = probe::probe_duration_sync(&ffprobe, &job_input).unwrap_or(0.0);
             let last = std::cell::Cell::new(
                 std::time::Instant::now() - std::time::Duration::from_millis(250),

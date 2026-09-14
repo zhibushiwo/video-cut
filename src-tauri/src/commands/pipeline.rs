@@ -274,6 +274,10 @@ pub fn submit_pipeline(
     );
 
     let job: Job = Box::new(move |ctx: &TaskContext| {
+        // 磁盘空间预检（DESIGN §8.2）：中间片段与成品并存，峰值 ≈ 2 × Σ片段源大小
+        let inputs_size: u64 = items.iter().map(|it| super::file_size(&it.input)).sum();
+        super::require_disk_space(&out_dir, inputs_size.saturating_mul(2))?;
+
         let mut temps: Vec<PathBuf> = vec![list_path.clone()];
         let cleanup = |temps: &[PathBuf]| {
             for t in temps {

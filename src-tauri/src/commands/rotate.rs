@@ -62,7 +62,11 @@ pub fn submit_rotate(
     };
 
     let job_input = input.clone();
+    let job_out_dir = out_dir.clone();
     let job: Job = Box::new(move |ctx: &TaskContext| {
+        // 磁盘空间预检（DESIGN §8.2）：remux ≈ 源大小；重编码同码率量级，同一上界
+        super::require_disk_space(&job_out_dir, super::file_size(&job_input))?;
+
         let facts = probe::probe_merge_facts_sync(&ffprobe, &job_input)
             .map_err(|e| format!("{}：{e}", in_name))?;
         let duration = facts.info.duration_sec;

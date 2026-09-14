@@ -196,6 +196,10 @@ pub fn submit_merge(
     let job_inputs = inputs.clone();
     let job_output = output.clone();
     let job: Job = Box::new(move |ctx: &TaskContext| {
+        // 磁盘空间预检（DESIGN §8.2）：copy 成品 ≈ Σ输入
+        let inputs_size: u64 = job_inputs.iter().map(|i| super::file_size(i)).sum();
+        super::require_disk_space(&out_dir, inputs_size)?;
+
         // 任务内最终校验（防前端判定与实际文件不符）
         let mut facts = Vec::with_capacity(job_inputs.len());
         for input in &job_inputs {
@@ -232,6 +236,8 @@ pub fn submit_merge(
             copy_offset = 0.0;
         } else {
             let base = &facts[0].info;
+            // 重编码路径：中间统一文件与成品并存，峰值 ≈ 2 × Σ输入（DESIGN §8.2）
+            super::require_disk_space(&out_dir, inputs_size.saturating_mul(2))?;
             let n = job_inputs.len();
             let mut normalized = Vec::with_capacity(n);
             for (i, input) in job_inputs.iter().enumerate() {
