@@ -34,7 +34,4 @@ scripts/fixtures/
 src-tauri/icons/android/
 src-tauri/icons/ios/
 
-# 代码审查报告快照（一次性产物，非项目文档；规格真源仍在 docs/）
-cr/
-
 .workbuddy
