@@ -1,8 +1,11 @@
 /**
- * 工作台合成时间轴（DESIGN §9.8 ②）：片段块宽∝时长（最小宽度保底）、
- * 刻度与播放头、块拖拽排序（指针事件）、池→轴跨容器拖入（M6-3）。
+ * 工作台合成时间轴（DESIGN §9.8 ②）：
+ * - 块排布 = 逐块像素（M9-3）：块宽 = max(时长占比×容器实测宽, 最小宽度)，
+ *   下一块左缘恒等于前块实际右缘——最小宽度膨胀时最多溢出轨道，绝不重叠。
+ * - 整块拖拽排序（M9-4）：块本体进拖拽（指针事件 + 4px 死区），点击仍选中。
+ * - 池→轴跨容器拖入（M6-3）；时间↔像素换算与渲染排布同一套公式。
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { pickTickStep } from "../Timeline";
 import { useDragSort } from "../../hooks/useDragSort";
@@ -32,10 +35,18 @@ interface ClipTimelineProps {
   onExternalDragEnd(): void;
   /** 从成品移除（块 hover ✕） */
   onRemove(id: string): void;
-  /** 点击空白处按比例 seek（成品内时间，秒） */
+  /** 点击空白处按渲染位置 seek（成品内时间，秒） */
   onSeek(t: number): void;
-  /** 播放头（成品内时间，秒）；M6-6 连播接入前恒为 0 */
+  /** 播放头（成品内时间，秒） */
   currentTime: number;
+}
+
+/** 块最小宽度（px）：短片段保底可见可点 */
+const MIN_BLOCK_W = 28;
+
+interface BlockRect {
+  left: number;
+  width: number;
 }
 
 export default function ClipTimeline({
@@ -63,10 +74,75 @@ export default function ClipTimeline({
   const [extIndex, setExtIndex] = useState<number | null>(null);
   const total = clips.reduce((s, c) => s + c.duration, 0);
 
-  const pct = (t: number) =>
-    total > 0 ? `${Math.min(100, Math.max(0, (t / total) * 100))}%` : "0%";
+  // 容器实测宽：逐块像素排布的基础（M9-3）
+  const [trackW, setTrackW] = useState(0);
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el) {
+      setTrackW(0);
+      return;
+    }
+    const measure = () => setTrackW(el.clientWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [clips.length]);
 
-  /** 指针所在块：与渲染块矩形做最近中线命中（块有最小宽度，比例换算会失真） */
+  /** 每块 {左缘, 宽}（px）与每块的成品内起点（秒）——渲染与时间换算共用 */
+  const { rects, starts } = useMemo(() => {
+    const rects: BlockRect[] = [];
+    const starts: number[] = [];
+    let x = 0;
+    let t = 0;
+    for (const c of clips) {
+      starts.push(t);
+      const w =
+        total > 0 && trackW > 0
+          ? Math.max((c.duration / total) * trackW, MIN_BLOCK_W)
+          : MIN_BLOCK_W;
+      rects.push({ left: x, width: w });
+      x += w;
+      t += c.duration;
+    }
+    return { rects, starts };
+  }, [clips, total, trackW]);
+
+  const trackRight =
+    rects.length > 0 ? rects[rects.length - 1].left + rects[rects.length - 1].width : 0;
+
+  /** 成品时间 → 轨道 x（与渲染同一套换算） */
+  const timeToX = (t: number): number => {
+    if (rects.length === 0 || total <= 0) return 0;
+    if (t <= 0) return rects[0].left;
+    let acc = 0;
+    for (let i = 0; i < clips.length; i++) {
+      const d = clips[i].duration;
+      if (t < acc + d || i === clips.length - 1) {
+        const local = d > 0 ? Math.min(1, Math.max(0, (t - acc) / d)) : 0;
+        return rects[i].left + local * rects[i].width;
+      }
+      acc += d;
+    }
+    return trackRight;
+  };
+
+  /** 轨道 x → 成品时间：命中块内按比例插值（与渲染一致，含最小宽度膨胀） */
+  const xToTime = (clientX: number): number => {
+    const track = trackRef.current;
+    if (!track || rects.length === 0) return 0;
+    const x = clientX - track.getBoundingClientRect().left;
+    for (let i = 0; i < rects.length; i++) {
+      const r = rects[i];
+      if (x <= r.left + r.width || i === rects.length - 1) {
+        const local = r.width > 0 ? Math.min(1, Math.max(0, (x - r.left) / r.width)) : 0;
+        return starts[i] + local * clips[i].duration;
+      }
+    }
+    return total;
+  };
+
+  /** 指针所在块：与渲染块矩形做最近中线命中 */
   const indexAtX = (clientX: number): number | null => {
     const blocks = trackRef.current?.querySelectorAll<HTMLElement>("[data-sort-row]");
     if (!blocks || blocks.length === 0) return 0;
@@ -125,13 +201,10 @@ export default function ClipTimeline({
     for (let t = 0; t <= total + 1e-6; t += step) ticks.push(t);
   }
 
-  // 累计起点（渲染块位置）
-  let acc = 0;
-
   return (
     <div
       ref={listRef}
-      className="relative select-none rounded-md border border-hairline bg-panel/60"
+      className="relative select-none overflow-hidden rounded-md border border-hairline bg-panel/60"
       style={{ height: 64 }}
     >
       {clips.length === 0 ? (
@@ -143,18 +216,15 @@ export default function ClipTimeline({
           ref={trackRef}
           className="relative h-full w-full cursor-crosshair"
           onPointerDown={(e) => {
-            if (total > 0) {
-              const r = e.currentTarget.getBoundingClientRect();
-              onSeek(((e.clientX - r.left) / r.width) * total);
-            }
+            if (total > 0) onSeek(xToTime(e.clientX));
           }}
         >
-          {/* 刻度 */}
+          {/* 刻度（位置与块排布同一换算） */}
           {ticks.map((t) => (
             <span
               key={t}
               className="pointer-events-none absolute bottom-0 w-px bg-hairline/60"
-              style={{ left: pct(t), height: "35%" }}
+              style={{ left: timeToX(t), height: "35%" }}
             >
               {t > 0 && t < total - 1e-6 && (
                 <span className="absolute bottom-1 left-1 font-mono text-[9px] text-mute/80">
@@ -164,27 +234,27 @@ export default function ClipTimeline({
             </span>
           ))}
 
-          {/* 片段块 */}
+          {/* 片段块：整块可拖（M9-4），点击选中 */}
           {clips.map((c, i) => {
-            const left = acc;
-            acc += c.duration;
-            const widthPct = total > 0 ? (c.duration / total) * 100 : 0;
+            const r = rects[i];
             return (
               <div
                 key={c.id}
                 data-sort-row
-                onPointerDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  beginDrag(e, i);
+                }}
                 onClick={() => onSelect(c.id)}
                 title={c.detail ? `${c.label}\n${c.detail}` : c.label}
-                className={`group absolute bottom-1.5 top-1 flex cursor-pointer flex-col justify-center overflow-hidden rounded border px-1.5 transition-colors ${rowCls(i)} ${
+                className={`group absolute bottom-1.5 top-1 flex touch-none cursor-grab flex-col justify-center overflow-hidden rounded border px-1.5 transition-colors ${rowCls(i)} ${
                   c.id === selectedId
                     ? "border-signal/70 bg-signal/15"
                     : "border-hairline bg-panel hover:border-mute/60"
                 }`}
                 style={{
-                  left: `${left}%`,
-                  width: `${widthPct}%`,
-                  minWidth: 28,
+                  left: r.left,
+                  width: r.width,
                   zIndex: 1,
                 }}
               >
@@ -205,6 +275,7 @@ export default function ClipTimeline({
                 </span>
                 <button
                   type="button"
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     onRemove(c.id);
@@ -214,14 +285,6 @@ export default function ClipTimeline({
                 >
                   <X className="h-3 w-3" />
                 </button>
-                <span
-                  onPointerDown={(e) => {
-                    e.stopPropagation();
-                    beginDrag(e, i);
-                  }}
-                  className="absolute bottom-0 left-0 top-0 w-1.5 cursor-grab touch-none bg-mute/0 transition-colors hover:bg-mute/40"
-                  aria-hidden="true"
-                />
               </div>
             );
           })}
@@ -231,13 +294,7 @@ export default function ClipTimeline({
             <span
               className="pointer-events-none absolute bottom-0 top-0 z-10 w-0.5 bg-signal"
               style={{
-                left:
-                  extIndex >= clips.length
-                    ? undefined
-                    : `${
-                        (clips.slice(0, extIndex).reduce((s, c) => s + c.duration, 0) / total) * 100
-                      }%`,
-                right: extIndex >= clips.length ? 0 : undefined,
+                left: extIndex >= clips.length ? trackRight : rects[extIndex].left,
               }}
             />
           )}
@@ -245,7 +302,7 @@ export default function ClipTimeline({
           {/* 播放头 */}
           <span
             className="pointer-events-none absolute bottom-0 top-0 z-10 w-px bg-paper/80"
-            style={{ left: pct(currentTime) }}
+            style={{ left: timeToX(currentTime) }}
           >
             <span className="absolute -top-px left-1/2 h-0 w-0 -translate-x-1/2 border-x-4 border-t-4 border-x-transparent border-t-paper/80" />
           </span>

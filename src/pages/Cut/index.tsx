@@ -4,6 +4,7 @@ import { SegmentList, TimeField } from "../../components/CutEditor";
 import Timeline, { type Selection } from "../../components/Timeline";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
 import { useHotkeys } from "../../hooks/useHotkeys";
+import { useTauriEvent } from "../../hooks/useTauriEvent";
 import {
   fileSrc,
   generateProxy,
@@ -51,19 +52,15 @@ export default function CutPage({
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
-  // 代理任务完成 → 切换到代理画面
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    void onTaskStatus((p) => {
+  // 代理任务完成 → 切换到代理画面（R1-2：订阅退订走 useTauriEvent）
+  useTauriEvent(() =>
+    onTaskStatus((p) => {
       const tid = proxyTaskIdRef.current;
       if (tid && p.taskId === tid && p.status === "completed" && p.outputs[0]) {
         setProxyPath(p.outputs[0]);
       }
-    }).then((f) => {
-      unlisten = f;
-    });
-    return () => unlisten?.();
-  }, []);
+    }),
+  );
 
   const loadFile = useCallback(async (path: string) => {
     setError(null);

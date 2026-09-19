@@ -9,6 +9,7 @@ import {
   openLogsFolder,
   revealInFolder,
 } from "../../services/tauri";
+import { useTauriEvent } from "../../hooks/useTauriEvent";
 import type { TaskSnapshot } from "../../types";
 
 interface TaskRow {
@@ -52,16 +53,13 @@ export default function TaskProgress({ autoCloseSec = 0 }: { autoCloseSec?: numb
     }, 1500);
   };
 
-  useEffect(() => {
-    let alive = true;
-    const unlisteners: Promise<unknown>[] = [];
-
+  // 订阅 task-status（R1-2：退订统一走 useTauriEvent，resolve 前卸载也不漏）
+  useTauriEvent(() => {
     const ensureMeta = (taskId: string) => {
       setRows((prev) => {
         if (prev.has(taskId)) return prev;
         // 新任务缺少 label/kind，从 list_tasks 补齐
         void listTasks().then((snaps) => {
-          if (!alive) return;
           setRows((cur) => {
             const next = new Map(cur);
             const row = next.get(taskId);
@@ -91,69 +89,65 @@ export default function TaskProgress({ autoCloseSec = 0 }: { autoCloseSec?: numb
       });
     };
 
-    unlisteners.push(
-      onTaskStatus((p) => {
-        ensureMeta(p.taskId);
-        setRows((prev) => {
-          const old = prev.get(p.taskId);
-          if (!old) return prev;
-          const next = new Map(prev);
-          next.set(p.taskId, {
-            ...old,
-            snap: {
-              ...old.snap,
-              status: p.status,
-              error: p.error,
-              outputs: p.outputs,
-            },
-            percent:
-              p.status === "completed" ? 1 : p.status === "running" ? old.percent : old.percent,
-            speed: p.status === "running" ? old.speed : null,
+    return onTaskStatus((p) => {
+      ensureMeta(p.taskId);
+      setRows((prev) => {
+        const old = prev.get(p.taskId);
+        if (!old) return prev;
+        const next = new Map(prev);
+        next.set(p.taskId, {
+          ...old,
+          snap: {
+            ...old.snap,
+            status: p.status,
+            error: p.error,
+            outputs: p.outputs,
+          },
+          percent:
+            p.status === "completed" ? 1 : p.status === "running" ? old.percent : old.percent,
+          speed: p.status === "running" ? old.speed : null,
+        });
+        return next;
+      });
+      // 终态任务自动关闭（M7-5）
+      if (
+        (p.status === "completed" || p.status === "failed" || p.status === "cancelled") &&
+        autoCloseRef.current > 0 &&
+        !timersRef.current.has(p.taskId)
+      ) {
+        const t = window.setTimeout(() => {
+          timersRef.current.delete(p.taskId);
+          setRows((prev) => {
+            const next = new Map(prev);
+            next.delete(p.taskId);
+            return next;
           });
-          return next;
-        });
-        // 终态任务自动关闭（M7-5）
-        if (
-          (p.status === "completed" || p.status === "failed" || p.status === "cancelled") &&
-          autoCloseRef.current > 0 &&
-          !timersRef.current.has(p.taskId)
-        ) {
-          const t = window.setTimeout(() => {
-            timersRef.current.delete(p.taskId);
-            setRows((prev) => {
-              const next = new Map(prev);
-              next.delete(p.taskId);
-              return next;
-            });
-          }, autoCloseRef.current * 1000);
-          timersRef.current.set(p.taskId, t);
-        }
-      }),
-    );
+        }, autoCloseRef.current * 1000);
+        timersRef.current.set(p.taskId, t);
+      }
+    });
+  });
 
-    unlisteners.push(
-      onTaskProgress((p) => {
-        setRows((prev) => {
-          const old = prev.get(p.taskId);
-          if (!old) return prev;
-          const next = new Map(prev);
-          next.set(p.taskId, { ...old, percent: p.percent, speed: p.speed });
-          return next;
-        });
-      }),
-    );
+  useTauriEvent(() =>
+    onTaskProgress((p) => {
+      setRows((prev) => {
+        const old = prev.get(p.taskId);
+        if (!old) return prev;
+        const next = new Map(prev);
+        next.set(p.taskId, { ...old, percent: p.percent, speed: p.speed });
+        return next;
+      });
+    }),
+  );
 
-    return () => {
-      alive = false;
+  // 自动关闭定时器随卸载清理
+  useEffect(
+    () => () => {
       timersRef.current.forEach((t) => clearTimeout(t));
       timersRef.current.clear();
-      for (const p of unlisteners) {
-        void p.then((un) => {
-          if (typeof un === "function") un();
-        });
-      }
-    };
-  }, []);
+    },
+    [],
+  );
 
   if (rows.size === 0) return null;
 

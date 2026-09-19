@@ -8,7 +8,8 @@
  * - 已知限制（UI 明示）：片段边界 ±1 帧级误差与切换停顿，导出以 FFmpeg 输出为准
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { generateProxy, onTaskStatus } from "../../services/tauri";
+import { useTauriEvent } from "../../hooks/useTauriEvent";
+import { fileSrc, generateProxy, onTaskStatus } from "../../services/tauri";
 import type { RotateState } from "../RotateControls";
 import { formatTime } from "../../utils/time";
 
@@ -99,19 +100,16 @@ export default function ProductPreview({
     }
   }, [needProxyPaths]);
 
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    void onTaskStatus((p) => {
+  // 代理任务完成 → 补上代理路径（R1-2：订阅退订走 useTauriEvent）
+  useTauriEvent(() =>
+    onTaskStatus((p) => {
       const path = taskPathRef.current.get(p.taskId);
       if (path && p.status === "completed" && p.outputs[0]) {
         setProxyMap((m) => ({ ...m, [path]: p.outputs[0] }));
         taskPathRef.current.delete(p.taskId);
       }
-    }).then((f) => {
-      unlisten = f;
-    });
-    return () => unlisten?.();
-  }, []);
+    }),
+  );
 
   const playablePath = useCallback(
     (idx: number) => {
@@ -127,7 +125,8 @@ export default function ProductPreview({
   const switchTo = useCallback((idx: number, srcPos: number) => {
     const es = entriesRef.current;
     if (idx < 0 || idx >= es.length) return;
-    const other: Slot = slotRef.current === "a" ? "b" : "a";
+    const prev = slotRef.current;
+    const other: Slot = prev === "a" ? "b" : "a";
     if (slotContentRef.current[other] === idx) {
       // 已预载同一 index：直接定位，不重载
       pendingSeekRef.current[other] = null;
@@ -141,6 +140,8 @@ export default function ProductPreview({
     setSlot(other);
     segIdxRef.current = idx;
     setSegIdx(idx);
+    // 离场槽位停住（已切到其出点附近，正常即将 ended；防其继续出声）
+    (prev === "a" ? videoA.current : videoB.current)?.pause();
   }, []);
 
   /** 成品时间 → 片段内 seek（同段直接定位，跨段切换槽） */
@@ -273,10 +274,14 @@ export default function ProductPreview({
         <div style={inner}>
           <video
             ref={name === "a" ? videoA : videoB}
-            src={playablePath(idx)}
+            src={fileSrc(playablePath(idx))}
             preload="auto"
             playsInline
             className="h-full w-full bg-black"
+            onPause={() => {
+              // 外部暂停（如页面隐藏保活）同步回播放状态（M10-1）
+              if (name === slot) cbsRef.current.onPlayingChange(false);
+            }}
             onLoadedMetadata={() => {
               const v = name === "a" ? videoA.current : videoB.current;
               const t = pendingSeekRef.current[name];

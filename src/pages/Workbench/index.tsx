@@ -23,10 +23,9 @@ import {
   useRef,
   useState,
   type CSSProperties,
-  type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
 } from "react";
 import ClipTimeline, { type TimelineClip } from "../../components/ClipTimeline";
+import { CropBox, CropFields, useCropSelect } from "../../components/CropOverlay";
 import ProductPreview, { type ProductEntry } from "../../components/ProductPreview";
 import {
   NO_ROTATE,
@@ -37,6 +36,7 @@ import Timeline, { type Selection } from "../../components/Timeline";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
 import { useDragSort } from "../../hooks/useDragSort";
 import { useHotkeys } from "../../hooks/useHotkeys";
+import { useTauriEvent } from "../../hooks/useTauriEvent";
 import {
   checkPipeline,
   confirmDialog,
@@ -60,6 +60,7 @@ import type {
   PipelineItem,
   QualityPreset,
 } from "../../types";
+import { cropSizeText, cropToPx, type CropRect } from "../../utils/crop";
 import { formatTime, parseTime, withFileTimestamp } from "../../utils/time";
 import { wantsProxy } from "../../utils/media";
 import { resolveOutputDir } from "../../utils/paths";
@@ -122,14 +123,6 @@ function EnvChip({ env }: { env: EnvironmentInfo | null }) {
 
 type EditorTab = "rotate" | "crop";
 
-interface CropNorm {
-  /** 归一化坐标 0..1（显示空间：含旋转效果的用户所见画面） */
-  nx: number;
-  ny: number;
-  nw: number;
-  nh: number;
-}
-
 /** 素材：导入的源文件（§3.8 三层数据模型之一） */
 interface SourceFile {
   id: string;
@@ -145,7 +138,7 @@ interface Clip {
   /** 源内区间（秒），null = 整段保留 */
   seg: { start: number; end: number } | null;
   rot: RotateState;
-  crop: CropNorm | null;
+  crop: CropRect | null;
   lockRatio: boolean;
 }
 
@@ -164,17 +157,6 @@ function displayedDims(info: MediaInfo, rot: RotateState) {
   return quarter
     ? { w: info.video.height, h: info.video.width }
     : { w: info.video.width, h: info.video.height };
-}
-
-const even = (v: number) => Math.max(0, Math.round(v / 2) * 2);
-
-function cropPx(crop: CropNorm, dims: { w: number; h: number }) {
-  return {
-    x: even(crop.nx * dims.w),
-    y: even(crop.ny * dims.h),
-    w: even(crop.nw * dims.w),
-    h: even(crop.nh * dims.h),
-  };
 }
 
 function basename(p: string) {
@@ -209,18 +191,15 @@ function useProxyPreview(path: string, useProxy: boolean) {
     };
   }, [path, useProxy]);
 
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    void onTaskStatus((p) => {
+  // 代理任务完成 → 切换画面（R1-2：订阅退订走 useTauriEvent）
+  useTauriEvent(() =>
+    onTaskStatus((p) => {
       const tid = taskIdRef.current;
       if (tid && p.taskId === tid && p.status === "completed" && p.outputs[0]) {
         setProxyPath(p.outputs[0]);
       }
-    }).then((f) => {
-      unlisten = f;
-    });
-    return () => unlisten?.();
-  }, []);
+    }),
+  );
 
   const onError = useCallback(() => {
     if (useProxy && !proxyPath && !taskIdRef.current) {
@@ -522,7 +501,7 @@ export default function WorkbenchPage({
       timelineClips.map((c) => {
         const info = clipSource(c)?.info ?? null;
         const dims = info ? displayedDims(info, c.rot) : { w: 0, h: 0 };
-        const px = c.crop ? cropPx(c.crop, dims) : null;
+        const px = c.crop ? cropToPx(c.crop, dims) : null;
         return {
           input: clipSource(c)?.path ?? "",
           segment:
@@ -833,6 +812,7 @@ export default function WorkbenchPage({
                     if (!src) return null;
                     return (
                       <CutModeView
+                        key={src.id}
                         source={src}
                         snap={settings.keyframeSnap}
                         useProxy={proxyEnabled(src.info)}
@@ -847,6 +827,7 @@ export default function WorkbenchPage({
                     if (!clip || !src) return null;
                     return (
                       <EditModeView
+                        key={clip.id}
                         clip={clip}
                         source={src}
                         useProxy={proxyEnabled(src.info)}
@@ -1412,6 +1393,22 @@ function EditModeView({
   const [tab, setTab] = useState<EditorTab>("rotate");
   const [current, setCurrent] = useState(0);
   const [playing, setPlaying] = useState(false);
+  // 片段区间内预览（M9-5）：越过出点自动暂停；循环 = 回到入点继续播
+  const [loop, setLoop] = useState(false);
+  const seg = clip.seg;
+
+  const handleTime = (t: number) => {
+    setCurrent(t);
+    // 仅播放中触发：暂停态拖动进度越过出点不打断（再按播放会先回入点）
+    if (seg && playing && t >= seg.end) {
+      if (loop) {
+        playerRef.current?.seek(seg.start);
+      } else {
+        playerRef.current?.pause();
+        playerRef.current?.seek(seg.end);
+      }
+    }
+  };
 
   // 快捷键（M4-3，片段加工）：空格 播放/暂停 · ←/→ ±1s · Shift+←/→ 逐帧
   const frameStep = info.video.frameRate > 0 ? 1 / info.video.frameRate : 1 / 30;
@@ -1442,101 +1439,28 @@ function EditModeView({
     transform: `translate(-50%, -50%) rotate(${clip.rot.deg}deg) scaleX(${clip.rot.hflip ? -1 : 1}) scaleY(${clip.rot.vflip ? -1 : 1})`,
   };
 
-  // ---------- 放大：显示空间框选 / 移动（与编辑器页同一交互） ----------
+  // ---------- 放大：显示空间框选 / 移动（R1-4：与编辑器页共用 components/CropOverlay） ----------
   const stageRef = useRef<HTMLDivElement>(null);
-  const drawingRef = useRef(false);
-  const [overRect, setOverRect] = useState(false);
+  // handlers 挂在旋转舞台上（覆盖层会挡住视频自身的点击播放）；框在舞台坐标系里画
+  const { overRect, handlers: cropHandlers } = useCropSelect({
+    boundsRef: stageRef,
+    rect: clip.crop,
+    onChange: (crop) => onChange({ crop }),
+    lockRatio: clip.lockRatio,
+  });
 
-  const cropHandlers = {
-    onMouseMove: (e: ReactMouseEvent) => {
-      const box = stageRef.current;
-      if (!box || !clip.crop) {
-        setOverRect(false);
-        return;
-      }
-      const r = box.getBoundingClientRect();
-      const nx = (e.clientX - r.left) / r.width;
-      const ny = (e.clientY - r.top) / r.height;
-      setOverRect(
-        nx >= clip.crop.nx &&
-          nx <= clip.crop.nx + clip.crop.nw &&
-          ny >= clip.crop.ny &&
-          ny <= clip.crop.ny + clip.crop.nh,
-      );
-    },
-    onPointerDown: (e: ReactPointerEvent) => {
-      const box = stageRef.current;
-      if (!box || e.button !== 0) return;
-      e.preventDefault();
-      const r = box.getBoundingClientRect();
-      const toN = (cx: number, cy: number) => ({
-        nx: Math.min(1, Math.max(0, (cx - r.left) / r.width)),
-        ny: Math.min(1, Math.max(0, (cy - r.top) / r.height)),
-      });
-      const p = toN(e.clientX, e.clientY);
-      const base = clip.crop;
-      const inRect =
-        !!base &&
-        p.nx >= base.nx &&
-        p.nx <= base.nx + base.nw &&
-        p.ny >= base.ny &&
-        p.ny <= base.ny + base.nh;
-
-      const attach = (move: (ev: PointerEvent) => void) => {
-        const up = () => {
-          window.removeEventListener("pointermove", move);
-          window.removeEventListener("pointerup", up);
-        };
-        window.addEventListener("pointermove", move);
-        window.addEventListener("pointerup", up);
-      };
-
-      if (inRect && base) {
-        const offX = p.nx - base.nx;
-        const offY = p.ny - base.ny;
-        drawingRef.current = true;
-        attach((ev) => {
-          if (!drawingRef.current) return;
-          const q = toN(ev.clientX, ev.clientY);
-          onChange({
-            crop: {
-              ...base,
-              nx: Math.min(1 - base.nw, Math.max(0, q.nx - offX)),
-              ny: Math.min(1 - base.nh, Math.max(0, q.ny - offY)),
-            },
-          });
-        });
-        return;
-      }
-
-      const startN = p;
-      drawingRef.current = true;
-      const move = (ev: PointerEvent) => {
-        if (!drawingRef.current) return;
-        const endN = toN(ev.clientX, ev.clientY);
-        const nxMin = Math.min(startN.nx, endN.nx);
-        const nyMin = Math.min(startN.ny, endN.ny);
-        let nw = Math.abs(endN.nx - startN.nx);
-        let nh = Math.abs(endN.ny - startN.ny);
-        if (clip.lockRatio && nw > 0) {
-          nh = Math.min(nh, nw);
-          nw = nh;
-        }
-        nw = Math.min(nw, 1 - nxMin);
-        nh = Math.min(nh, 1 - nyMin);
-        onChange({ crop: { nx: nxMin, ny: nyMin, nw, nh } });
-      };
-      attach(move);
-    },
-  };
-
-  const px = clip.crop ? cropPx(clip.crop, dims) : null;
+  const px = clip.crop ? cropToPx(clip.crop, dims) : null;
 
   const togglePlay = () => {
     if (playing) {
       playerRef.current?.pause();
       setPlaying(false);
     } else {
+      // 区间内预览：起播点在区间外（含播完暂停在出点）时先回到入点
+      if (seg && (current < seg.start - 0.02 || current >= seg.end - 0.02)) {
+        playerRef.current?.seek(seg.start);
+        setCurrent(seg.start);
+      }
       playerRef.current?.play();
       setPlaying(true);
     }
@@ -1564,23 +1488,13 @@ function EditModeView({
                 controls={false}
                 src={fileSrc(proxyPath ?? source.path)}
                 banner={proxyPath ? "当前为代理预览画面，导出使用原始文件" : null}
-                onTime={setCurrent}
+                onTime={handleTime}
                 onPlayStateChange={setPlaying}
                 onError={onError}
                 onLoadedMetadata={() => playerRef.current?.seek(clip.seg?.start ?? 0)}
               />
             </div>
-            {tab === "crop" && clip.crop && (
-              <div
-                className="pointer-events-none absolute border-2 border-signal bg-signal/10"
-                style={{
-                  left: `${clip.crop.nx * 100}%`,
-                  top: `${clip.crop.ny * 100}%`,
-                  width: `${clip.crop.nw * 100}%`,
-                  height: `${clip.crop.nh * 100}%`,
-                }}
-              />
-            )}
+            {tab === "crop" && clip.crop && <CropBox rect={clip.crop} />}
           </div>
         </div>
         {/* 走带控制外置：控制条在变换盒内会被旋转/裁剪层遮挡（§9.8 预览约定） */}
@@ -1601,6 +1515,17 @@ function EditModeView({
           <span className="shrink-0 font-mono text-[10px] text-mute">
             {formatTime(current, false)} / {formatTime(info.durationSec, false)}
           </span>
+          {seg && (
+            <button
+              type="button"
+              onClick={() => setLoop((v) => !v)}
+              aria-pressed={loop}
+              title="循环播放片段区间"
+              className={`${fieldBtn} ${loop ? "text-signal" : ""}`}
+            >
+              循环
+            </button>
+          )}
         </div>
       </div>
 
@@ -1626,107 +1551,31 @@ function EditModeView({
           </div>
         ) : (
           <CropFields
+            dense
             dims={dims}
-            px={px}
+            rect={px}
+            onChange={(crop) => onChange({ crop })}
             lockRatio={clip.lockRatio}
             onLockRatio={(v) => onChange({ lockRatio: v })}
-            onCrop={(crop) => onChange({ crop })}
-            onClear={() => onChange({ crop: null })}
+            hint={`在预览上拖拽框选（框内拖动=移动选区），坐标基于旋转后的画面。${cropSizeText(px, dims)}放大必然重编码，画质用页脚质量档位权衡。`}
+            extra={
+              px && (
+                <button
+                  type="button"
+                  onClick={() => onChange({ crop: null })}
+                  className="rounded-md px-2 py-1 text-xs text-mute transition-colors hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                >
+                  清除选区
+                </button>
+              )
+            }
           />
         )}
         <p className="text-[11px] leading-relaxed text-mute/70">
           区间 {clip.seg ? `${formatTime(clip.seg.start, false)}–${formatTime(clip.seg.end, false)}` : "全段"}
-          ；如需重剪，删除此片段后从素材卡重新剪切。
+          {clip.seg ? "，播放限制在区间内、播完出点即停（可开循环）" : ""}；如需重剪，删除此片段后从素材卡重新剪切。
         </p>
       </div>
-    </div>
-  );
-}
-
-/** 放大数值微调（偶数对齐，坐标基于旋转后的显示空间） */
-function CropFields({
-  dims,
-  px,
-  lockRatio,
-  onLockRatio,
-  onCrop,
-  onClear,
-}: {
-  dims: { w: number; h: number };
-  px: { x: number; y: number; w: number; h: number } | null;
-  lockRatio: boolean;
-  onLockRatio(v: boolean): void;
-  onCrop(crop: CropNorm): void;
-  onClear(): void;
-}) {
-  const [fields, setFields] = useState({ x: "0", y: "0", w: "0", h: "0" });
-
-  useEffect(() => {
-    if (px) setFields({ x: String(px.x), y: String(px.y), w: String(px.w), h: String(px.h) });
-  }, [px]);
-
-  const commit = () => {
-    const x = even(Number(fields.x) || 0);
-    const y = even(Number(fields.y) || 0);
-    let w = even(Number(fields.w) || 0);
-    let h = even(Number(fields.h) || 0);
-    if (w < 16 || h < 16) return;
-    if (x + w > dims.w) w = dims.w - even(Math.min(x, dims.w - 16));
-    if (y + h > dims.h) h = dims.h - even(Math.min(y, dims.h - 16));
-    if (w < 16 || h < 16) return;
-    onCrop({ nx: x / dims.w, ny: y / dims.h, nw: w / dims.w, nh: h / dims.h });
-  };
-
-  const field = (key: keyof typeof fields, label: string) => (
-    <label className="flex flex-col gap-1">
-      <span className="text-[11px] text-mute">{label}</span>
-      <input
-        value={fields[key]}
-        onChange={(e) => setFields((f) => ({ ...f, [key]: e.target.value }))}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-        }}
-        className="w-20 rounded border border-hairline bg-panel px-2 py-1.5 font-mono text-xs text-paper focus:border-signal focus:outline-none"
-      />
-    </label>
-  );
-
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-end gap-2">
-        {field("x", "X")}
-        {field("y", "Y")}
-        {field("w", "宽")}
-        {field("h", "高")}
-      </div>
-      <div className="flex items-center gap-3">
-        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-mute">
-          <input
-            type="checkbox"
-            checked={lockRatio}
-            onChange={(e) => onLockRatio(e.target.checked)}
-            className="accent-signal"
-          />
-          锁定画面比例
-        </label>
-        {px && (
-          <button
-            type="button"
-            onClick={onClear}
-            className="rounded-md px-2 py-1 text-xs text-mute transition-colors hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-          >
-            清除选区
-          </button>
-        )}
-      </div>
-      <p className="text-[11px] leading-relaxed text-mute/70">
-        在预览上拖拽框选（框内拖动=移动选区），坐标基于旋转后的画面。
-        {px
-          ? `已选 ${px.w}×${px.h} @ (${px.x}, ${px.y})，输出将放大回 ${dims.w}×${dims.h}。`
-          : "尚未框选。"}
-        放大必然重编码，画质用页脚质量档位权衡。
-      </p>
     </div>
   );
 }

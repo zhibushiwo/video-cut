@@ -148,5 +148,7 @@ pub(crate) fn run(
         shared.record_terminal(&ctx.handle);
     }
     ctx.handle.clear_killer();
+    // 终态清理钩子：运行路径（完成/失败/运行中取消）在此兜底；排队中取消由 cancel 侧兜底
+    shared.run_cleanup(&ctx.handle.id);
     shared.task_finished();
 }

@@ -86,28 +86,49 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     useEffect(() => {
       const v = videoRef.current;
       if (!v) return;
+      // rAF 链只允许一条：start/stop 由 ticking 守门，重复调用无副作用（R1-1）
+      let ticking = false;
       const tick = () => {
+        if (!ticking) return;
         setCur(v.currentTime);
         onTimeRef.current?.(v.currentTime);
         rafRef.current = requestAnimationFrame(tick);
       };
-      const onPlay = () => {
-        cancelAnimationFrame(rafRef.current);
+      const start = () => {
+        if (ticking) return;
+        ticking = true;
         rafRef.current = requestAnimationFrame(tick);
+      };
+      const stop = () => {
+        ticking = false;
+        cancelAnimationFrame(rafRef.current);
+      };
+      // 链停止后手动上报一次落点（暂停/seek 的当前位置），保证暂停态时间仍准确
+      const report = () => {
+        setCur(v.currentTime);
+        onTimeRef.current?.(v.currentTime);
+      };
+      const onPlay = () => {
+        start();
         onPlayStateRef.current?.(true);
       };
       const onPause = () => {
+        stop();
+        report();
         onPlayStateRef.current?.(false);
       };
+      // seeked 会打断 rAF 链，但播放中 seek 不再触发 play 事件 → 必须自行重启，
+      // 否则时间上报永久冻结（播放头停住、方向键步进失效、M9-5 区间预览首次到出点即静默失效）。
       const onStop = () => {
-        cancelAnimationFrame(rafRef.current);
-        setCur(v.currentTime);
-        onTimeRef.current?.(v.currentTime);
+        report();
+        if (v.paused || v.ended) stop();
+        else start();
       };
       v.addEventListener("play", onPlay);
       v.addEventListener("pause", onPause);
       v.addEventListener("seeked", onStop);
       return () => {
+        ticking = false;
         cancelAnimationFrame(rafRef.current);
         v.removeEventListener("play", onPlay);
         v.removeEventListener("pause", onPause);

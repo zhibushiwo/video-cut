@@ -18,6 +18,11 @@ pub type Job = Box<dyn FnOnce(&TaskContext) -> Result<(), String> + Send>;
 /// 立即终止任务的后台动作（如 kill ffmpeg 子进程），cancel 时触发。
 pub type Killer = Box<dyn FnOnce() + Send>;
 
+/// 任务级终态清理钩子（R1-3）：收到任务 ID，在任务到达终态后**只执行一次**。
+/// 由执行器（完成/失败）与 `cancel`（排队中取消）两侧兜底调用——后者不执行作业体，
+/// 提交方写在作业体里的簿记回收会被整体跳过，故必须由任务系统统一触发。
+pub type Cleanup = Box<dyn FnOnce(&str) + Send>;
+
 /// 事件推送抽象：生产环境发 Tauri 事件，测试环境收集断言。
 pub trait EventSink: Send + Sync {
     fn emit_status(&self, payload: &StatusPayload);
@@ -156,6 +161,8 @@ impl TaskContext {
 struct TaskEntry {
     handle: Arc<TaskHandle>,
     sink: Arc<dyn EventSink>,
+    /// 终态清理钩子，执行前 take 走（幂等）。
+    cleanup: Option<Cleanup>,
 }
 
 /// 终态回调：历史记录等订阅者经此接入，任务模块保持与 Tauri 解耦。
@@ -182,6 +189,17 @@ impl Shared {
         inner.running -= 1;
         drop(inner);
         self.cv.notify_all();
+    }
+
+    /// 执行并消费任务的终态清理钩子（幂等：只有第一个调用者拿到闭包）。
+    pub(crate) fn run_cleanup(&self, id: &str) {
+        let cb = {
+            let mut inner = self.inner.lock().unwrap();
+            inner.tasks.get_mut(id).and_then(|e| e.cleanup.take())
+        };
+        if let Some(cb) = cb {
+            cb(id);
+        }
     }
 
     /// 终态落历史：仅首次到达生效（防取消与执行器并发双记）。
@@ -262,6 +280,19 @@ impl TaskManager {
     /// 提交任务：立即返回 TaskId，作业由调度线程在并发配额内执行（DESIGN §8.2）。
     #[allow(dead_code)] // M1 起由 commands/cut.rs 等调用
     pub fn submit(&self, sink: Arc<dyn EventSink>, kind: &str, label: &str, job: Job) -> String {
+        self.submit_with_cleanup(sink, kind, label, job, Box::new(|_| {}))
+    }
+
+    /// 带清理钩子的提交（R1-3）：需要回收簿记（如同源代理去重表条目）的调用方用此入口，
+    /// 保证「排队中被取消」也能回收——该路径不执行作业体。
+    pub fn submit_with_cleanup(
+        &self,
+        sink: Arc<dyn EventSink>,
+        kind: &str,
+        label: &str,
+        job: Job,
+        cleanup: Cleanup,
+    ) -> String {
         let id = self.next_id();
         let handle = Arc::new(TaskHandle {
             id: id.clone(),
@@ -284,6 +315,7 @@ impl TaskManager {
             TaskEntry {
                 handle: handle.clone(),
                 sink: sink.clone(),
+                cleanup: Some(cleanup),
             },
         );
         inner.queue.push_back((id.clone(), job));
@@ -291,6 +323,17 @@ impl TaskManager {
         TaskContext::new(handle, sink).emit_status();
         self.shared.cv.notify_all();
         id
+    }
+
+    /// 任务是否仍在排队/运行（R1-3）：提交方登记簿记前用它挡掉「已终结」的登记。
+    pub fn is_active(&self, id: &str) -> bool {
+        let inner = self.shared.inner.lock().unwrap();
+        inner.tasks.get(id).is_some_and(|e| {
+            matches!(
+                *e.handle.status.lock().unwrap(),
+                TaskStatus::Pending | TaskStatus::Probing | TaskStatus::Running
+            )
+        })
     }
 
     /// 取消任务：排队中直接置 Cancelled；运行中置标记并触发 killer（kill 子进程）。
@@ -319,6 +362,8 @@ impl TaskManager {
             TaskContext::new(handle.clone(), sink).emit_status();
             // 排队中直接取消不会经过执行器，这里补记终态历史
             self.shared.record_terminal(&handle);
+            // 同样补跑清理钩子：作业体被丢弃，簿记回收只能由这里兜底（R1-3）
+            self.shared.run_cleanup(id);
         }
         true
     }
@@ -405,6 +450,7 @@ fn scheduler_loop(shared: Arc<Shared>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
     use std::time::{Duration, Instant};
 
     #[derive(Default)]
@@ -475,6 +521,75 @@ mod tests {
         assert!(sink.progresses.lock().unwrap().iter().any(|(id, p)| id == &id1 && *p == 0.5));
         assert_eq!(s2.status, TaskStatus::Failed);
         assert_eq!(s2.error.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn completed_task_runs_cleanup_once() {
+        let mgr = TaskManager::new(1);
+        let sink: Arc<dyn EventSink> = Arc::new(CollectSink::default());
+        let cleaned = Arc::new(AtomicUsize::new(0));
+        let c2 = cleaned.clone();
+        let id = mgr.submit_with_cleanup(
+            sink,
+            "test",
+            "正常完成",
+            Box::new(|_| Ok(())),
+            Box::new(move |_| {
+                c2.fetch_add(1, Ordering::Relaxed);
+            }),
+        );
+        wait_terminal(&mgr, &[&id], Duration::from_secs(5));
+        // 清理钩子在终态之后执行，poll 等它跑完
+        let start = Instant::now();
+        while cleaned.load(Ordering::Relaxed) == 0 && start.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(cleaned.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn queued_cancel_runs_cleanup_once() {
+        let mgr = TaskManager::new(1);
+        let sink: Arc<dyn EventSink> = Arc::new(CollectSink::default());
+        // 占满唯一并发位，让后续任务停留在排队中
+        let blocker = mgr.submit(
+            sink.clone(),
+            "test",
+            "阻塞",
+            Box::new(|ctx| {
+                let start = Instant::now();
+                while !ctx.is_cancelled() && start.elapsed() < Duration::from_secs(5) {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Ok(())
+            }),
+        );
+        let ran = Arc::new(AtomicUsize::new(0));
+        let cleaned = Arc::new(AtomicUsize::new(0));
+        let ran2 = ran.clone();
+        let cleaned2 = cleaned.clone();
+        let queued = mgr.submit_with_cleanup(
+            sink,
+            "proxy",
+            "排队中取消",
+            Box::new(move |_| {
+                ran2.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }),
+            Box::new(move |_| {
+                cleaned2.fetch_add(1, Ordering::Relaxed);
+            }),
+        );
+        assert!(mgr.cancel(&queued));
+        // 排队中被取消：作业体不执行，但清理钩子必须跑一次（R1-3 泄漏点）
+        assert_eq!(ran.load(Ordering::Relaxed), 0);
+        assert_eq!(cleaned.load(Ordering::Relaxed), 1);
+        // 重复取消不重复清理（钩子只执行一次）
+        assert!(mgr.cancel(&queued));
+        assert_eq!(cleaned.load(Ordering::Relaxed), 1);
+        // 收尾：放开阻塞任务，避免线程悬挂
+        assert!(mgr.cancel(&blocker));
+        wait_terminal(&mgr, &[&blocker], Duration::from_secs(5));
     }
 
     #[test]

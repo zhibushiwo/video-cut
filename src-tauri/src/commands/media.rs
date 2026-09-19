@@ -249,12 +249,17 @@ pub fn generate_proxy(
 
     // 进行中去重：同源代理生成中 → 返回既有 taskId，前端监听同一任务的完成事件
     {
-        let pending = pending_proxies().lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(running_id) = pending.get(&input) {
-            return Ok(ProxyStart {
-                task_id: Some(running_id.clone()),
-                proxy_path: path_to_string(&output),
-            });
+        let mut pending = pending_proxies().lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(running_id) = pending.get(&input).cloned() {
+            // 条目理应只指向活动任务（终态回收见下方 cleanup 钩子）；仍按活性自愈一次，
+            // 避免万一残留导致该源在本次会话内再也无法生成代理（R1-3）
+            if state.0.is_active(&running_id) {
+                return Ok(ProxyStart {
+                    task_id: Some(running_id),
+                    proxy_path: path_to_string(&output),
+                });
+            }
+            pending.remove(&input);
         }
     }
 
@@ -307,18 +312,31 @@ pub fn generate_proxy(
             ctx.add_output(path_to_string(&job_output));
             Ok(())
         })();
-        pending_proxies()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(&job_input);
         result
     });
 
-    let task_id = state.0.submit(Arc::new(TauriEmitter(app)), "proxy", &label, job);
-    pending_proxies()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(input, task_id.clone());
+    let dedup_key = input.clone();
+    let task_id = state.0.submit_with_cleanup(
+        Arc::new(TauriEmitter(app)),
+        "proxy",
+        &label,
+        job,
+        // 终态回收去重条目（R1-3）：排队中被取消的任务不执行作业体，
+        // 若只在作业体末尾移除，条目会永久残留
+        Box::new(move |id| {
+            let mut pending = pending_proxies().lock().unwrap_or_else(|e| e.into_inner());
+            if pending.get(&dedup_key).map(String::as_str) == Some(id) {
+                pending.remove(&dedup_key);
+            }
+        }),
+    );
+    // 登记去重条目：任务若已到终态（钩子先跑完）就不再登记，否则会留下指向终态任务的残留条目
+    if state.0.is_active(&task_id) {
+        pending_proxies()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(input, task_id.clone());
+    }
     Ok(ProxyStart {
         task_id: Some(task_id),
         proxy_path: path_to_string(&output),

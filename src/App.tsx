@@ -7,6 +7,7 @@ import HistoryPage from "./pages/History";
 import SettingsPage from "./pages/Settings";
 import TaskProgress from "./components/TaskProgress";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "./services/settings";
+import { useTauriEvent } from "./hooks/useTauriEvent";
 import {
   checkEnvironment,
   onDragHover,
@@ -42,13 +43,19 @@ export default function App() {
       setSettingsReady(true);
       applyAccent(s.accent);
     });
-    // 关闭窗口守卫（DESIGN §9.9）：有未完成任务时二次确认
-    let unClose: (() => void) | undefined;
-    void onWindowCloseGuard().then((f) => {
-      unClose = f;
-    });
-    return () => unClose?.();
   }, []);
+
+  // 关闭窗口守卫（DESIGN §9.9）：有未完成任务时二次确认
+  useTauriEvent(() => onWindowCloseGuard());
+
+  // 拖拽导入：落在当前页面由其自行接收（工作台追加为素材，剪切/合并/编辑页原地加载）
+  useTauriEvent(() =>
+    onVideoDropped((paths) => {
+      setDragOver(false);
+      setPending(paths);
+    }),
+  );
+  useTauriEvent(() => onDragHover(setDragOver));
 
   const updateSettings = useCallback(
     (patch: Partial<AppSettings>) => {
@@ -59,25 +66,6 @@ export default function App() {
     },
     [settings],
   );
-
-  // 拖拽导入：落在当前页面由其自行接收（工作台追加为素材，剪切/合并/编辑页原地加载）
-  useEffect(() => {
-    let unDrop: (() => void) | undefined;
-    let unHover: (() => void) | undefined;
-    void onVideoDropped((paths) => {
-      setDragOver(false);
-      setPending(paths);
-    }).then((f) => {
-      unDrop = f;
-    });
-    void onDragHover(setDragOver).then((f) => {
-      unHover = f;
-    });
-    return () => {
-      unDrop?.();
-      unHover?.();
-    };
-  }, []);
 
   const navigate = (p: PageName) => {
     setPending(null);
