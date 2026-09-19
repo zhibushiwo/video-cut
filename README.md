@@ -63,12 +63,12 @@ pnpm tauri build
 
 ```
 video-cut/
-├── docs/                        # DESIGN（设计定稿）/ PLAN（里程碑）/ HANDOFF（状态快照）
+├── docs/                        # 文档（见下方「文档地图」）
 ├── scripts/                     # fetch-ffmpeg / 图标源与渲染脚本 / 测试夹具生成
 ├── src/                         # React 前端
 │   ├── components/              # VideoPlayer / Timeline / ClipTimeline / ProductPreview / TaskProgress 等
 │   ├── pages/                   # Workbench（落地页）/ Cut / Merge / Editor / Settings / History
-│   ├── hooks/                   # useDragSort（指针拖拽排序，决策 #18）
+│   ├── hooks/                   # useDragSort（指针拖拽排序，决策 #18）/ useHotkeys
 │   ├── services/tauri.ts        # 唯一 IPC 入口（invoke 封装 + 事件订阅）
 │   └── types/                   # 与 Rust 数据模型对齐的 TS 类型
 └── src-tauri/                   # Rust 后端
@@ -78,12 +78,17 @@ video-cut/
     └── binaries/                # FFmpeg sidecar（不入 git，fetch-ffmpeg.ps1 下载）
 ```
 
+## 文档地图
+
+完整文档清单、ID 规范与"改什么读什么"的对照表统一维护在 **[`docs/INDEX.md`](docs/INDEX.md)**（避免多处重复）；开发约定与工程红线见 **[`AGENTS.md`](AGENTS.md)**。
+
+> 文档体系最后更新：2026-09-19（此后各文档以自身首部「最后更新」为准）
+
 ## 开发说明
 
-- **设计即文档**：实现与设计冲突时先改 `docs/DESIGN.md` 再改代码；里程碑与进度见 `docs/PLAN.md`，会话交接状态见 `docs/HANDOFF.md`
-- 所有 FFmpeg 参数只在 `src-tauri/src/ffmpeg/command.rs` 一处拼装（可单测审计）
-- 前端通过 `services/tauri.ts` 调 Rust 命令；新增命令需在 `src-tauri/src/lib.rs` 的 `invoke_handler` 注册并按需补 capability
-- 窗口内部拖拽一律指针事件实现（HTML5 DnD 在 Tauri Windows 下被文件拖拽通道吞掉）
+- **设计即文档**：实现与设计冲突时先改 `docs/DESIGN.md` 再改代码；进度只改 `docs/PLAN.md` 的 checkbox；历史批次要点追加到 `docs/archive/handoff-archive.md`
+- 文档引用约定：同文档写 `§N`，跨文档写 `文件名 §N`（章节号沿用旧编号，DESIGN.md 编号不连续属预期）
+- **命令、禁区与完事标准见 [`AGENTS.md`](AGENTS.md)**（FFmpeg 参数唯一拼装处、`spawn_hidden`、IPC 入口、拖拽实现、测试三项全绿等）
 - `Cargo.toml` 已做发布构建优化（LTO、单 codegen unit、符号剥离）
 
 ## 许可证

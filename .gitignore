@@ -33,3 +33,8 @@ scripts/fixtures/
 # tauri icon 生成的移动端图标（纯 Windows 应用用不到）
 src-tauri/icons/android/
 src-tauri/icons/ios/
+
+# 代码审查报告快照（一次性产物，非项目文档；规格真源仍在 docs/）
+cr/
+
+.workbuddy
