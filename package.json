@@ -8,6 +8,8 @@
     "build": "tsc && vite build",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "check:docs": "node scripts/check-docs.mjs",
+    "hooks:install": "git config core.hooksPath .githooks",
     "preview": "vite preview",
     "tauri": "tauri"
   },

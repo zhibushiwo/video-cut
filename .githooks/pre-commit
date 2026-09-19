@@ -1,0 +1,28 @@
+#!/bin/sh
+# video-cut pre-commit —— 文档一致性检查（四项：链接 / § 归属 / ID 交叉 / skip 区间）
+#
+# 安装（一次即可，写入本地 .git/config，不动仓库历史）：
+#   git config core.hooksPath .githooks      # 或 pnpm hooks:install
+# 本文件入库，换机器重跑上面那条命令即恢复，不依赖裸放 .git/hooks。
+#
+# 临时跳过：git commit --no-verify
+set -u
+
+if ! command -v node >/dev/null 2>&1; then
+  echo "[pre-commit] 未找到 node，跳过 check-docs（请把 node 放上 PATH；或 git commit --no-verify）" >&2
+  exit 0
+fi
+
+# 本次提交未触及文档面时直接放行（避免无谓等待）
+if [ -t 1 ]; then
+  echo "[pre-commit] 文档一致性检查 …"
+fi
+
+if node scripts/check-docs.mjs; then
+  exit 0
+fi
+
+echo "" >&2
+echo "[pre-commit] ✘ check-docs 未通过，提交已阻断。" >&2
+echo "[pre-commit]   修复上面列出的项后重试；确需跳过：git commit --no-verify" >&2
+exit 1
