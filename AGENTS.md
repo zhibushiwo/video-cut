@@ -81,7 +81,7 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 2. 动过 `command.rs` ⇒ 有对应的参数序列断言
 3. 动过 UI ⇒ 在提交说明或回复里列出**手测点**（测试口径见 [docs/TESTING.md](docs/TESTING.md)）
 4. 动过规格 ⇒ 同步更新 DESIGN 的 FR/AC 或对应文档
-5. **动过 `docs/**`、`README.md` 或 `AGENTS.md` ⇒ `node scripts/check-docs.mjs` 三项全绿**（`pnpm check:docs`；链接可达 / § 引用归属 / ID 交叉定义）
+5. **动过 `docs/**`、`README.md` 或 `AGENTS.md` ⇒ `node scripts/check-docs.mjs` 五项全绿**（`pnpm check:docs`；链接可达 / § 引用归属 / ID 交叉定义 / skip 区间合规 / 反引号路径可达）
 6. 完成的任务在 `docs/PLAN.md` 勾选（一个 checkbox 一次提交）
 
 ## 5. 提交约定
@@ -97,7 +97,12 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 3. 查 [docs/CANDIDATES.md](docs/CANDIDATES.md) → 若属未立项新功能，先走晋升流程
 4. 改规格（DESIGN / UI / TIMELINE / FFMPEG）→ 改代码 → 补测试 → 勾 PLAN
 
-## 7. 环境注意（受限环境/沙箱，正常终端可跳过）
+## 7. 环境注意
+
+**换行符：全仓库统一 LF（任何终端都适用）**。根 `.gitattributes` 是 `* text=auto eol=lf` —— 属性优先级**高于** `core.autocrlf`，所以无论谁机器上怎么配，索引与工作区都是 LF，`.githooks/pre-commit` 不会因 `#!/bin/sh\r` 静默失效。
+若你的工作区仍见 CRLF（或 `git status` 报"内容没变却修改"），跑一次 `git config core.autocrlf false` —— 本机 `core.autocrlf=true` 来自 **system 级** Git 配置（Git for Windows 默认值），**不是仓库设置**，所以只改它不会入库、换机器要重设。
+
+**以下仅受限环境/沙箱，正常终端可跳过**：
 
 - 受限进程里 **pnpm 建不出软链**：`node_modules/<pkg>` 会留空目录、所有命令报 MODULE_NOT_FOUND。
   对策：`pnpm install --force --config.node-linker=hoisted`（真实文件、无链接）。

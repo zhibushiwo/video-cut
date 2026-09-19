@@ -2,13 +2,15 @@
 /**
  * video-cut 文档一致性检查
  *
- * 四项：
+ * 五项：
  *   1. markdown 链接可达   所有 ](path) 目标文件必须存在
  *   2. § 引用归属          每个 §N 必须能归属到某文档且该章节真实存在
  *   3. ID 交叉定义         FR/NFR/AC→DESIGN · TC→TESTING · CAND→CANDIDATES
  *                          · ADR→DECISIONS · BUG→BUGS · 引用必须有定义
  *   4. skip 区间合规       每个 `<!-- check-docs:skip -->` 区间必须
  *                          ① 紧邻一行写明豁免原因 ② 该文件登记在 INDEX.md §7.1
+ *   5. 反引号路径可达      反引号里的 src/ · src-tauri/ · scripts/ · docs/ 路径必须存在
+ *                          （`docs/archive/**` 是历史快照，豁免；计划中文件见 PLANNED）
  *
  * 扫描根：`AGENTS.md` · `README.md` · `docs/**\/*.md`
  *
@@ -265,6 +267,53 @@ for (const [file, rows] of SCANNED) {
       ? `区间：${SKIP_BLOCKS.map((b) => `${rel(b.file)}:${b.start}-${b.end}`).join(' · ')}`
       : '当前无 skip 区间',
     `登记表：${[...registry].join(' · ') || '（空）'}`,
+  ]);
+}
+
+// ─────────────────── ⑤ 反引号路径可达 ───────────────────
+{
+  /** 计划中 / 按需创建的文件：尚未存在属预期，不计失败 */
+  const PLANNED = new Set([
+    'docs/REVIEW.md',        // INDEX §6.2 升级口子：评审成常规流程时才建
+    'docs/archive/bugs.md',  // BUGS.md §5：首次归档 verified 条目时按需创建
+  ]);
+  const PREFIX = /^(src|src-tauri|scripts|docs|public|video)\//;
+  let total = 0;
+  const failures = [];
+  const plannedHits = new Set();
+  for (const [file, rows] of SCANNED) {
+    // 归档是历史快照（照录当时的路径与提案），不参与路径校验
+    if (rel(file).startsWith('docs/archive/')) continue;
+    for (const { n, line, skip } of rows) {
+      if (skip) continue;
+      for (const m of line.matchAll(/`([^`]+)`/g)) {
+        for (const part of m[1].split(' + ')) {
+          const raw = part.trim();
+          if (!PREFIX.test(raw)) continue;
+          if (/[*<>]/.test(raw)) continue;        // 通配 / 占位写法
+          if (/^(pnpm|npm|node|git|cargo|powershell|pwsh)\b/.test(raw)) continue;
+          const cands = [];
+          if (raw.includes('{')) {
+            const a = raw.indexOf('{'), b = raw.indexOf('}');
+            for (const x of raw.slice(a + 1, b).split(',')) {
+              cands.push(raw.slice(0, a) + x + raw.slice(b + 1));
+            }
+          } else cands.push(raw);
+          for (const c of cands) {
+            const q = c.replace(/[:#].*$/, '');
+            if (!q || q.endsWith('/')) continue;
+            total++;
+            if (existsSync(resolve(ROOT, q))) continue;
+            if (PLANNED.has(q)) { plannedHits.add(q); continue; }
+            failures.push(`${rel(file)}:${n}  →  \`${q}\` 不存在`);
+          }
+        }
+      }
+    }
+  }
+  report('5. 反引号路径可达', total, failures, [
+    plannedHits.size ? `计划中（不计失败）：${[...plannedHits].join(' · ')}` : '无计划中路径',
+    '归档 docs/archive/** 豁免（历史快照照录当时路径）',
   ]);
 }
 
