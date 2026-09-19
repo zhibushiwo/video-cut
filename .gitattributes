@@ -1,12 +1,28 @@
-# 统一换行符：脚本必须 LF
+# 统一换行符：全仓库文本文件一律 LF
 #
-# 仓库本地 core.autocrlf=true（Windows 默认），检出时会把文本文件的 LF 换成 CRLF。
-# 这对 `#!` 脚本是致命的：`#!/bin/sh\r` 会被内核/解释器判为不存在的解释器，
-# git 钩子（.githooks/pre-commit）与 node 脚本都会因此无法执行。
-# 故对脚本路径强制 eol=lf（索引与工作区都保持 LF）。
+# 背景：本机 Git for Windows 的 **系统级** core.autocrlf=true，检出时会把文本文件的
+# LF 换成 CRLF（工作区看着是 CRLF，索引里其实一直是 LF）。这对脚本是致命的：
+# `#!/bin/sh\r` 会被判为不存在的解释器，git 钩子与 node 脚本都会无法执行。
 #
-# 说明：只针对脚本路径，不用 `* text=auto`，避免对全仓库做一次性重新规范化。
+# 这里用属性（attribute）统一强制 LF —— 属性优先级高于 core.autocrlf，
+# 所以无论别人机器上 autocrlf 设成什么，检出结果都是 LF。
+#
+# 配合建议：`git config core.autocrlf false`（本仓库已设）；属性已能兜底，
+# 这条只是消除 git 的状态警告。
+#
+# `* text=auto` 让 git 自动识别二进制（PNG/ICO 等不受影响），`eol=lf` 保证索引与工作区都是 LF。
 
+*             text=auto eol=lf
+
+# 脚本类显式再声明（可读性；与上面规则一致）
 .githooks/**  text eol=lf
 *.sh          text eol=lf
 *.mjs         text eol=lf
+
+# 二进制显式标记，避免被误判为文本
+*.png         binary
+*.ico         binary
+*.icns        binary
+*.mp4         binary
+*.mov         binary
+*.mkv         binary
