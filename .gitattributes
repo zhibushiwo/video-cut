@@ -1,0 +1,12 @@
+# 统一换行符：脚本必须 LF
+#
+# 仓库本地 core.autocrlf=true（Windows 默认），检出时会把文本文件的 LF 换成 CRLF。
+# 这对 `#!` 脚本是致命的：`#!/bin/sh\r` 会被内核/解释器判为不存在的解释器，
+# git 钩子（.githooks/pre-commit）与 node 脚本都会因此无法执行。
+# 故对脚本路径强制 eol=lf（索引与工作区都保持 LF）。
+#
+# 说明：只针对脚本路径，不用 `* text=auto`，避免对全仓库做一次性重新规范化。
+
+.githooks/**  text eol=lf
+*.sh          text eol=lf
+*.mjs         text eol=lf
