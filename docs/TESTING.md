@@ -3,9 +3,9 @@
 > **职责**：测试用例（TC）清单、夹具、执行方式与验收结论的记录口径。
 > **唯一真源**：**测试怎么跑、用什么夹具、当前 TC 覆盖哪些验收**以本文为准；**验收口径本身**（AC）在 [DESIGN.md](./DESIGN.md) §3 各节末，本文只引用 AC 号，不抄正文。
 > **读时机**：写/改测试前；跑一次完整验证前；需要给出"这条验收过了吗"的结论时。
-> **写规则**：新增测试或验收组时追加 TC 行并写明 `引用 AC`；TC 号不复用；只记**验收/回归级**用例——单元测试留在代码里（`cargo test` 即执行记录），不抄进本文。
-> **关联**：[INDEX.md](./INDEX.md)（ID 与地图） · 上位 [DESIGN.md](./DESIGN.md) · 进度 [PLAN.md](./PLAN.md) · 夹具规范 [FFMPEG.md](./FFMPEG.md) §6.6
-> **最后更新**：2026-09-19（B1 建立；AC 号随 B3 在 DESIGN 发号）
+> **写规则**：新增测试或验收组时追加 TC 行并写明 `引用 AC`（缺陷驱动的写在 §3.4，标注 `关联 BUG-0NN`）；TC 号不复用；只记**验收/回归级**用例——单元测试留在代码里（`cargo test` 即执行记录），不抄进本文。
+> **关联**：[INDEX.md](./INDEX.md)（ID 与地图） · 上位 [DESIGN.md](./DESIGN.md) · 进度 [PLAN.md](./PLAN.md) · 缺陷 [BUGS.md](./BUGS.md) · 夹具规范 [FFMPEG.md](./FFMPEG.md) §6.6
+> **最后更新**：2026-09-19（新增 §3.4 回归测试：TC-019–TC-023 关联 BUG-001–005）
 
 ---
 
@@ -17,6 +17,7 @@
 | 静态检查 | `pnpm lint`（`eslint .`） | react-hooks 依赖、`@tauri-apps/*` 只允许 `services/` 内导入 |
 | 后端全量 | `cd src-tauri && cargo test` | **62 个单测 + 3 条 e2e**；e2e 需要 sidecar，缺失时自动跳过 |
 | 端到端应用 | `pnpm tauri dev` | 手测与 UI 验收 |
+| 文档一致性 | `pnpm check:docs`（`node scripts/check-docs.mjs`） | 三项：markdown 链接可达 · `§` 引用归属 · ID 交叉定义；改动 `docs/**`、`README.md`、`AGENTS.md` 后必跑 |
 
 > 受限环境（沙箱/无软链权限）：`node_modules` 可能装不出软链，改用
 > `pnpm install --force --config.node-linker=hoisted`，并用 `node <包>/bin/<入口>.js` 直调工具（详见 [../AGENTS.md](../AGENTS.md) §7）。
@@ -67,6 +68,19 @@
 - 文件对话框：行元素的 AXPress 是"打开"而非"选中"；多选用文件名输入框 `set_value` 后点打开
 - 受控输入框：坐标点击 + `ctrl+a` + 键入 + Enter 提交
 - 底部任务通知浮层会遮挡导出按钮，操作前先关掉
+
+### 3.4 回归测试（缺陷驱动）
+
+> 缺陷修复的**强制配套**：`BUG-0NN` 标 `fixed` 前必须先有对应 TC，标 `verified` 必须该 TC 跑通（见 [BUGS.md](./BUGS.md) §2/§4）。
+> 号段自 `TC-019` 起独立顺排，**不再区分自动化/手工**（性质写在"验证方式"列）。
+
+| TC | 关联 BUG | 验证什么 | 验证方式 | 状态 |
+| --- | --- | --- | --- | --- |
+| TC-019 | BUG-001 | 作业体 panic 后：任务进 Failed、并发槽归还，连续两次 panic 不冻结队列 | `cargo test` 单测 | 待建（R4-1） |
+| TC-020 | BUG-002 | 输出替换原子性：目标被占用时旧文件不丢、错误信息含 `.part` 完整路径 | `cargo test` 单测 + e2e | 待建（R4-2） |
+| TC-021 | BUG-003 | 三处指针拖拽：窗口外松手后监听器不残留、无拖拽态卡死、无意外重排 | 手工（合并页列表 / 剪切页 Timeline / 工作台 ClipTimeline） | 待建（R4-3） |
+| TC-022 | BUG-004 | `pxToCrop` 边界：x 在界内 / 恰好压界 / 远超界，w 最小 / 恰好 / 超界 | 手工（数值微调）；M11-0 引入 Vitest 后转自动化 | 待建（R4-4） |
+| TC-023 | BUG-005 | 合并页选 N 个文件、其中一个无法抽帧 → 其余缩略图仍显示 | 手工 | 待建（R4-5） |
 
 ## 4. 验收结论记录口径
 

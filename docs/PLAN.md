@@ -230,17 +230,17 @@
 
 > 用户裁决优先级不高，M9 完成后直接启动 M11。本批与时间线核心零耦合，随时可独立补做；设计要点不变。
 
-- [ ] **M10-1 [P1] 页面保活**（决策 #24）：Cut/Merge/Editor/Workbench 离开隐藏不卸载，隐藏瞬间自动暂停播放；History/Settings 维持条件挂载；设置变更即时生效不重置页面（UI.md §9.2） → **FR-9xx（待发号，UI.md §9.2）· AC 待发号 · MOD-014 · TC-014（决策 #24）**
-- [ ] **M10-2 [P2] 深浅主题**（B17，决策 #25）：`themeMode: dark | light | system` 设置项；`.theme-light` 变量组整体替换；跟随系统 matchMedia 监听实时切换；warn 琥珀与四个主题色浅底对比度逐一校对（UI.md §9.1） → **FR-9xx（待发号，UI.md §9.1）· AC 待发号 · MOD-014 · TC-014（B17，决策 #25）**
+- [ ] **M10-1 [P1] 页面保活**（决策 #24）：Cut/Merge/Editor/Workbench 离开隐藏不卸载，隐藏瞬间自动暂停播放；History/Settings 维持条件挂载；设置变更即时生效不重置页面（UI.md §9.2） → **FR-9xx（待发号，UI.md §9.2）· AC 待发号 · `pages`/`utils`/`types` · TC-014（决策 #24）**
+- [ ] **M10-2 [P2] 深浅主题**（B17，决策 #25）：`themeMode: dark | light | system` 设置项；`.theme-light` 变量组整体替换；跟随系统 matchMedia 监听实时切换；warn 琥珀与四个主题色浅底对比度逐一校对（UI.md §9.1） → **FR-9xx（待发号，UI.md §9.1）· AC 待发号 · `pages`/`utils`/`types` · TC-014（B17，决策 #25）**
 
 **验收**：AC 待发号（FR-9xx 随 M10 开工）· TC-014（口径见 DESIGN.md §3；执行见 TESTING.md）
 
 **实施顺序建议**：M9-1 → M9-2 → M9-3/4 → M9-5 → M10-1 → M10-2（M9 五项已于 2026-09-17 实施完毕；M10 现暂缓，恢复时按 M10-1 → M10-2 顺序做）。
 
-## 评审修复批次（2026-09-17 全量走读，2026-09-19 立项）
+## 评审修复批次（两轮：2026-09-17 三路走读 → 2026-09-19 四路复审）
 
-> 来源：三路并行代码审查（前端组件 / 页面与服务层 / Rust 后端）。总评：工程质量高于同规模均值，主线债务 = 跨文件复制粘贴式膨胀。完整清单见 [handoff-archive.md](./archive/handoff-archive.md)「Code Review（2026-09-17）」。
-> **排期硬约束**：R1 必须在动 M11 之前完成（其中 P0 是 M9-5 区间预览与 M11 播放头共同依赖的通路；**R1 已于 2026-09-19 完成**）；R2 并入 M11-0 实施；R3 在 M12-2 前实施。
+> **两轮审查**：① **2026-09-17** 三路并行走读（前端组件 / 页面与服务层 / Rust 后端），总评"工程质量高于同规模均值，主线债务 = 跨文件复制粘贴式膨胀"，要点见 [handoff-archive.md](./archive/handoff-archive.md)「Code Review（2026-09-17）」→ 产出 **R1/R2/R3**；② **2026-09-19** 四路并行复审 + 人工逐条复核（含契约三方比对），全文归档 [archive/code-review-2026-09-19.md](./archive/code-review-2026-09-19.md)，按 [INDEX.md](./INDEX.md) §6 分流 → 产出 **R4 + `BUG-001`–`BUG-005` + `ADR-033` + `T-003`**。
+> **排期硬约束**：R1 必须在动 M11 之前完成（**已于 2026-09-19 完成**）；**R4 同样排在 M11-0 之前**（理由见 R4 段）；R2 并入 M11-0 实施；R3 在 M12-2 前实施。
 
 ### R1 —— 动 M11 前必修（P0/P1，全是小改）
 
@@ -258,9 +258,9 @@
 
 > **关联**：—（工程批次，无 FR）　·　**验收**：—　——　执行：TESTING.md TC-005 + M11 回归
 
-- [ ] **R2-1** Workbench 拆分（SourceCards / CutModeView / EditModeView / CropFields / TimeField / useProxyPreview 各自成文件，净减约 700 行） → **—（工程批次）· MOD-013 · MOD-014 · TC-005**
-- [ ] **R2-2** 重复收敛：useProxyPreview 提升 `hooks/` 四端复用、CropOverlay 统一、TimeField 以 CutEditor 版为准、basename/resolveUniqueTarget/moveAt/QUALITY_LABELS 进 `utils/`、播放快捷键块抽 usePlaybackHotkeys → **—（工程批次）· MOD-010 · MOD-013 · MOD-014 · TC-005**
-- [ ] **R2-3** `useHotkeys` 页面激活门控（M11 新快捷键前置，否则 Cut 与 Workbench 的 I/O 同时响应） → **—（工程批次，M11-8 前置）· MOD-013 · TC-005**
+- [ ] **R2-1** Workbench 拆分（SourceCards / CutModeView / EditModeView / CropFields / TimeField / useProxyPreview 各自成文件，净减约 700 行） → **—（工程批次）· `ProductPreview`/`TaskProgress`/`hooks` · `pages`/`utils`/`types` · TC-005**
+- [ ] **R2-2** 重复收敛：useProxyPreview 提升 `hooks/` 四端复用、CropOverlay 统一、TimeField 以 CutEditor 版为准、basename/resolveUniqueTarget/moveAt/QUALITY_LABELS 进 `utils/`、播放快捷键块抽 usePlaybackHotkeys → **—（工程批次）· `services/tauri.ts` · `ProductPreview`/`TaskProgress`/`hooks` · `pages`/`utils`/`types` · TC-005**
+- [ ] **R2-3** `useHotkeys` 页面激活门控（M11 新快捷键前置，否则 Cut 与 Workbench 的 I/O 同时响应） → **—（工程批次，M11-8 前置）· `ProductPreview`/`TaskProgress`/`hooks` · TC-005**
 - [ ] **R2-4** ESLint 基线 + tsconfig `noUncheckedIndexedAccess`（可选） → **—（工程批次）· 构建配置（eslint/tsconfig）· TC-005**
 - [ ] **R2-5** 死代码清理：`App.css` 整文件 + main.tsx import、`TaskStatus::Probing`、4 处 `#[allow(dead_code)]`、TaskProgress 死三目、Editor CropControls `rect` prop、`fileTimestamp`/`EditorTool` 过度导出、package.json 删 `less`、tailwind 两包移 devDependencies → **—（工程批次）· 多模块 · TC-005**
 
@@ -268,12 +268,27 @@
 
 > **关联**：—（工程批次，无 FR）　·　**验收**：—　——　执行：TESTING.md TC-005 + TC-001~003 回归
 
-- [ ] **R3-1** probe 缓存改 LRU 逐条淘汰（现 ≥512 整体 clear，preview 高频提交会周期性清光关键帧缓存；FFMPEG.md §6.5） → **FR-313（缓存）· AC-313-1 · MOD-002 · TC-004**
-- [ ] **R3-2** 取消清理由 TaskManager 按 kind 统一管理（替代 pending_proxies 手工模式） → **FR-361 · FR-362 · AC-362-1 · MOD-004 · TC-004**
-- [ ] **R3-3** snapshot 过滤 internal 任务（否则常驻 preview 任务令关闭窗口确认失效） → **FR-360（面板可见性）· AC-360-1 · MOD-004 · MOD-010 · TC-015**
-- [ ] **R3-4** 进度节流样板收敛（7 份）+ **speed 接通**（现 speed 恒 None，前端速度列空壳） → **FR-361 · AC-361-1 · MOD-003 · MOD-010 · TC-004 · TC-015**
-- [ ] **R3-5** `prepare_output` 提交前导抽取（4 份）；`finalize_output` 消除"先删后改名"旧成品丢失窗口（pipeline/merge/crop/rotate 四处） → **NFR-008（输出前导/磁盘预检）· MOD-006 · MOD-007 · TC-004**
-- [ ] **R3-6** parking_lot 统一锁中毒策略；输出=输入比较改 canonicalize（大小写/斜杠绕过会覆盖源）；`cargo fmt --check` 纳入流程 → **NFR-006 · NFR-007 · MOD-004 · MOD-005 · TC-004**
+- [ ] **R3-1** probe 缓存改 LRU 逐条淘汰（现 ≥512 整体 clear，preview 高频提交会周期性清光关键帧缓存；FFMPEG.md §6.5） → **FR-313（缓存）· AC-313-1 · `ffmpeg/probe.rs` · TC-004**
+- [ ] **R3-2** 取消清理由 TaskManager 按 kind 统一管理（替代 pending_proxies 手工模式） → **FR-361 · FR-362 · AC-362-1 · `task/manager.rs` · TC-004**
+- [ ] **R3-3** snapshot 过滤 internal 任务（否则常驻 preview 任务令关闭窗口确认失效） → **FR-360（面板可见性）· AC-360-1 · `task/manager.rs` · `services/tauri.ts` · TC-015**
+- [ ] **R3-4** 进度节流样板收敛（7 份）+ **speed 接通**（现 speed 恒 None，前端速度列空壳） → **FR-361 · AC-361-1 · `ffmpeg/progress.rs` · `services/tauri.ts` · TC-004 · TC-015**
+- [ ] **R3-5** `prepare_output` 提交前导抽取（4 份）；`finalize_output` 消除"先删后改名"旧成品丢失窗口（pipeline/merge/crop/rotate 四处；**另有 `cut.rs` / `media.rs` 两处同类问题 → 见 R4-2**） → **NFR-008（输出前导/磁盘预检）· `commands/*.rs` · `commands/pipeline.rs` · TC-004**
+- [ ] **R3-6** parking_lot 统一锁中毒策略；输出=输入比较改 canonicalize（大小写/斜杠绕过会覆盖源）；`cargo fmt --check` 纳入流程 → **NFR-006 · NFR-007 · `task/manager.rs` · `task/worker.rs` · TC-004**
+
+### R4 —— 第二轮审查整改（2026-09-19 立项，来源 archive/code-review-2026-09-19.md）
+
+> **关联**：—（工程批次；其中 5 条为**缺陷修复**，登记见 [BUGS.md](./BUGS.md) `BUG-001`–`BUG-005`）　·　**验收**：各条以其回归 TC 为准　——　执行：TESTING.md §3.4（TC-019–TC-023）
+> **排期**：**排在 M11-0 之前** —— §3.1 的作业体会被 M11 的切割/波纹删除放大（panic 一次即泄漏并发槽），§3.3 涉及的 `ClipTimeline` 正是 M11-1/2/4/6 要重写的组件：先修是顺手，M11 后修是返工。
+
+- [ ] **R4-1 [P0] 作业体 panic 隔离**（`task/worker.rs:125`）：`job(&ctx)` 用 `catch_unwind(AssertUnwindSafe(..))` 包裹，panic 视为 `Err("任务内部错误")`，让既有终态处理（`record_terminal` / `run_cleanup` / `task_finished`）照常执行；补单测（模拟 panic → 任务 Failed 且并发槽归还） → **BUG-001 · NFR-006 · `task/worker.rs` · TC-019**
+- [ ] **R4-2 [P1] 输出原子替换（6 处）**（`cut.rs:222` `crop.rs:167` `media.rs:310` `merge.rs:315` `pipeline.rs:473` `rotate.rs:110`）：抽 `fs::atomic_replace(part, final)`（→ 带 token 临时名 → 原子替换 → 清理，失败回滚）；删除错误不再用 `let _ =` 吞掉；`rename` 失败信息带 `.part` 完整路径。**同时补齐 R3-5 遗漏的 cut / media 两处** → **BUG-002 · NFR-007 · `commands/*.rs` · TC-020**
+- [ ] **R4-3 [P1] 指针拖拽收尾兜底（3 处）**（`hooks/useDragSort.ts` · `components/Timeline` · `components/ClipTimeline`）：对齐 `CropOverlay` 既有写法——`pointermove` 内 `buttons === 0` 即收工，并补注册 `pointercancel`；建议同时抽共享的指针拖拽收尾工具，避免第四处再漏 → **BUG-003 · `VideoPlayer`/`Timeline` · `ClipTimeline`/`CropOverlay` · `ProductPreview`/`TaskProgress`/`hooks` · TC-021**
+- [ ] **R4-4 [P1] `pxToCrop` 钳制 + 边界单测**（`utils/crop.ts`）：`x`/`y` 先钳到 `[0, dims - MIN_CROP_PX]`，再按剩余空间收缩 `w`/`h`；补边界用例（x 界内/恰好压界/远超界 × w 最小/恰好/超界） → **BUG-004 · AC-351-1 · `pages`/`utils`/`types` · TC-022**
+- [ ] **R4-5 [P2] 缩略图单张失败不中止整批**（`commands/media.rs`）：`generate_thumbnails_sync` 的 `return Err` 改 `continue`，与同族 `generate_clip_thumbnails` 口径统一 → **BUG-005 · AC-331-1 · `commands/*.rs` · TC-023**
+- [ ] **R4-6 [P2] 输出容器/扩展名口径统一**（依 `ADR-033`）：copy 类跟随源容器、重编码类统一 mp4；最终输出名按规则生成或校正，消除"扩展名与封装不符" → **ADR-033 · NFR-007 · `commands/*.rs` · `commands/pipeline.rs` · TC-020**
+
+> **同源但按技术债处理的项**：§4.1 校验时机、§4.4 锁回调、§4.6–4.8 前端健壮性、§5.3 的 `locked_encoder` 白名单 → [技术任务 `T-003`](#技术任务t)。
+> **已排除项**（报告 §6，不重复讨论）：`VideoPlayer` 缺 `ended` 监听、`ProductPreview.switchTo` 竞态。
 
 ## M11 单轨时间线核心（TIMELINE.md §17，2026-09-16 立项，待实施）
 
@@ -283,16 +298,16 @@
 >
 > **实施方案已定稿（2026-09-17，[plans/M11.md](./plans/M11.md) §18，决策 #32）**：执行顺序调整为 M11-0 状态层/撤销基座先行（七操作都要经命令栈，PLAN 原列第 7 位的 M11-7 前置拆分）；几何/缩放滚动/播放头/修剪手势的实施设计见 plans/M11.md §18.2~§18.6。
 
-- [ ] **M11-0 前置重构**（plans/M11.md §18.1，无行为变化）：`utils/undo/` 命令模块（快照对 + 纯函数 builder + 钳制）+ 工作台文档状态收敛（clips+timeline → 单一 EditorDoc）+ 既有操作全部改走命令栈 + 撤销单测基线（Vitest，6 条 Clypra 清单 + 钳制域） → **FR-17xx（待发号，TIMELINE.md §17.5）· AC 见 §17.9① · MOD-012（+新增 `utils/undo`）· TC 待建（Vitest 撤销基线）**
-- [ ] **M11-1 精度基座**：ClipTimeline 改 PPS 世界坐标（承接 M9-3，块宽差值法 TIMELINE.md §17.3）；`utils/time.ts` 总帧数时间码；最短片段 ≥1 帧钳制；帧时间埋点接入 logger（供 M11-9 用） → **FR-17xx（§17.3）· AC 见 §17.9② · MOD-012 · MOD-014 · TC 待建**
-- [ ] **M11-2 缩放与滚动**：页面级 PPS 状态 + 钳制（2~500 px/s）；Ctrl+滚轮以鼠标为中心、+/−、\\ 适应窗口 → **FR-17xx（§17.3）· AC 见 §17.9② · MOD-012 · TC 待建**
-- [ ] **M11-3 播放头**：ref 直改 DOM 脱离 React 渲染路径（TIMELINE.md §17.9）；点击/拖动标尺 seek；播放头吸附片段边缘（8px/PPS 窗） → **FR-17xx（§17.9）· AC 见 §17.9② · MOD-012 · TC 待建（帧时间埋点）**
-- [ ] **M11-4 选择与波纹删除**：单选高亮 + Delete 波纹删除（从 timeline 移除、池保留库存，决策 #13 一致） → **FR-17xx · AC 见 §17.9④ · MOD-012 · TC 待建**
-- [ ] **M11-5 切割**：C/右键在播放头拆分（源内换算 TIMELINE.md §17.2），两条新片段入池入轴；播放头不在片段上时禁用 → **FR-17xx（§17.2）· AC 见 §17.9①③ · MOD-001 · MOD-012 · TC-001（回归）+ 待建**
-- [ ] **M11-6 边缘修剪**（B10 并入，决策 #29）：6~8px 热区光标；双向波纹修剪（位置重排自然成立）+ 源边界/最短时长钳制；修剪边缘关键帧吸附联动（S 切换，决策 #30；按住 Alt 临时关吸附，TIMELINE.md §17.8）；实时入/出点 tooltip + 徽标 copy/transcode 实时变化；双击边缘修剪到播放头 → **FR-17xx · AC 见 §17.9③ · MOD-012 · TC 待建**
-- [ ] **M11-7 撤销栈**（B11 并入，决策 #29）：命令模式快照对（TIMELINE.md §17.5，纯函数 builder + apply/invert + no-op 返回 null）；覆盖切割/波纹删除/修剪/重排/移入移出；Ctrl+Z / Ctrl+Shift+Z；照 Clypra 6 条单测基线建测试 → **FR-17xx（§17.5）· AC 见 §17.9① · MOD-012（+`utils/undo`）· TC 待建**
-- [ ] **M11-8 菜单与快捷键**：右键最小集（TIMELINE.md §17.4）；C/S/Delete/Ctrl+Z/Ctrl+Shift+Z/+/−/\\ + 2026-09-17 需求表新增可行项（K/L 走带、A 追加入轴、Ctrl+E 导出、I/O 修剪选中片段到播放头）接线进 useHotkeys（输入焦点忽略规则不变；冲突项维持既有裁决，见 TIMELINE.md §17.8 状态表） → **FR-17xx（§17.4）· AC 见 §17.9① · MOD-012 · MOD-013 · TC 待建**
-- [ ] **M11-9 性能验收**：100 片段夹具（gen-fixtures 串联生成）；对照 TIMELINE.md §17.9 预算出埋点报告（拖拽/播放头/撤销 P50/P95） → **FR-17xx · AC 见 §17.9② · MOD-012（+`utils/perf`）· TC 待建**
+- [ ] **M11-0 前置重构**（plans/M11.md §18.1，无行为变化）：`utils/undo/` 命令模块（快照对 + 纯函数 builder + 钳制）+ 工作台文档状态收敛（clips+timeline → 单一 EditorDoc）+ 既有操作全部改走命令栈 + 撤销单测基线（Vitest，6 条 Clypra 清单 + 钳制域） → **FR-17xx（待发号，TIMELINE.md §17.5）· AC 见 §17.9① · `ClipTimeline`/`CropOverlay`（+新增 `utils/undo`）· TC 待建（Vitest 撤销基线）**
+- [ ] **M11-1 精度基座**：ClipTimeline 改 PPS 世界坐标（承接 M9-3，块宽差值法 TIMELINE.md §17.3）；`utils/time.ts` 总帧数时间码；最短片段 ≥1 帧钳制；帧时间埋点接入 logger（供 M11-9 用） → **FR-17xx（§17.3）· AC 见 §17.9② · `ClipTimeline`/`CropOverlay` · `pages`/`utils`/`types` · TC 待建**
+- [ ] **M11-2 缩放与滚动**：页面级 PPS 状态 + 钳制（2~500 px/s）；Ctrl+滚轮以鼠标为中心、+/−、\\ 适应窗口 → **FR-17xx（§17.3）· AC 见 §17.9② · `ClipTimeline`/`CropOverlay` · TC 待建**
+- [ ] **M11-3 播放头**：ref 直改 DOM 脱离 React 渲染路径（TIMELINE.md §17.9）；点击/拖动标尺 seek；播放头吸附片段边缘（8px/PPS 窗） → **FR-17xx（§17.9）· AC 见 §17.9② · `ClipTimeline`/`CropOverlay` · TC 待建（帧时间埋点）**
+- [ ] **M11-4 选择与波纹删除**：单选高亮 + Delete 波纹删除（从 timeline 移除、池保留库存，决策 #13 一致） → **FR-17xx · AC 见 §17.9④ · `ClipTimeline`/`CropOverlay` · TC 待建**
+- [ ] **M11-5 切割**：C/右键在播放头拆分（源内换算 TIMELINE.md §17.2），两条新片段入池入轴；播放头不在片段上时禁用 → **FR-17xx（§17.2）· AC 见 §17.9①③ · `ffmpeg/command.rs` · `ClipTimeline`/`CropOverlay` · TC-001（回归）+ 待建**
+- [ ] **M11-6 边缘修剪**（B10 并入，决策 #29）：6~8px 热区光标；双向波纹修剪（位置重排自然成立）+ 源边界/最短时长钳制；修剪边缘关键帧吸附联动（S 切换，决策 #30；按住 Alt 临时关吸附，TIMELINE.md §17.8）；实时入/出点 tooltip + 徽标 copy/transcode 实时变化；双击边缘修剪到播放头 → **FR-17xx · AC 见 §17.9③ · `ClipTimeline`/`CropOverlay` · TC 待建**
+- [ ] **M11-7 撤销栈**（B11 并入，决策 #29）：命令模式快照对（TIMELINE.md §17.5，纯函数 builder + apply/invert + no-op 返回 null）；覆盖切割/波纹删除/修剪/重排/移入移出；Ctrl+Z / Ctrl+Shift+Z；照 Clypra 6 条单测基线建测试 → **FR-17xx（§17.5）· AC 见 §17.9① · `ClipTimeline`/`CropOverlay`（+`utils/undo`）· TC 待建**
+- [ ] **M11-8 菜单与快捷键**：右键最小集（TIMELINE.md §17.4）；C/S/Delete/Ctrl+Z/Ctrl+Shift+Z/+/−/\\ + 2026-09-17 需求表新增可行项（K/L 走带、A 追加入轴、Ctrl+E 导出、I/O 修剪选中片段到播放头）接线进 useHotkeys（输入焦点忽略规则不变；冲突项维持既有裁决，见 TIMELINE.md §17.8 状态表） → **FR-17xx（§17.4）· AC 见 §17.9① · `ClipTimeline`/`CropOverlay` · `ProductPreview`/`TaskProgress`/`hooks` · TC 待建**
+- [ ] **M11-9 性能验收**：100 片段夹具（gen-fixtures 串联生成）；对照 TIMELINE.md §17.9 预算出埋点报告（拖拽/播放头/撤销 P50/P95） → **FR-17xx · AC 见 §17.9② · `ClipTimeline`/`CropOverlay`（+`utils/perf`）· TC 待建**
 
 **验收**：AC 见 TIMELINE.md §17.9 ①~⑥ · TC 待建（M11-9）（口径见 DESIGN.md §3；执行见 TESTING.md）
 
@@ -300,9 +315,9 @@
 
 > **关联**：FR-17xx（随 M11 开工发号）· 决策 #28　·　**验收**：AC 见 TIMELINE.md §17.6/§17.9⑥　——　执行：TESTING.md TC 待建
 
-- [ ] **M12-1 连播改进**：ProductPreview 下一段预加载提前、边界停顿缓解；修剪拖动节流 seek 实时显示入/出点帧 → **FR-17xx · AC 见 §17.6 · MOD-013 · TC 待建**
-- [ ] **M12-2 渲染即预览**（决策 #28）：Rust 侧 Pipeline 任务加 `preview` 标志（输出 `app_cache_dir/preview/<令牌>.mp4`、TaskHandle internal 不进历史、进行中去重 = 新编辑取消旧任务）；前端纯无损时间线编辑停顿 ~1.5s 防抖自动渲染并播放真实成品，含重编码时回退虚拟连播 + 手动"精确预览"；`cache_usage`/`clear_cache` 覆盖 preview 子目录；check_pipeline facts 缓存（B15 项顺手做） → **FR-17xx · AC 见 §17.9⑥ · MOD-007 · MOD-013 · TC 待建（决策 #28）**
-- [ ] **M12-3 暂停帧服务 spike**（可选）：现有缩略图命令改造为 seek 单帧 RGBA → canvas；出"是否产品化"结论（红线：连续播放不走逐帧 IPC，TIMELINE.md §17.6） → **FR-17xx · AC 见 §17.6 · MOD-010 · MOD-011 · TC 待建（spike）**
+- [ ] **M12-1 连播改进**：ProductPreview 下一段预加载提前、边界停顿缓解；修剪拖动节流 seek 实时显示入/出点帧 → **FR-17xx · AC 见 §17.6 · `ProductPreview`/`TaskProgress`/`hooks` · TC 待建**
+- [ ] **M12-2 渲染即预览**（决策 #28）：Rust 侧 Pipeline 任务加 `preview` 标志（输出 `app_cache_dir/preview/<令牌>.mp4`、TaskHandle internal 不进历史、进行中去重 = 新编辑取消旧任务）；前端纯无损时间线编辑停顿 ~1.5s 防抖自动渲染并播放真实成品，含重编码时回退虚拟连播 + 手动"精确预览"；`cache_usage`/`clear_cache` 覆盖 preview 子目录；check_pipeline facts 缓存（B15 项顺手做） → **FR-17xx · AC 见 §17.9⑥ · `commands/pipeline.rs` · `ProductPreview`/`TaskProgress`/`hooks` · TC 待建（决策 #28）**
+- [ ] **M12-3 暂停帧服务 spike**（可选）：现有缩略图命令改造为 seek 单帧 RGBA → canvas；出"是否产品化"结论（红线：连续播放不走逐帧 IPC，TIMELINE.md §17.6） → **FR-17xx · AC 见 §17.6 · `services/tauri.ts` · `VideoPlayer`/`Timeline` · TC 待建（spike）**
 
 **验收**：AC 见 TIMELINE.md §17.9⑥ · TC 待建（口径见 DESIGN.md §3；执行见 TESTING.md）
 
@@ -310,9 +325,9 @@
 
 > **关联**：FR-17xx（随 M11 开工发号）　·　**验收**：视 M11/M12 体验决定　——　执行：TESTING.md TC 待建
 
-- [ ] **M13-1 缩略图条**：L0/L1 两层简化版（固定网格 + 长视频预算公式；铁律 = 滚动永不触发解码、缩放先画粗层拉伸图） → **FR-17xx · AC 视体验决定（决策 #31）· MOD-012 · TC 待建**
-- [ ] **M13-2 标记**：M 添加 / 再按删除、Shift+M / Ctrl+Shift+M 导航、播放头吸附标记；不参与导出 → **FR-17xx · AC 视体验决定（决策 #31）· MOD-012 · TC 待建**
-- [ ] **M13-3 多选拖拽**：Ctrl 多选整块插入重排（一次撤销一条） → **FR-17xx · AC 视体验决定（决策 #31）· MOD-012 · TC 待建**
+- [ ] **M13-1 缩略图条**：L0/L1 两层简化版（固定网格 + 长视频预算公式；铁律 = 滚动永不触发解码、缩放先画粗层拉伸图） → **FR-17xx · AC 视体验决定（决策 #31）· `ClipTimeline`/`CropOverlay` · TC 待建**
+- [ ] **M13-2 标记**：M 添加 / 再按删除、Shift+M / Ctrl+Shift+M 导航、播放头吸附标记；不参与导出 → **FR-17xx · AC 视体验决定（决策 #31）· `ClipTimeline`/`CropOverlay` · TC 待建**
+- [ ] **M13-3 多选拖拽**：Ctrl 多选整块插入重排（一次撤销一条） → **FR-17xx · AC 视体验决定（决策 #31）· `ClipTimeline`/`CropOverlay` · TC 待建**
 
 ## 技术任务（T）
 
@@ -320,6 +335,7 @@
 
 - [ ] **T-001 消除 TIMELINE.md §17.4 ↔ plans/M11.md §18.5 的重复描述**：B2 迁移按"只搬不删"，两处对七操作的描述仍重叠；消冗余时只保留 `plans/M11.md` §18.5 的"接线方式"，行为规格留在 TIMELINE.md §17.4。**执行时逐条列出拟删条目交用户审阅后再删** → **—（文档）· 不涉代码 · TC-005**
 - [ ] **T-002 清理空组件目录**：`src/components/{CropEditor,RotateEditor,MergeEditor}` 是 2026-09-13 遗留空目录（git 不跟踪）。先确认 R2-1 拆分是否复用这三个名字（复用则保留），再决定删除；**执行需用户放开"不碰代码"约束** → **—（工程·目录清理）· TC-005**
+- [ ] **T-003 审查发现的一致性/健壮性收敛**（来源 [archive/code-review-2026-09-19.md](./archive/code-review-2026-09-19.md) §4.1/§4.4/§4.6–4.8/§5.3）：pipeline 裁剪越界预检提前到提交期（与 CropZoom 口径一致）；`record_terminal` 回调移出 `on_terminal` 临界区（当前 `if let` 临时量持锁至块尾，存在自死锁窗口）；`useTauriEvent` 与 Workbench `onError` 的 `generateProxy` 补 `.catch`；缩略图 effect 依赖 `[files]` 收敛为稳定 key（消除重复 IPC）；`locked_encoder` 增加白名单校验 → **NFR-006 · NFR-007 · `task/manager.rs` · `commands/*.rs` · `services/tauri.ts` · `ProductPreview`/`TaskProgress`/`hooks` · TC-004**
 
 ## 候选池（未排期）
 

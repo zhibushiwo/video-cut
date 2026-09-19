@@ -30,6 +30,8 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 | 仅前端 | `pnpm dev` |
 | 构建（tsc + vite） | `pnpm build` |
 | 静态检查 | `pnpm lint`（或 `pnpm lint:fix`） |
+| 文档一致性（链接 / § 归属 / ID 交叉 / skip 区间） | `pnpm check:docs`（= `node scripts/check-docs.mjs`；`--strict` 更严，`--list` 列出扫描文件） |
+| 安装 git 钩子（克隆后跑一次） | `pnpm hooks:install`（= `git config core.hooksPath .githooks`；钩子在库内 `.githooks/`，提交时自动跑 check-docs） |
 | 后端测试（含 e2e） | `cd src-tauri && cargo test` |
 | 下载/更新 sidecar FFmpeg | `pwsh scripts/fetch-ffmpeg.ps1` |
 | 生成测试夹具 | `pwsh scripts/gen-fixtures.ps1` |
@@ -66,6 +68,11 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 17. Rust ↔ TS 类型是双写：改 `lib.rs` 的数据模型必须同提交更新 `src/types/index.ts` 与 DESIGN §7。
 18. 新增 Tauri 命令：在 `lib.rs` 的 `invoke_handler` 注册 → 在 `services/tauri.ts` 封装 → 必要时补 capability。
 
+**收尾与状态残留**（2026-09-19 审查补充）
+
+19. **输出文件替换必须原子**：不得"先删目标再 `rename`"，也不得吞掉删除错误 —— 统一走 `fs::atomic_replace(part, final)`（带 token 临时名 → 原子替换 → 清理，失败回滚）；错误信息必须带 `.part` 完整路径（否则用户既丢旧文件又找不到新产物）。见 [BUGS.md](docs/BUGS.md) `BUG-002`。
+20. **指针拖拽必须处理"窗口外松手"**：`pointermove` 内判 `buttons === 0` 即收工，并注册 `pointercancel`（参考 `components/CropOverlay` 的既有实现）；否则监听器常驻 window、拖拽态卡死，后续无关点击会触发意外重排。见 [BUGS.md](docs/BUGS.md) `BUG-003`。
+
 ## 4. 完事标准
 
 改动**完成**需同时满足：
@@ -74,7 +81,8 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 2. 动过 `command.rs` ⇒ 有对应的参数序列断言
 3. 动过 UI ⇒ 在提交说明或回复里列出**手测点**（测试口径见 [docs/TESTING.md](docs/TESTING.md)）
 4. 动过规格 ⇒ 同步更新 DESIGN 的 FR/AC 或对应文档
-5. 完成的任务在 `docs/PLAN.md` 勾选（一个 checkbox 一次提交）
+5. **动过 `docs/**`、`README.md` 或 `AGENTS.md` ⇒ `node scripts/check-docs.mjs` 三项全绿**（`pnpm check:docs`；链接可达 / § 引用归属 / ID 交叉定义）
+6. 完成的任务在 `docs/PLAN.md` 勾选（一个 checkbox 一次提交）
 
 ## 5. 提交约定
 

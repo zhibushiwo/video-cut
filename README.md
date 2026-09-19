@@ -56,6 +56,9 @@ pnpm tauri build
 | `pnpm tauri dev` | Tauri 桌面应用开发模式 |
 | `pnpm tauri build` | 打包 NSIS 安装程序 |
 | `cargo test`（src-tauri 下） | Rust 单元测试（命令构建器全量断言） |
+| `pnpm lint` | ESLint 静态检查 |
+| `node scripts/check-docs.mjs`（或 `pnpm check:docs`） | 文档一致性四项：链接可达 / `§` 引用归属 / ID 交叉定义 / skip 区间合规 |
+| `pnpm hooks:install` | 启用仓库内 git 钩子（`core.hooksPath=.githooks`，克隆后跑一次；提交时自动跑 check-docs） |
 | `node scripts/render-icon.mjs` | 重渲染图标源 PNG（改 `scripts/icon.svg` 后执行） |
 | `pnpm tauri icon src-tauri/icons/icon-source.png --output src-tauri/icons` | 从源 PNG 生成全套应用图标 |
 

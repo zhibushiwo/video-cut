@@ -246,9 +246,9 @@ src/
 │   ├── ClipTimeline/    # 工作台合成时间轴：片段块编排（UI.md §9.8）、池↔轴拖入、播放头
 │   ├── ProductPreview/  # 工作台成品虚拟连播（M6-6）：双 video 轮换预加载
 │   ├── CutEditor/       # 剪切页片段列表与导出配置
-│   ├── MergeEditor/     # 合并页文件列表与检测面板
-│   ├── RotateEditor/    # 旋转页操作面板
-│   ├── CropEditor/      # 放大页操作面板
+│   ├── MergeEditor/     # 合并页文件列表与检测面板（⚠ 当前为**空目录**，实现待 R2-1/R2-2 落地）
+│   ├── RotateEditor/    # 旋转页操作面板（⚠ 当前为**空目录**，实现待 R2-1/R2-2 落地）
+│   ├── CropEditor/      # 放大页操作面板（⚠ 当前为**空目录**，实现待 R2-1/R2-2 落地）
 │   ├── RotateControls/  # 旋转组合按钮（Editor 页与工作台共享）
 │   └── TaskProgress/    # 全局任务面板：进度/速度/取消/复制日志/自动关闭
 ├── pages/
@@ -260,8 +260,10 @@ src/
 │   └── History/         # 历史记录页（UI.md §9.10，只读）
 ├── hooks/
 │   ├── useDragSort.ts   # 指针事件拖拽排序（决策 #18：禁用 HTML5 DnD）
+│   ├── useTauriEvent.ts # 事件订阅统一退订封装（R1-2；`listen()` 的 Promise 在 resolve 前卸载会漏退订）
 │   └── useHotkeys.ts    # 全局快捷键（输入焦点忽略，见 UI.md §9.4、TIMELINE.md §17.8）
 ├── utils/
+│   ├── crop.ts          # 裁剪归一化↔像素换算、偶数对齐、越界钳制（R1-4，与 components/CropOverlay 配套）
 │   ├── media.ts         # 媒体相关纯函数（格式判定、代理判定等）
 │   ├── paths.ts         # 输出路径解析 resolveOutputDir / basename / withFileTimestamp
 │   └── time.ts          # 时间格式化与解析
@@ -489,7 +491,7 @@ Pending ──▶ Probing ──▶ Running ──▶ Completed
 
 ### 8.2 实现要点（manager.rs / worker.rs）
 
-- **作业（Job）实体**：运行中 = `TaskHandle`（进程内）/ 对外快照 = `TaskSnapshot` / 终态落盘 = `HistoryEntry`（结构见 §7）；实例标识 = `taskId`（`t<毫秒十六进制><两位序号>`，如 `t18f3a2b5c01`），类型维度 = `kind` 白名单（`cut`/`merge`/`rotate`/`crop_zoom`/`pipeline`，内部另有 `proxy`）；**文档层不发 `JOB-xxx` 编号**（实例由运行时产生、数量无界），命名口径见 INDEX.md §6
+- **任务实体与标识**：运行中 = `TaskHandle`（进程内）/ 对外快照 = `TaskSnapshot` / 终态落盘 = `HistoryEntry`（结构见 §7）；实例标识 = `taskId`（`t<毫秒十六进制><两位序号>`，如 `t18f3a2b5c01`），类型维度 = `kind` 白名单（`cut`/`merge`/`rotate`/`crop_zoom`/`pipeline`，内部另有 `proxy`）；文档层不为它设独立命名空间。
 - `TaskManager` 持有 `Mutex<HashMap<TaskId, TaskHandle>>` + pending 队列，通过 `tauri::State` 注入；任务句柄存子进程 PID + 取消信号
 - **取消**：向子进程发 kill（Windows 下 kill 即终止），随后**删除该任务已产生的 `.part` 半成品**；任务内最后一个子进程退出后状态置 Cancelled
 - **半成品保护**（NFR-007）：所有输出先写 `<name>.part.<原扩展名>`（如 `xxx.part.mp4`——保留真实扩展名供 ffmpeg 推断封装格式），ffmpeg 正常退出后 rename 为最终文件名——保证输出目录永远没有"看起来完整实际损坏"的文件
