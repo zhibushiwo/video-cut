@@ -25,7 +25,7 @@
 
   `tauri.conf.json` 中配置 `"bundle": { "externalBin": ["binaries/ffmpeg", "binaries/ffprobe"] }`，运行时经 shell 插件的 sidecar API 解析路径（开发环境与打包后均有效）
 - `binaries/` 下的 exe **不提交 git**（加入 `.gitignore`），仓库提供脚本/说明按固定版本号下载
-- 启动时执行 `check_environment`：跑 `ffmpeg -version` 校验存在性与版本，失败则在 UI 阻塞提示，不进入主界面
+- 启动时执行 `check_environment`：跑 `ffmpeg -version` 校验存在性与版本；**失败不阻塞应用**（`command.rs` 注释明确，应用照常进入），由前端顶部状态条提示未就绪与修复指引
 
 ### 6.2 命令生成统一规则（command.rs 强制约定）
 
@@ -135,13 +135,13 @@ ffmpeg -i <input> -map 0:v:0 -map 0:a \
 **⑧ 代理预览生成**
 
 ```bash
-ffmpeg -i <input> -map 0:v:0 -map 0:a:0 \
-  -vf "scale=-2:720" -c:v libx264 -preset veryfast -crf 23 \
+ffmpeg -i <input> -map 0:v:0 -map 0:a:0? \
+  -vf "scale=-2:min(720\,ih),format=yuv420p" -c:v libx264 -preset veryfast -crf 23 \
   -c:a aac -b:a 128k \
   -y <cache_dir>/<hash>.proxy.mp4
 ```
 
-代理文件放应用缓存目录（按源文件路径 hash 命名），不污染用户输出目录；已有代理直接复用。
+代理文件放应用缓存目录（按源文件路径 hash 命名），不污染用户输出目录；已有代理直接复用。**高度不放大**（`min(720\,ih)`：源高 <720 时保持原高）、**强制 `yuv420p`**（WebView2 只吃 8bit 4:2:0）；音频流用 `0:a:0?`（**可选**，无音轨源不报错）。
 
 **⑨ 工作台无损片段（剪切 + 元数据旋转一步完成）**
 

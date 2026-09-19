@@ -17,7 +17,7 @@
 | 静态检查 | `pnpm lint`（`eslint .`） | react-hooks 依赖、`@tauri-apps/*` 只允许 `services/` 内导入 |
 | 后端全量 | `cd src-tauri && cargo test` | **62 个单测 + 3 条 e2e**；e2e 需要 sidecar，缺失时自动跳过 |
 | 端到端应用 | `pnpm tauri dev` | 手测与 UI 验收 |
-| 文档一致性 | `pnpm check:docs`（`node scripts/check-docs.mjs`） | 三项：markdown 链接可达 · `§` 引用归属 · ID 交叉定义；改动 `docs/**`、`README.md`、`AGENTS.md` 后必跑 |
+| 文档一致性 | `pnpm check:docs`（`node scripts/check-docs.mjs`） | 五项：markdown 链接可达 · `§` 引用归属 · ID 交叉定义 · skip 区间合规 · 反引号路径可达（`src/`·`src-tauri/`·`scripts/`·`docs/`；`docs/archive/**` 豁免）；改动 `docs/**`、`README.md`、`AGENTS.md` 后必跑 |
 
 > 受限环境（沙箱/无软链权限）：`node_modules` 可能装不出软链，改用
 > `pnpm install --force --config.node-linker=hoisted`，并用 `node <包>/bin/<入口>.js` 直调工具（详见 [../AGENTS.md](../AGENTS.md) §7）。
@@ -81,6 +81,7 @@
 | TC-021 | BUG-003 | 三处指针拖拽：窗口外松手后监听器不残留、无拖拽态卡死、无意外重排 | 手工（合并页列表 / 剪切页 Timeline / 工作台 ClipTimeline） | 待建（R4-3） |
 | TC-022 | BUG-004 | `pxToCrop` 边界：x 在界内 / 恰好压界 / 远超界，w 最小 / 恰好 / 超界 | 手工（数值微调）；M11-0 引入 Vitest 后转自动化 | 待建（R4-4） |
 | TC-023 | BUG-005 | 合并页选 N 个文件、其中一个无法抽帧 → 其余缩略图仍显示 | 手工 | 待建（R4-5） |
+| TC-024 | BUG-006 | 容器不被 WebView2 支持（如 `.flv` / `.wmv`，编码为 H.264/AAC）的素材导入 → `needsProxy` 为真、生成代理并正常预览 | `cargo test`/Vitest 单测（判定）+ 手工（实际预览） | 待建（R4-7） |
 
 ## 4. 验收结论记录口径
 

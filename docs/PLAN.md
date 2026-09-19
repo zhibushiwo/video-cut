@@ -22,9 +22,13 @@
 | **M8 候选池晋升批次 1** | B1 probe 缓存、B2 磁盘预检推广、B14 核心链路 e2e | M6 | 0.5~1 天 | ✅ 完成 |
 | **M9 工作台修复冲刺** | 手测批次 2 的 4 个 bug + 片段区间预览 | M6 | 0.5~1 天 | ✅ 完成（验收归用户） |
 | **M10 保活 + 深浅主题** | 工作页 keep-alive（决策 #24）+ 深浅主题三态（B17，决策 #25） | M9 | 1 天 | ⏸ **暂缓**（决策 #32） |
-| **M11 单轨时间线核心** | PPS 坐标/缩放、切割、波纹删除、边缘修剪、拖拽重排、撤销栈（TIMELINE.md §17，决策 #26） | M9（不依赖 M10） | 2.5~3 周 | 🔜 **下一步**（代码未开工） |
+| **M11 单轨时间线核心** | PPS 坐标/缩放、切割、波纹删除、边缘修剪、拖拽重排、撤销栈（TIMELINE.md §17，决策 #26） | M9（不依赖 M10） | 2.5~3 周 | ⏳ **R4 之后**（代码未开工） |
 | **M12 预览强化** | 连播改进、渲染即预览（决策 #28）、暂停帧服务 spike（TIMELINE.md §17.6） | M11 | 1~2 周 | ⏳ 待实施 |
 | **M13 打磨（可选）** | 缩略图条、标记、多选拖拽（决策 #31） | M12 | ~1 周 | ⏳ 待实施 |
+| **R1 评审修复（第一轮）** | 2026-09-17 三路走读的 P0/P1 整改（rAF 单链 / 事件退订 / 清理钩子 / CropOverlay / ESLint） | M9 | 1 天 | ✅ 完成（2026-09-19） |
+| **R2 重构** | Workbench 拆分、重复收敛、useHotkeys 门控、ESLint 基线、死代码清理 | M11-0 | 2~3 天 | ⏳ 未开工（并入 M11-0） |
+| **R3 收尾** | probe 缓存改 LRU、取消清理按 kind 统一、snapshot 过滤 internal、speed 接通、输出前导抽取、锁策略 | M11 | 1~2 天 | ⏳ 未开工（M12-2 前） |
+| **R4 第二轮审查整改** | 2026-09-19 四路复审的 P0/P1（`BUG-001`–`BUG-005`）：panic 隔离、原子替换、拖拽收尾、crop 钳制、缩略图容错 | R1 | 1~2 天 | 🔜 **下一步**（见「R4」段） |
 
 > 预估按单人全职工时，仅供排期参考；顺序上 M2 与 M3 可并行挑选。
 > 表内按 M 编号排序（M5 先于 M4 交付，故正文顺序为 M4 → M5）。
@@ -252,7 +256,7 @@
 - [x] **R1-4 [P1] 裁剪交互双实现**（Editor vs Workbench，约 200 行 ×2 逐行同构）→ 抽 `components/CropOverlay`（`useCropSelect` 交互内核 / `CropOverlay` 整层覆盖 / `CropBox` 选区框 / `CropFields` 数值字段）+ `utils/crop.ts`（归一化↔像素换算、偶数对齐、越界钳制）；两页分别减 192 / 181 行，`CropNorm` 并入 `CropRect`，顺带修「松手丢失时监听器常驻 window」兜底（`pointercancel` + 按键松开即收工）
 - [x] **R1-5 [P1] 无 ESLint**：接入 `eslint@10` + `typescript-eslint` + `eslint-plugin-react-hooks`，flat 配置 `eslint.config.js`（react-hooks `rules-of-hooks`/`exhaustive-deps` = error；`no-restricted-imports` 禁 `@tauri-apps/*`，仅 `src/services/**` 例外；typescript-eslint recommended 其余；未使用变量交回 tsc 的 noUnusedLocals）；新增 `pnpm lint` / `lint:fix`。**存量零报错**（首跑即 0 problems），反向验证过：临时文件 import `@tauri-apps/api/core` 会被正确拦下
 
-> **R1 进展（2026-09-19）**：**R1-1 ~ R1-5 全部完成**，"动 M11 前必修"已满足。验证基线：`tsc --noEmit` 通过、`vite build` 通过、`eslint .` 0 problems、`cargo test` 62 单测 + 3 e2e 全绿。前端到 R1-4 为止累计净减约 380 行（Editor 577→385、Workbench 1766→1585），同构逻辑各自收唯一份。
+> **R1 进展（2026-09-19）**：**R1-1 ~ R1-5 全部完成**，"动 M11 前必修"已满足。验证基线：`tsc --noEmit` 通过、`vite build` 通过、`eslint .` 0 problems、`cargo test` 62 单测 + 3 e2e 全绿。前端到 R1-4 为止累计净减约 380 行（Editor 577→385、Workbench 1766→1581），同构逻辑各自收唯一份。
 
 ### R2 —— 并入 M11-0 实施
 
@@ -286,6 +290,7 @@
 - [ ] **R4-4 [P1] `pxToCrop` 钳制 + 边界单测**（`utils/crop.ts`）：`x`/`y` 先钳到 `[0, dims - MIN_CROP_PX]`，再按剩余空间收缩 `w`/`h`；补边界用例（x 界内/恰好压界/远超界 × w 最小/恰好/超界） → **BUG-004 · AC-351-1 · `pages`/`utils`/`types` · TC-022**
 - [ ] **R4-5 [P2] 缩略图单张失败不中止整批**（`commands/media.rs`）：`generate_thumbnails_sync` 的 `return Err` 改 `continue`，与同族 `generate_clip_thumbnails` 口径统一 → **BUG-005 · AC-331-1 · `commands/*.rs` · TC-023**
 - [ ] **R4-6 [P2] 输出容器/扩展名口径统一**（依 `ADR-033`）：copy 类跟随源容器、重编码类统一 mp4；最终输出名按规则生成或校正，消除"扩展名与封装不符" → **ADR-033 · NFR-007 · `commands/*.rs` · `commands/pipeline.rs` · TC-020**
+- [ ] **R4-7 [P2] 代理判定纳入容器维度**（`utils/media.ts`）：`needsProxy` 补容器白名单（WebView2 可播子集，实现时以实测为准），与 `VIDEO_EXTENSIONS` 口径对齐 + 单测 → **BUG-006 · NFR-010 · `pages`/`utils`/`types` · TC-024**
 
 > **同源但按技术债处理的项**：§4.1 校验时机、§4.4 锁回调、§4.6–4.8 前端健壮性、§5.3 的 `locked_encoder` 白名单 → [技术任务 `T-003`](#技术任务t)。
 > **已排除项**（报告 §6，不重复讨论）：`VideoPlayer` 缺 `ended` 监听、`ProductPreview.switchTo` 竞态。
@@ -347,7 +352,7 @@
 > 建议优先级：功能面 B6 音频提取 + B12 任务通知（时间线落地后重排）；工程面 B15（**asset scope 收窄 + CSP 是发布前硬门槛**）。
 > 明确不做：i18n、多轨编辑器、时间线音频轨编辑/空隙模型/调色/命令面板等（见 [CANDIDATES.md](./CANDIDATES.md)「不做」节）。
 
-**建议下一步（2026-09-19 更新）**：R1 已全部完成 → **M11-0（状态层/撤销基座，吸收 R2 的 Workbench 拆分与重复收敛）→ M11-1~M11-9 → R3 → M12-2 → M12-1/3 → M13**；M10 视反馈随时插入（与时间线零耦合）。M9 已于 2026-09-17 落地，M6-7/M9/M4-5 的 UI 手测部分待用户统一验收。
+**建议下一步（2026-09-19 更新）**：R1 已全部完成 → **R4（第二轮审查整改，6 条，见「R4」段；排期硬约束：必须早于 M11-0）→ M11-0（状态层/撤销基座，吸收 R2 的 Workbench 拆分与重复收敛）→ M11-1~M11-9 → R3 → M12-2 → M12-1/3 → M13**；M10 视反馈随时插入（与时间线零耦合）。M9 已于 2026-09-17 落地，M6-7/M9/M4-5 的 UI 手测部分待用户统一验收。
 
 ## 测试与质量约定
 

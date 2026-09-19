@@ -47,6 +47,7 @@ open ──> confirmed ──> fixing ──> fixed ──> verified
 | BUG-003 | 指针拖拽在窗口外松手无兜底 → 监听器常驻 window、拖拽态卡死、后续无关点击触发意外重排（3 处） | confirmed | UI.md §9.5 / §9.8（拖拽排序与时间轴） | R4-3 | TC-021 | 2026-09-19 | |
 | BUG-004 | `pxToCrop` 不钳制 x/y → 归一化选区越界（与函数自身契约"过小或越界返回 null"不符） | confirmed | AC-351-1（框选与数值微调） | R4-4 | TC-022 | 2026-09-19 | |
 | BUG-005 | `generate_thumbnails_sync` 单张失败 `return Err` 中止整批 → 合并页整组缩略图不显示（同族 clip 版为 `continue`） | confirmed | AC-331-1（九项参数检测面板） | R4-5 | TC-023 | 2026-09-19 | |
+| BUG-006 | `needsProxy` 只判视频编码 / `pixFmt` / 音频编码，**未按 §10 判定容器** → 容器不被 WebView2 支持（如 `flv` / `wmv`）而编码"原生可播"时不生成代理，预览可能黑屏 | confirmed | NFR-010（格式支持范围 · DESIGN.md §10） | R4-7 | TC-024 | 2026-09-19 | |
 
 > **列填写口径**
 > - **违反规格**：写被违反的 `FR-xxx` / `AC-xxx`（规格没变才登记为 BUG）；无对应 FR 的工程类问题写 `—（工程）`

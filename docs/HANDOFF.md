@@ -10,7 +10,7 @@
 
 ## 当前状态（2026-09-19）
 
-> **状态真源是 [PLAN.md](./PLAN.md)**（里程碑总览的状态列）；本表是**快照**，只在状态变化时同步；M0–M9 各批次的提交号与实施要点见 [handoff-archive.md](./archive/handoff-archive.md)。**代码侧现状核对**：`useTauriEvent` / `utils/crop.ts` / `CropOverlay` 已就位；任务系统带终态清理钩子；`pnpm lint` 可用（存量 0 problems）；`src/utils/` 无 `undo/`、`Workbench/index.tsx` 仍 1585 行单文件、无 Vitest 配置、`App.css` 与 `less` 依赖仍在——即 R2 与 M11 均未动工。
+> **状态真源是 [PLAN.md](./PLAN.md)**（里程碑总览的状态列）；本表是**快照**，只在状态变化时同步；M0–M9 各批次的提交号与实施要点见 [handoff-archive.md](./archive/handoff-archive.md)。**代码侧现状核对**：`useTauriEvent` / `utils/crop.ts` / `CropOverlay` 已就位；任务系统带终态清理钩子；`pnpm lint` 可用（存量 0 problems）；`src/utils/` 无 `undo/`、`Workbench/index.tsx` 仍 1581 行单文件、无 Vitest 配置、`App.css` 与 `less` 依赖仍在——即 R2 与 M11 均未动工。
 
 | 里程碑 | 状态 |
 | --- | --- |
@@ -31,7 +31,7 @@
 
 ## 未决问题（评审 / 反馈）——待定性
 
-> **硬规则**：会话结束前，每条未决意见**必须转正**（`BUG` / `T` / `ADR` / `FR`）**或显式保留并写原因**；分流规则见 [INDEX.md](./INDEX.md) §6（「评审（review）产物的归属」）。暂存于此的意见须标「待定性」+ 来源/现象/影响面/为何定不了，**不允许无声消失**。
+> **硬规则**：会话结束前，每条未决意见**必须转正**（`BUG` / `T` / `ADR` / `FR`）**或显式保留并写原因**；分流规则见 [INDEX.md](./INDEX.md) §6.2（评审产物的归属）。暂存于此的意见须标「待定性」+ 来源/现象/影响面/为何定不了，**不允许无声消失**。
 
 | 项 | 来源 | 现象 / 疑点 | 影响面 | 待定性原因 | 复查点 |
 | --- | --- | --- | --- | --- | --- |
@@ -39,7 +39,8 @@
 | 打包与安装未审 | 评审 §8 | `tauri.conf.json` / NSIS / capability 收窄 / CSP 未纳入审查 | **发布前硬门槛** | 属发布面而非功能面；已在 `CAND-015` 立项 | 发布前统一处理（CSP + asset scope 收窄 + 干净环境冒烟） |
 | 依赖安全未扫 | 评审 §8 | `pnpm-lock.yaml` / `Cargo.lock` 未做已知漏洞扫描 | 供应链安全 | 需联网工具（本环境代理受限） | 发版前在可联网环境跑一次审计 |
 | 性能未 profiling | 评审 §8 | 只有静态开销判断（缩略图冗余请求已转 `T-003`），无实测数据 | 大素材/多片段体验 | 缺 profiling 工具链与夹具 | M11-9（100 片段埋点）时一并取数 |
-| e2e 断言强度未评估 | 评审 §8 · §5.3 | `tests/e2e.rs` 断言强度未逐条评估；覆盖缺口：rotate、crop_zoom、merge 非兼容转码分支、proxy 去重 | 回归保障强度 | 需先补齐 R4 回归 TC 才有对照基线 | R4 完成后（TC-019–TC-023 就位）逐条评估并补缺口 |
+| e2e 断言强度未评估 | 评审 §8 · §5.3 | `tests/e2e.rs` 断言强度未逐条评估；覆盖缺口：rotate、crop_zoom、merge 非兼容转码分支、proxy 去重 | 回归保障强度 | 需先补齐 R4 回归 TC 才有对照基线 | R4 完成后（TC-019–TC-024 就位）逐条评估并补缺口 |
+| 位深是否单独展示 | 自查（docs 复查） | DESIGN §3.1 原写面板显示"位深"，实现只有 `pixFmt`（如 `yuv420p10le`，位深含在串里）；Rust `bit_depth` 已提供、前端 TS 未消费 | 信息面板呈现 | 属产品取舍（单列字段 vs 由像素格式表达），不影响功能 | 提"信息面板增强"需求时一并定；若单列则补 TS 字段 + 面板一行 |
 
 ## 关键事实（M11 阶段；长期红线与坑速查见 AGENTS.md §3/§8）
 

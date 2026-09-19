@@ -69,7 +69,7 @@
 - 打开文件：系统文件对话框 + 拖拽到窗口
 - 加载后立即用 **ffprobe** 解析并展示信息面板：
   - 容器格式、总时长、文件大小、封装码率
-  - 视频流：编码（如 HEVC）、profile/level、分辨率、像素格式、位深、帧率、码率、旋转元数据
+  - 视频流：编码（如 HEVC）、profile/level、分辨率、像素格式（`pixFmt`，位深信息包含在其中，如 `yuv420p10le`）、帧率、码率、旋转元数据
   - 音频流列表：编码、采样率、声道数、码率
   - 字幕流数量、章节
 - **关键帧索引**：剪切页需要，后台异步扫描关键帧时间点列表（见 6.5），长视频需显示扫描进度
@@ -246,11 +246,10 @@ src/
 │   ├── ClipTimeline/    # 工作台合成时间轴：片段块编排（UI.md §9.8）、池↔轴拖入、播放头
 │   ├── ProductPreview/  # 工作台成品虚拟连播（M6-6）：双 video 轮换预加载
 │   ├── CutEditor/       # 剪切页片段列表与导出配置
-│   ├── MergeEditor/     # 合并页文件列表与检测面板（⚠ 当前为**空目录**，实现待 R2-1/R2-2 落地）
-│   ├── RotateEditor/    # 旋转页操作面板（⚠ 当前为**空目录**，实现待 R2-1/R2-2 落地）
-│   ├── CropEditor/      # 放大页操作面板（⚠ 当前为**空目录**，实现待 R2-1/R2-2 落地）
+│   ├── CropOverlay/     # 裁剪框选：useCropSelect / CropOverlay / CropBox / CropFields（R1-4，与 utils/crop.ts 配套）
 │   ├── RotateControls/  # 旋转组合按钮（Editor 页与工作台共享）
-│   └── TaskProgress/    # 全局任务面板：进度/速度/取消/复制日志/自动关闭
+│   ├── TaskProgress/    # 全局任务面板：进度/速度/取消/复制日志/自动关闭
+│   └── （遗留空目录）    # MergeEditor/ · RotateEditor/ · CropEditor/ 为 2026-09-13 遗留、git 不跟踪，去留见 PLAN `T-002`
 ├── pages/
 │   ├── Workbench/       # 工作台（落地页，UI.md §9.8：素材卡/片段池/时间轴/三态预览）
 │   ├── Cut/             # 剪切页 = VideoPlayer + Timeline
@@ -334,7 +333,7 @@ src-tauri/src/
 | `cancel_task` | 取消任务 | `taskId: String` | `bool` |
 | `list_tasks` | 查询当前任务列表 | — | `Vec<TaskSnapshot>` |
 | `clear_finished_tasks` | 清理已完成/失败/取消记录（任务面板） | — | `usize`（清理条数） |
-| `generate_proxy` | 生成预览代理（内部任务，同源去重） | `input: String` | `taskId: String` |
+| `generate_proxy` | 生成预览代理（内部任务，同源去重） | `input: String` | `ProxyStart { taskId: Option<String>, proxyPath: String }`（`taskId = null` 表示代理已存在、无需再生成） |
 | `generate_thumbnails` | 批量生成源首帧缩略图 | `inputs: Vec<String>` | `Vec<FileThumbnail>` |
 | `generate_clip_thumbnails` | 批量生成**片段起点帧**缩略图（M6-8；缓存 key = 路径@时间两位小数） | `requests: Vec<ClipThumbRequest>` | `Vec<ClipThumbnail>` |
 | `check_merge` / `check_pipeline` | 合并/工作台导出前检测（参数一致性 + 无损判定） | `inputs` / `items: Vec<PipelineItem>` | `MergeComparison` / `PipelineCheck` |
@@ -384,6 +383,7 @@ pub struct VideoStreamInfo {
     pub width: u32,
     pub height: u32,
     pub pix_fmt: String,          // yuv420p / yuv420p10le ...
+    pub bit_depth: Option<u32>,   // 位深 8/10/12；Rust 已提供，前端 TS 类型暂未消费（见 HANDOFF「未决问题」）
     pub frame_rate: f64,
     pub bitrate: Option<u64>,
 }
@@ -478,15 +478,14 @@ pub struct HistoryEntry {
 ### 8.1 状态机
 
 ```text
-Pending ──▶ Probing ──▶ Running ──▶ Completed
-   │           │           │
-   │           ▼           ├──▶ Failed   (ffmpeg 非零退出 / probe 失败 / 磁盘不足)
-   │        (直接失败)     └──▶ Cancelled (用户取消)
+Pending ──▶ Running ──▶ Completed
+   │           │
+   │           ├──▶ Failed    (probe 失败 / ffmpeg 非零退出 / 磁盘不足)
+   │           └──▶ Cancelled (用户取消)
    └──▶ Cancelled (排队中被取消)
 ```
 
-- **Probing**：任务先跑 ffprobe，失败立即进 Failed（如文件损坏）
-- **Running**：启动 ffmpeg 主命令；进度事件按 ~200ms 节流后 emit（NFR-009）
+- **Running**：进入后先跑 ffprobe（探测在作业线程内完成，**不单独占一个状态**——`TaskStatus::Probing` 保留类型但无构造点，见 §7 注释），probe 失败立即进 Failed（如文件损坏）；随后启动 ffmpeg 主命令，进度事件按 ~200ms 节流后 emit（NFR-009）
 - 剪切多片段 = 一个任务内串行执行 N 个 ffmpeg 子进程，进度按 (已完成片段 + 当前片段进度)/N 汇总
 
 ### 8.2 实现要点（manager.rs / worker.rs）
@@ -494,7 +493,7 @@ Pending ──▶ Probing ──▶ Running ──▶ Completed
 - **任务实体与标识**：运行中 = `TaskHandle`（进程内）/ 对外快照 = `TaskSnapshot` / 终态落盘 = `HistoryEntry`（结构见 §7）；实例标识 = `taskId`（`t<毫秒十六进制><两位序号>`，如 `t18f3a2b5c01`），类型维度 = `kind` 白名单（`cut`/`merge`/`rotate`/`crop_zoom`/`pipeline`，内部另有 `proxy`）；文档层不为它设独立命名空间。
 - `TaskManager` 持有 `Mutex<HashMap<TaskId, TaskHandle>>` + pending 队列，通过 `tauri::State` 注入；任务句柄存子进程 PID + 取消信号
 - **取消**：向子进程发 kill（Windows 下 kill 即终止），随后**删除该任务已产生的 `.part` 半成品**；任务内最后一个子进程退出后状态置 Cancelled
-- **半成品保护**（NFR-007）：所有输出先写 `<name>.part.<原扩展名>`（如 `xxx.part.mp4`——保留真实扩展名供 ffmpeg 推断封装格式），ffmpeg 正常退出后 rename 为最终文件名——保证输出目录永远没有"看起来完整实际损坏"的文件
+- **半成品保护**（NFR-007）：所有输出先写 `<name>.part.<令牌>.<扩展名>`（令牌 = `temp_token`，防同名输出并发互写；保留真实扩展名供 ffmpeg 推断封装格式），ffmpeg 正常退出后 rename 为最终文件名——保证输出目录永远没有"看起来完整实际损坏"的文件。**唯一例外**：代理预览写 `<hash>.part.mp4`（无令牌，输出名本身已按源路径 hash 唯一）
 - **并发控制**（NFR-006）：全局并发上限 **2**（stream copy 是 IO 密集，重编码是 CPU/GPU 密集，统一限 2 足够；代理生成任务优先级最低，排队尾）
 - **磁盘空间预检**（NFR-008，B2/M8 推广到全部输出型任务）：检查在**任务作业线程内**执行（运行时而非提交时——排队期间磁盘状态可能变化）；空间不足直接 Failed 并提示，不再编码中途失败留半成品。估算规则（公共函数 `require_disk_space`，cut/rotate/crop/merge/pipeline/proxy 共用）：
 
@@ -531,7 +530,9 @@ Pending ──▶ Probing ──▶ Running ──▶ Completed
 | AC-3 / E-AC-3 音频 | ⚠ 依赖系统解码器 | 音频探测失败 → 代理 |
 | 4K 及以上 | ✅ 但可能卡顿 | 提供"始终用代理预览"设置 |
 
-代理判定逻辑集中在一次 ffprobe 结果上实现：`needsProxy = 容器/视频编码/像素格式/音频编码 任一不被 WebView2 支持或用户开启强制代理`。
+代理判定逻辑集中在一次 ffprobe 结果上实现。**规格**：`needsProxy = 容器 / 视频编码 / 像素格式 / 音频编码 任一不被 WebView2 支持`（"用户强制代理"由 `ProxyMode = always` 表达，见 §12）。
+
+> **实现差异（2026-09-19 核对）**：`src/utils/media.ts` 实际只判**视频编码 + `pixFmt === "yuv420p"` + 音频编码**，**未含容器维度** → 已登记 [BUGS.md](./BUGS.md) `BUG-006`，修复任务 PLAN `R4-7`。
 
 **重编码注意**：10bit/HDR 源走重编码路径时，硬件编码器对 10bit/HDR 支持参差，command.rs 需按 pix_fmt 选择编码器与参数（10bit 优先 `hevc_*` 硬编或 libx265）；VFR（可变帧率）源在重编码路径会被 CFR 化，需在 UI 提示（copy 路径不受影响）。
 
@@ -550,7 +551,7 @@ Pending ──▶ Probing ──▶ Running ──▶ Completed
 ## 12. 配置与持久化 · NFR-012
 
 - 使用 `tauri-plugin-store`（JSON 文件），**不引入 SQLite**（v1 无关系型数据需求）
-- v1 配置项：默认输出目录、默认剪切模式（极速/精确）、关键帧吸附开关、代理预览开关/强制代理、编码器选择（自动/锁定）、质量档位；后续追加：主题色（`accent`，M4-8）、任务浮层自动关闭秒数（`toastAutoCloseSec`，默认 0=不关闭，M7-5）。导出名时间戳**不是**配置项——"同名才追加"为固定行为（决策 #19）
+- v1 配置项：默认输出目录、默认剪切模式（极速/精确）、关键帧吸附开关、代理预览三态（`ProxyMode`：`auto`/`always`/`off`，UI.md §9.9）、编码器选择（自动/锁定）、质量档位；后续追加：主题色（`accent`，M4-8）、任务浮层自动关闭秒数（`toastAutoCloseSec`，默认 0=不关闭，M7-5）。导出名时间戳**不是**配置项——"同名才追加"为固定行为（决策 #19）
 - 历史记录同样以 JSON 追加存储（已实现，见下方 M4-2 实现说明）
 - 实现（M4-1）：`settings.json`（app_config_dir）单键 `settings` 持有整个 `AppSettings`；读取时逐字段校验，非法/缺失回退默认值；App 层启动时一次加载，页面按导航条件挂载即拿到最终值，设置页改动即时回写
 - 实现（M4-2）：任务历史由 **Rust 侧终态回调**落盘 `app_data_dir/history.json`（`TaskManager::set_on_terminal`，lib.rs setup 接线），记录 id/kind/label/status/outputs/error/提交·开始·结束时间；上限 200 条、`.tmp`+rename 原子写、终态防重（取消与执行器并发只记首次）；`list_history`/`clear_history` 命令供历史页读取
@@ -589,7 +590,7 @@ Pending ──▶ Probing ──▶ Running ──▶ Completed
 
 | 场景 | 处理 |
 | --- | --- |
-| ffmpeg/ffprobe 缺失或版本过旧 | 启动 `check_environment` 阻塞提示，给出修复指引 |
+| ffmpeg/ffprobe 缺失或版本过旧 | 启动 `check_environment` 检测；**不阻塞启动**（`command.rs` 注释明确"失败不阻塞应用"），环境异常时由顶部状态条（`EnvChip`）持续提示并给出修复指引 |
 | 输入文件被占用/无读权限 | probe 阶段即失败，错误信息透传 |
 | 输出磁盘空间不足 | 任务前置检查，Failed + 明确提示 |
 | 中文/空格/特殊字符路径 | 子进程参数数组传递天然支持；concat 列表按 6.3③ 转义 |

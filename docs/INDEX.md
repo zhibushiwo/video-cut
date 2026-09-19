@@ -33,7 +33,7 @@
 | [DESIGN.md](./DESIGN.md) | 项目定位/原则/功能需求(FR)/无损承诺(NFR)/架构/数据模型/任务系统/格式/打包/配置/错误处理 | 任何改动前的上位规格 |
 | [FFMPEG.md](./FFMPEG.md) | 二进制管理、参数强制约定、命令模板、进度协议、probe 缓存、e2e 夹具 | 动 `src-tauri/src/ffmpeg/`、排查导出问题 |
 | [UI.md](./UI.md) | 页面流转与各页布局/交互规格 | 改前端页面与交互 |
-| [TIMELINE.md](./TIMELINE.md) | 时间线**行为规格**（TIMELINE.md §17） | 动 M11–M13 任何一项前 |
+| [TIMELINE.md](./TIMELINE.md) | 时间线**行为规格**（§17） | 动 M11–M13 任何一项前 |
 | [plans/M11.md](./plans/M11.md) | M11 **实施级方案**（原 §18，迁出前编号） | M11 动工期间 |
 | [DECISIONS.md](./DECISIONS.md) | 历史决策（ADR）与其理由、状态 | 动手前确认"定过没有" |
 | [CANDIDATES.md](./CANDIDATES.md) | 未排期候选池（CAND）与"不做"清单 | 提新需求、排下一批时 |
@@ -47,6 +47,7 @@
 | [CHANGELOG.md](./CHANGELOG.md) | 用户可见变更 | 发版前 |
 | [../README.md](../README.md) | 对外介绍、安装使用 | 给外部读者 |
 | [../AGENTS.md](../AGENTS.md) | agent 作业规程（命令、红线、完事标准） | agent 每次开工前 |
+| [INDEX.md](./INDEX.md)（本文） | 文档地图 · ID 规范与别名表 · 追踪矩阵 · 命名空间细则 · 维护规则 | 找"该读哪份 / 某编号是什么"时 |
 
 ## 3. ID 规范
 
@@ -147,7 +148,7 @@
 | **NFR-012** 配置与错误处理 | DESIGN.md §12 · §13 | `history.rs`/`logger.rs` | M4-1 · M4-7 · M4-8 | TC-014 · TC-004 | ✅ |
 | **FR-9xx** 保活 / 深浅主题（待发号） | UI.md §9.1 · §9.2 · 决策 #24/#25 | `pages`/`utils`/`types` | M10-1 · M10-2 | TC-014（AC 随 M10 发号） | ⏸ 暂缓（决策 #32） |
 | **FR-17xx** 单轨时间线（待发号） | TIMELINE.md §17 | `ClipTimeline`/`CropOverlay` · `ProductPreview`/`TaskProgress`/`hooks` | M11-0 … M11-9 · M12 · M13 | TIMELINE.md §17.9 ①~⑥（TC 待建） | 🔜 下一步 |
-| —（工程批次，无 FR） | PLAN「评审修复批次」「技术任务」· M7 | 多模块 | R1-1 … R1-5 ✅ · R2-1 … R2-5 · R3-1 … R3-6 · **R4-1 … R4-6**（缺陷修复，见 [BUGS.md](./BUGS.md)）· T-001 … T-003 | TC-005 · TC-001 – TC-004（回归）· **TC-019 – TC-023**（R4 配套回归） | R1 ✅ / R2、R3、R4、T 待 |
+| —（工程批次，无 FR） | PLAN「评审修复批次」「技术任务」· M7 | 多模块 | R1-1 … R1-5 ✅ · R2-1 … R2-5 · R3-1 … R3-6 · **R4-1 … R4-7**（缺陷修复，见 [BUGS.md](./BUGS.md)）· T-001 … T-003 | TC-005 · TC-001 – TC-004（回归）· **TC-019 – TC-024**（R4 配套回归） | R1 ✅ / R2、R3、R4、T 待 |
 
 
 ### 5.1 附录 A：完成态任务索引（矩阵未逐条展开的已完成任务）
@@ -210,7 +211,7 @@
 
 ## 6. 命名空间细则
 
-### 缺陷（BUG）——活跃缺陷登记
+### 6.1 缺陷（BUG）——活跃缺陷登记
 
 真源 = [BUGS.md](./BUGS.md)（本文只声明规则，不复制条目）。
 
@@ -232,9 +233,9 @@
 | BUG 的回归验证 | [TESTING.md](./TESTING.md)「回归测试」小节的 `TC-0NN`（标注 `关联 BUG-0NN`） |
 | 修复完成的用户可见说明 | [CHANGELOG.md](./CHANGELOG.md) 的 **Fixed** 段 |
 
-**归档**：`verified` 后迁入 `docs/archive/bugs.md`（只追加、不改写），并从 BUGS.md 主表移除；**号保留、不回填、不复用**。详见 BUGS.md §5。
+**归档**：`verified` 后迁入 `docs/archive/bugs.md`（**按需创建**，只追加、不改写），并从 BUGS.md 主表移除；**号保留、不回填、不复用**。详见 BUGS.md §5。
 
-### 评审（review）产物的归属——不发独立命名空间
+### 6.2 评审（review）产物的归属——不发独立命名空间
 
 > **裁决（2026-09-19）**：代码评审 / 走读是**触发源**，不是实体，**不设 `CR-` / `RV-` 等独立编号**。评审结论一律按下表**分流**到既有命名空间，避免为"来源"再造一套 ID。
 
@@ -272,7 +273,7 @@ M11-3: 播放头改 ref 直改 DOM（review 2026-09-19）
 | 已交付批次要点 | `handoff-archive.md` | 只追加，不改写历史 |
 | 文档分工 / ID 规则 | **本文** | 走 ADR |
 
-> **改完 `docs/**`、`README.md` 或 `AGENTS.md` 后必跑**：`pnpm check:docs`（= `node scripts/check-docs.mjs`），四项全绿才算完事（链接可达 / `§` 引用归属 / ID 交叉定义 / skip 区间合规）。克隆后跑 `pnpm hooks:install` 装钩子（`core.hooksPath=.githooks`），提交时会自动跑。
+> **改完 `docs/**`、`README.md` 或 `AGENTS.md` 后必跑**：`pnpm check:docs`（= `node scripts/check-docs.mjs`），五项全绿才算完事（链接可达 / `§` 引用归属 / ID 交叉定义 / skip 区间合规 / 反引号路径可达）。克隆后跑 `pnpm hooks:install` 装钩子（`core.hooksPath=.githooks`），提交时会自动跑。
 > 历史引文（如归档里照录的旧提交信息）用 `<!-- check-docs:skip -->` … `<!-- check-docs:endskip -->` 圈起，豁免引用检查；**不要**为迁就检查去改写历史原文。区间内必须紧邻一行写明**豁免原因**，且该文件须登记在下表——两条都由脚本校验。
 
 ### 7.1 `check-docs` skip 登记表
