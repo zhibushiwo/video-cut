@@ -36,5 +36,7 @@ chrono = "0.4"
 codegen-units = 1
 lto = true
 opt-level = 3
-panic = "abort"
+# 不采用体积建议里的 panic = "abort"：那会让 catch_unwind 失效，任务作业体的一次内部 panic
+# 直接终止整个应用（用户看到"导出到一半程序没了"）而不是只失败该任务。见 ADR-034 / BUG-001。
+panic = "unwind"
 strip = true
