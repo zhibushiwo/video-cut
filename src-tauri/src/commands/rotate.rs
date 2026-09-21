@@ -107,8 +107,8 @@ pub fn submit_rotate(
 
         match r {
             Ok(()) => {
-                let _ = std::fs::remove_file(&out);
-                std::fs::rename(&part, &out).map_err(|e| format!("重命名输出失败：{e}"))?;
+                // 原子替换：不得先删旧产物再改名，否则 rename 失败时两头空（`BUG-002`）
+                crate::fs::atomic_replace(&part, &out)?;
                 ctx.add_output(out.to_string_lossy().into_owned());
                 Ok(())
             }

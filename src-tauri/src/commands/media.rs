@@ -307,8 +307,8 @@ pub fn generate_proxy(
                 let _ = std::fs::remove_file(&part);
                 return Err(e);
             }
-            let _ = std::fs::remove_file(&job_output);
-            std::fs::rename(&part, &job_output).map_err(|e| format!("重命名代理文件失败：{e}"))?;
+            // 原子替换：不得先删旧产物再改名，否则 rename 失败时两头空（`BUG-002`）
+            crate::fs::atomic_replace(&part, &job_output)?;
             ctx.add_output(path_to_string(&job_output));
             Ok(())
         })();

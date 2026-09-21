@@ -1,6 +1,8 @@
 mod commands;
 // pub 供 tests/e2e.rs 复用命令构建器与探测（DESIGN §6.6），非对外 API 承诺
 pub mod ffmpeg;
+/// pub 同上：`atomic_replace` 要能在 e2e 里按真实输出收尾路径验证（`BUG-002`）。
+pub mod fs;
 mod history;
 mod logger;
 mod task;

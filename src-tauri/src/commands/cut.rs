@@ -219,9 +219,8 @@ fn submit_cut(
 
             match r {
                 Ok(()) => {
-                    let _ = std::fs::remove_file(&item.final_path);
-                    std::fs::rename(&item.part, &item.final_path)
-                        .map_err(|e| format!("重命名输出失败：{e}"))?;
+                    // 原子替换：不得先删旧产物再改名，否则 rename 失败时两头空（`BUG-002`）
+                    crate::fs::atomic_replace(&item.part, &item.final_path)?;
                     ctx.add_output(item.final_path.to_string_lossy().into_owned());
                 }
                 Err(e) => {

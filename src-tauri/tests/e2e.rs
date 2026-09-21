@@ -220,3 +220,33 @@ fn pipeline_full_chain() {
     assert_duration(fx, &final_out, d1 + d2, 0.5);
     assert_decodable(fx, &final_out);
 }
+
+/// 输出收尾（`TC-020` / `BUG-002`）：目标路径已存在旧产物时，替换必须是**系统级替换**，
+/// 不是"先删旧文件再改名"——后者的失败窗口会让用户旧文件丢失、新产物只剩 `.part`。
+///
+/// 真实链路：ffmpeg 产出到 `.part` → `fs::atomic_replace` 收尾 → 断言最终文件是新产物、无 `.part` 残留。
+#[test]
+fn output_replace_over_existing_file() {
+    let Some(fx) = setup() else {
+        eprintln!("skip: 未找到 sidecar ffmpeg/ffprobe");
+        return;
+    };
+    let final_path = fx.dir.join("e2e_replace.mp4");
+    // 与 pipeline.rs 的 `.part.<令牌>.mp4` 命名保持一致：扩展名留在最后，ffmpeg 才能推断封装格式
+    let part = fx.dir.join("e2e_replace.part.t99.mp4");
+
+    // 先造一个"上一次导出"的旧产物（内容与时长都和新产物不同）
+    run_ffmpeg(fx, &cmd::cut_args(0.0, 4.0, &s(&fx.src_b), &s(&final_path)), "准备旧产物");
+    let old_dur = assert_duration(fx, &final_path, 4.0, 0.3);
+
+    run_ffmpeg(fx, &cmd::cut_args(1.0, 2.0, &s(&fx.src_a), &s(&part)), "新产物写 .part");
+    video_cut_lib::fs::atomic_replace(&part, &final_path).expect("替换必须成功");
+
+    let new_dur = assert_duration(fx, &final_path, 2.0, 0.3);
+    assert!(
+        (new_dur - old_dur).abs() > 1.0,
+        "最终文件必须是新产物（{new_dur:.2}s）而不是旧文件（{old_dur:.2}s）"
+    );
+    assert_decodable(fx, &final_path);
+    assert!(!part.exists(), "`.part` 不得残留");
+}

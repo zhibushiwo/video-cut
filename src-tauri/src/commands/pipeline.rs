@@ -470,10 +470,11 @@ pub fn submit_pipeline(
             return Err(e);
         }
 
-        let _ = std::fs::remove_file(&out);
-        if let Err(e) = std::fs::rename(&part, &out) {
+        // 原子替换：不得先删旧产物再改名，否则 rename 失败时两头空（`BUG-002`）。
+        // 注意 `temps` 里只有中间文件与 concat 列表，不含 `part`——替换失败时新产物必须留在磁盘上。
+        if let Err(e) = crate::fs::atomic_replace(&part, &out) {
             cleanup(&temps);
-            return Err(format!("重命名输出失败：{e}"));
+            return Err(e);
         }
         ctx.add_output(output);
         cleanup(&temps);
