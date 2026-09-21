@@ -9,10 +9,12 @@
  * - `<CropBox>`：只画选区框——框必须画在选区所属的坐标系里（工作台的框在旋转舞台上、与旋转层同级）。
  *
  * 坐标一律为归一化值，量尺容器由 `boundsRef` 指定（选区按它的矩形换算）。
- * 拖拽在 window 上收 pointermove/pointerup，指针移出容器也不丢事件（与原实现一致）。
+ * 拖拽在 window 上收 pointermove/pointerup/pointercancel，指针移出容器、甚至移出窗口也不丢收尾
+ * （统一走 `utils/pointerDrag` 的 `beginPointerDrag`）。
  */
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { pxToCrop, type CropPx, type CropRect } from "../../utils/crop";
+import { beginPointerDrag } from "../../utils/pointerDrag";
 
 interface CropSelectOptions {
   /** 量尺容器：归一化坐标相对它的矩形换算 */
@@ -67,23 +69,9 @@ export function useCropSelect({ boundsRef, rect, onChange, lockRatio }: CropSele
       const base = rectRef.current;
 
       const attach = (move: (ev: PointerEvent) => void) => {
-        // 松手丢失兜底：指针在窗口外释放时 pointerup 不派发，此时按键已松开 → 立即收工，
-        // 否则监听器永久挂在 window 上、选区随鼠标乱跑（两侧原实现都没兜住）
-        const guarded = (ev: PointerEvent) => {
-          if (ev.buttons === 0) {
-            cleanup();
-            return;
-          }
-          move(ev);
-        };
-        const cleanup = () => {
-          window.removeEventListener("pointermove", guarded);
-          window.removeEventListener("pointerup", cleanup);
-          window.removeEventListener("pointercancel", cleanup);
-        };
-        window.addEventListener("pointermove", guarded);
-        window.addEventListener("pointerup", cleanup);
-        window.addEventListener("pointercancel", cleanup);
+        // 收尾兜底（窗口外松手 / pointercancel）统一在 utils/pointerDrag 里，
+        // 四处拖拽共用一份，别再本地手写（BUG-003 / AGENTS.md §3 第 20 条）
+        beginPointerDrag(move);
       };
 
       if (base && inRect(p, base)) {

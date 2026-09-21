@@ -1,4 +1,5 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { beginPointerDrag } from "../utils/pointerDrag";
 
 /** 拖拽选项：boundsRef 内松手 = 正常排序；拖到边界外松手 = onDropOutside(index)（M6-8 拖出移除） */
 interface DragSortOptions {
@@ -47,12 +48,11 @@ export function useDragSort(
     e.preventDefault();
     const startPos = axis === "x" ? e.clientX : e.clientY;
     let active = false;
+    /** 落点判定用的最后坐标：初值取按下点，收尾时以最后一次指针事件覆盖 */
     let lastX = e.clientX;
     let lastY = e.clientY;
 
     const move = (ev: PointerEvent) => {
-      lastX = ev.clientX;
-      lastY = ev.clientY;
       const pos = axis === "x" ? ev.clientX : ev.clientY;
       if (!active) {
         // 死区：按住未明显移动视为普通点击，不进入拖拽
@@ -64,10 +64,12 @@ export function useDragSort(
       overRef.current = to;
       setOverIndex(to);
     };
-    const finish = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", finish);
-      window.removeEventListener("pointercancel", finish);
+    // 收尾兜底（窗口外松手 / pointercancel）走公共实现（BUG-003 / AGENTS.md §3 第 20 条）
+    beginPointerDrag(move, (last) => {
+      if (last) {
+        lastX = last.clientX;
+        lastY = last.clientY;
+      }
       if (active) {
         const bounds = options?.boundsRef?.current?.getBoundingClientRect();
         const outside =
@@ -83,10 +85,7 @@ export function useDragSort(
         setDragIndex(null);
         setOverIndex(null);
       }
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", finish);
-    window.addEventListener("pointercancel", finish);
+    });
   };
 
   /** 行的拖拽视觉反馈：拖动行半透明；目标行按移动方向显示信号色边界线（box-shadow，无布局位移） */

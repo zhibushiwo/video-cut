@@ -1,5 +1,6 @@
 import { useMemo, useRef } from "react";
 import { realStartDiffers } from "../../utils/time";
+import { beginPointerDrag } from "../../utils/pointerDrag";
 
 export interface Selection {
   start: number;
@@ -105,6 +106,7 @@ export default function Timeline({
   };
 
   const beginDrag = (kind: Exclude<DragKind, null>) => (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
     dragRef.current = kind;
@@ -124,13 +126,10 @@ export default function Timeline({
         });
       }
     };
-    const up = () => {
+    // 收尾兜底（窗口外松手 / pointercancel）走公共实现（BUG-003 / AGENTS.md §3 第 20 条）
+    beginPointerDrag(move, () => {
       dragRef.current = null;
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    });
   };
 
   const handleStyle =

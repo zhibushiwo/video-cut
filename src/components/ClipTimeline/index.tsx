@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { pickTickStep } from "../Timeline";
 import { useDragSort } from "../../hooks/useDragSort";
+import { beginPointerDrag } from "../../utils/pointerDrag";
 
 export interface TimelineClip {
   id: string;
@@ -174,24 +175,21 @@ export default function ClipTimeline({
       setExtIndex(null);
       return;
     }
-    const move = (ev: PointerEvent) => {
-      setExtIndex(insideTrack(ev.clientX, ev.clientY) ? indexAtX(ev.clientX) : null);
-    };
-    const up = (ev: PointerEvent) => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      if (insideTrack(ev.clientX, ev.clientY)) {
-        const idx = indexAtX(ev.clientX);
-        if (idx !== null) onInsert(externalDrag.clipId, idx);
-      }
-      onExternalDragEnd();
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    return () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
+    // 收尾兜底（窗口外松手 / pointercancel）走公共实现（BUG-003 / AGENTS.md §3 第 20 条）
+    const detach = beginPointerDrag(
+      (ev) => {
+        setExtIndex(insideTrack(ev.clientX, ev.clientY) ? indexAtX(ev.clientX) : null);
+      },
+      (last) => {
+        if (last && insideTrack(last.clientX, last.clientY)) {
+          const idx = indexAtX(last.clientX);
+          if (idx !== null) onInsert(externalDrag.clipId, idx);
+        }
+        onExternalDragEnd();
+      },
+    );
+    // 卸载/依赖变化只摘监听、不触发落点处理（否则重挂载时会把上次的落点再插一遍）
+    return detach;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalDrag?.clipId, clips.length]);
 
