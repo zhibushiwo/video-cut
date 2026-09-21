@@ -367,9 +367,17 @@ fn parse_rotation(video: &Value) -> Option<i32> {
         .map(|r| r.round() as i32)
 }
 
+/// 解析 `-skip_frame nokey` 的 CSV 输出（每行一个关键帧时间点，秒）。
+///
+/// **只取行内首个逗号前的字段**：ffprobe 对**部分**帧会多输出一个空字段（实测
+/// `0.000000,` / `5.753333,`，同一文件里只出现个别行），若按整行 `parse::<f64>()`
+/// 解析，这些行会被静默丢弃——关键帧列表缺项会让 UI 少刻度、少可吸附点（BUG-008）。
+/// 非数值行（如 `N/A`）仍然跳过。
 pub fn parse_keyframes(csv: &str) -> Vec<f64> {
     csv.lines()
-        .filter_map(|l| l.trim().parse::<f64>().ok().filter(|t| t.is_finite()))
+        .filter_map(|l| {
+            l.split(',').next().unwrap_or("").trim().parse::<f64>().ok().filter(|t| t.is_finite())
+        })
         .collect()
 }
 
@@ -439,6 +447,25 @@ mod tests {
     fn keyframe_csv_skips_na_lines() {
         let csv = "0.000000\nN/A\n1.504000\n3.003000\n";
         assert_eq!(parse_keyframes(csv), vec![0.0, 1.504, 3.003]);
+    }
+
+    /// BUG-008 回归：ffprobe 会给**个别**关键帧行多输出一个空 CSV 字段（尾逗号），
+    /// 按整行解析会丢掉这些关键帧——实测 `极乐净土` 因此丢了 `0.0`（列表首项变成
+    /// 5.883）、`123.mp4` 丢了 5.753333。样本取自真实 ffprobe 9.0.1 输出。
+    #[test]
+    fn keyframe_csv_keeps_rows_with_extra_fields() {
+        let csv = "0.000000,\n5.883333\n11.283333,\n16.750000\n18.450000,\n";
+        let got = parse_keyframes(csv);
+        assert_eq!(got, vec![0.0, 5.883333, 11.283333, 16.75, 18.45]);
+        assert_eq!(got.first().copied(), Some(0.0), "首个关键帧不得丢失");
+    }
+
+    /// 行数与 ffprobe 原始输出一致（丢行即失败）——真机用例 TC-030 / TC-026 的单测侧口径。
+    #[test]
+    fn keyframe_csv_row_count_matches_input() {
+        let csv = "0.052667\n1.319333\n9.786000,\n14.052667\n15.619333,\n";
+        let rows = csv.lines().count();
+        assert_eq!(parse_keyframes(csv).len(), rows);
     }
 
     // ---------- 缓存（B1/M8） ----------

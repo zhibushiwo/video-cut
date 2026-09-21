@@ -17,7 +17,7 @@ import {
 } from "../../services/tauri";
 import type { AppSettings, CutMode, MediaInfo, Segment } from "../../types";
 import { audioSummary, needsProxy, videoSummary, wantsProxy } from "../../utils/media";
-import { formatBitrate, formatBytes, formatTime } from "../../utils/time";
+import { formatBitrate, formatBytes, formatTime, realCutStart, realStartDiffers } from "../../utils/time";
 import { resolveOutputDir } from "../../utils/paths";
 
 export default function CutPage({
@@ -164,6 +164,20 @@ export default function CutPage({
   const canAdd =
     duration > 0 && selection.end - selection.start >= 0.1;
 
+  /**
+   * 只有**无损（极速）模式**的关键帧才决定落点：精确模式帧级精确，落点=入点。
+   * 一次算好，供下方两处共用（真实落点展示 + 片段列表按落点算时长）。
+   */
+  const usableKeyframes = cutMode === "fast" && keyframes.length > 0 ? keyframes : undefined;
+
+  /**
+   * 无损（极速）剪切的**真实落点**：≤入点的最近关键帧。界面必须事先展示它
+   * （NFR-004 / DESIGN §13"不允许剪完才知道偏了"）；精确模式帧级精确，落点=入点，故不传。
+   */
+  const realStart = usableKeyframes
+    ? realCutStart(selection.start, usableKeyframes)
+    : undefined;
+
   const addSegment = () => {
     if (!canAdd) return;
     setSegments((prev) => [
@@ -304,6 +318,7 @@ export default function CutPage({
                 selection={selection}
                 currentTime={currentTime}
                 snap={snap}
+                realStart={realStart}
                 onSelectionChange={setSelection}
                 onSeek={handleSeek}
               />
@@ -340,6 +355,12 @@ export default function CutPage({
               >
                 添加片段
               </button>
+              {realStartDiffers(realStart, selection.start) && (
+                <span className="pb-2 text-xs text-mute">
+                  实际入点 <span className="font-mono">{formatTime(realStart)}</span>
+                  （无损剪切只能从关键帧开始）
+                </span>
+              )}
               <div className="flex overflow-hidden rounded-md border border-hairline pb-0" role="group" aria-label="剪切模式">
                 <button
                   type="button"
@@ -382,6 +403,7 @@ export default function CutPage({
 
             <SegmentList
               segments={segments}
+              keyframes={usableKeyframes}
               onRemove={(i) => setSegments((prev) => prev.filter((_, idx) => idx !== i))}
             />
 

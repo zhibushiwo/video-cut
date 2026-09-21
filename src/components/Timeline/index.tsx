@@ -1,4 +1,5 @@
 import { useMemo, useRef } from "react";
+import { realStartDiffers } from "../../utils/time";
 
 export interface Selection {
   start: number;
@@ -13,6 +14,12 @@ interface TimelineProps {
   currentTime: number;
   /** 入点是否吸附最近关键帧（±0.5s 内，DESIGN §3.2） */
   snap: boolean;
+  /**
+   * 无损剪切的**真实落点**（≤入点的最近关键帧，`utils/time.ts` 的 `realCutStart`）。
+   * 与 `selection.start` 不同时在轴上标出虚线并写进入点 tooltip——NFR-004 / DESIGN §13
+   * 要求"UI 事先展示实际落点"；重编码路径（帧级精确）不要传。
+   */
+  realStart?: number;
   onSelectionChange: (sel: Selection) => void;
   onSeek: (t: number) => void;
 }
@@ -58,6 +65,7 @@ export default function Timeline({
   selection,
   currentTime,
   snap,
+  realStart,
   onSelectionChange,
   onSeek,
 }: TimelineProps) {
@@ -66,6 +74,8 @@ export default function Timeline({
   // 拖拽回调闭包里读取最新 selection，避免 stale closure
   const selRef = useRef(selection);
   selRef.current = selection;
+  /** 真实落点与选区入点是否可辨（同一毫秒内的差异不提示，避免抖动） */
+  const showRealStart = realStartDiffers(realStart, selection.start);
 
   const pct = (t: number) =>
     duration > 0 ? `${Math.min(100, Math.max(0, (t / duration) * 100))}%` : "0%";
@@ -177,6 +187,13 @@ export default function Timeline({
           className="absolute bottom-0 top-0 border-x border-signal/70 bg-signal/15"
           style={{ left: pct(selection.start), width: `calc(${pct(selection.end)} - ${pct(selection.start)})` }}
         />
+        {/* 真实落点（无损路径只能从关键帧开始） */}
+        {showRealStart && (
+          <span
+            className="pointer-events-none absolute bottom-0 top-0 border-l border-dashed border-paper/60"
+            style={{ left: pct(realStart as number) }}
+          />
+        )}
         {/* 双手柄 */}
         <div
           role="slider"
@@ -186,7 +203,11 @@ export default function Timeline({
           className={`${handleStyle} left-0`}
           style={{ left: pct(selection.start) }}
           onPointerDown={beginDrag("start")}
-          title={`入点 ${selection.start.toFixed(3)}s`}
+          title={
+            showRealStart
+              ? `入点 ${selection.start.toFixed(3)}s · 实际落点 ${(realStart as number).toFixed(3)}s（无损对齐关键帧）`
+              : `入点 ${selection.start.toFixed(3)}s`
+          }
         />
         <div
           role="slider"

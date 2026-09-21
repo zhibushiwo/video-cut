@@ -100,10 +100,24 @@ fn fmt_sec(sec: f64) -> String {
     format!("{:.3}", sec.max(0.0))
 }
 
+/// 输入侧 seek（`-ss` 在 `-i` **之前**，copy 路径）专用格式化：**绝不允许落到目标时刻之前**。
+///
+/// ffmpeg 输入侧 seek 的语义是"落到 ≤ `-ss` 的最近关键帧"。用一个**被舍入到目标时刻之前**的
+/// `-ss`（如关键帧真值 5.753333 被 `fmt_sec` 写成 "5.753"）会让它退到**上一个**关键帧，
+/// 成品凭空多出一个 GOP 的内容与时长（BUG-007；对 GOP 可达 10s 的源尤其致命）。
+/// 因此这里加 1µs 余量并按 6 位小数输出：
+/// - 目标时刻往后 1µs，足以吃掉任何"打印精度截断"（ffprobe 的 `pts_time` 只给 6 位小数）；
+/// - 1µs 远小于一帧（60fps 为 16.7ms），不会影响落点语义；
+/// - 唯一可能因此被跨过的关键帧恰好落在 start 之后 1µs 内——那本就该被选中。
+/// 输出侧 seek（`-ss` 在 `-i` 之后，重编码帧级精确）仍用 [`fmt_sec`]，不加余量。
+fn fmt_seek(sec: f64) -> String {
+    format!("{:.6}", sec.max(0.0) + 1e-6)
+}
+
 /// 极速剪切（stream copy，DESIGN §6.3①）。
 ///
-/// `-ss` 在 `-i` 前（输入侧 seek，落点=≤start 的关键帧）；`-t` 用时长避免时间基准歧义；
-/// `-map 0` 保留全部流；`-avoid_negative_ts make_zero` 修正时间戳。
+/// `-ss` 在 `-i` 前（输入侧 seek，落点=≤start 的关键帧，格式化见 [`fmt_seek`]）；
+/// `-t` 用时长避免时间基准歧义；`-map 0` 保留全部流；`-avoid_negative_ts make_zero` 修正时间戳。
 pub fn cut_args(start_sec: f64, duration_sec: f64, input: &str, output: &str) -> Vec<String> {
     [
         "-hide_banner",
@@ -115,7 +129,7 @@ pub fn cut_args(start_sec: f64, duration_sec: f64, input: &str, output: &str) ->
         "-stats_period",
         "0.2",
         "-ss",
-        &fmt_sec(start_sec),
+        &fmt_seek(start_sec),
         "-i",
         input,
         "-t",
@@ -566,7 +580,8 @@ pub fn precise_cut_args(
 // ---------- 工作台流水线（DESIGN §3.8、§6.3⑨⑩） ----------
 
 /// 工作台无损片段：剪切（可选）+ 元数据旋转（可选）一条 copy 命令完成。
-/// `-display_rotation`（覆盖语义）与 `-ss` 同为输入选项，必须都在 `-i` 之前。
+/// `-display_rotation`（覆盖语义）与 `-ss` 同为输入选项，必须都在 `-i` 之前；
+/// `-ss` 走 [`fmt_seek`]（输入侧 seek 不得落到目标时刻之前，见 BUG-007）。
 pub fn pipeline_copy_args(
     segment: Option<(f64, f64)>,
     display_deg: i32,
@@ -597,7 +612,7 @@ pub fn pipeline_copy_args(
         args.push("-display_vflip".into());
     }
     if let Some((start, _)) = segment {
-        args.extend(["-ss".into(), fmt_sec(start)]);
+        args.extend(["-ss".into(), fmt_seek(start)]);
     }
     args.extend(["-i".into(), input.into()]);
     if let Some((_, dur)) = segment {
@@ -696,7 +711,7 @@ mod tests {
                 "-stats_period",
                 "0.2",
                 "-ss",
-                "30.000",
+                "30.000001",
                 "-i",
                 "in.mp4",
                 "-t",
@@ -716,7 +731,58 @@ mod tests {
     #[test]
     fn cut_args_negative_start_clamped() {
         let args = cut_args(-1.0, 5.0, "a.mkv", "b.mkv");
-        assert_eq!(args[args.iter().position(|a| a == "-ss").unwrap() + 1], "0.000");
+        assert_eq!(args[args.iter().position(|a| a == "-ss").unwrap() + 1], "0.000001");
+    }
+
+    /// BUG-007 回归：输入侧 `-ss` **不得**小于调用方给的时刻。
+    ///
+    /// 真实素材的关键帧时间点常是非整毫秒（`tb=1/60000` 下 5.753333 这类），
+    /// 一旦被格式化到目标时刻**之前**，ffmpeg 会退到上一个关键帧，成品凭空多一个 GOP。
+    /// 用真实复现值锁住：`1.319333` 必须严格大于它自己。
+    #[test]
+    fn cut_args_input_seek_never_lands_before_requested_time() {
+        for start in [1.319333_f64, 5.753333, 0.052667, 14.052667, 0.0, 30.0] {
+            let args = cut_args(start, 2.0, "in.mp4", "out.mp4");
+            let ss: f64 = args[args.iter().position(|a| a == "-ss").unwrap() + 1]
+                .parse()
+                .expect("-ss 必须是可解析的数值");
+            assert!(
+                ss > start,
+                "-ss {ss} 不得 ≤ 请求时刻 {start}（否则 ffmpeg 会退到上一个关键帧）"
+            );
+            // 余量必须远小于一帧，不能改变落点语义
+            assert!(ss - start <= 1e-5, "-ss 余量过大：{start} → {ss}");
+        }
+    }
+
+    /// BUG-007 回归：工作台 copy 片段同样走输入侧 seek，约束一致。
+    #[test]
+    fn pipeline_copy_input_seek_never_lands_before_requested_time() {
+        let args = pipeline_copy_args(Some((1.319333, 2.0)), 0, false, false, "in.mp4", "out.mp4");
+        let ss: f64 = args[args.iter().position(|a| a == "-ss").unwrap() + 1].parse().unwrap();
+        assert!(ss > 1.319333, "-ss {ss} 不得 ≤ 1.319333");
+    }
+
+    /// 输出侧 seek（精确剪切 / 转码片段）**不加余量**：那里是帧级精确，语义不同。
+    #[test]
+    fn precise_cut_output_seek_keeps_plain_precision() {
+        let args = precise_cut_args(2.0, 3.0, "in.mp4", "out.mp4", "libx264", QualityPreset::Balanced);
+        let ss = args.iter().position(|a| a == "-ss").unwrap();
+        assert_eq!(args[ss + 1], "2.000");
+        let t_args = pipeline_transcode_args(
+            Some((2.0, 3.0)),
+            0,
+            false,
+            false,
+            None,
+            "libx264",
+            QualityPreset::Balanced,
+            60000,
+            "in.mp4",
+            "out.mp4",
+        );
+        let sst = t_args.iter().position(|a| a == "-ss").unwrap();
+        assert_eq!(t_args[sst + 1], "2.000");
     }
 
     #[test]
@@ -914,7 +980,7 @@ mod tests {
         let i = args.iter().position(|a| a == "-i").unwrap();
         assert!(rot < ss && ss < i, "输入选项（display_rotation/ss）必须在 -i 之前");
         assert_eq!(args[rot + 1], "90");
-        assert_eq!(args[ss + 1], "5.000");
+        assert_eq!(args[ss + 1], "5.000001");
         let t = args.iter().position(|a| a == "-t").unwrap();
         assert!(t > i, "-t 在 -i 之后");
         assert_eq!(args[t + 1], "10.000");
