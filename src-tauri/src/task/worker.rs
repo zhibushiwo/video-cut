@@ -165,8 +165,9 @@ pub(crate) fn run(
 /// 并发槽永不归还——连续两次 panic 即冻结整个队列（作业体里再补回收也救不回来，因为根本走不到）。
 /// 这里把 panic 收敛成一个普通 `Err`，让 [`run`] 的既有终态路径照常执行。
 ///
-/// 已知边界：`[profile.release]` 设了 `panic = "abort"`（Tauri 体积优化建议），release 下
-/// panic 会直接终止进程，`catch_unwind` 不生效——本条只在 dev/test（unwind）下成立。
+/// 发布版同样生效：`[profile.release]` 的 `panic` 保留 `"unwind"`（不采用 Tauri 体积建议里的
+/// `"abort"`——那会让 `catch_unwind` 在打包版失效、panic 变成整个程序退出）。
+/// 见 `docs/DECISIONS.md` 的 `ADR-034`。
 fn run_job_isolated(ctx: &TaskContext, job: Job) -> Result<(), String> {
     match std::panic::catch_unwind(AssertUnwindSafe(move || job(ctx))) {
         Ok(result) => result,

@@ -655,18 +655,23 @@ mod tests {
         assert!(err.contains("任务内部错误"), "文案应表明是任务内部错误，实际：{err}");
         assert!(err.contains("模拟作业体 panic"), "文案应带上 panic 内容，实际：{err}");
 
-        // 第二次 panic + 一个正常任务：并发位只有 1 个，泄漏的话 id3 会永远排不上
+        // 第二次 panic + 一个正常任务：并发位只有 1 个，泄漏的话 id3 会永远排不上。
+        // 这次的 panic 走 `panic!("{}", …)` 形态（载荷是 String，与上面的 &str 分支不同），
+        // 顺带锁住 panic_payload 对两类载荷都能取到文案。
         let id2 = mgr.submit(
             sink.clone(),
             "test",
             "panic 任务 2",
-            Box::new(|_| panic!("再来一次")),
+            Box::new(|_| panic!("{}", "再来一次")),
         );
         let id3 = mgr.submit(sink, "test", "正常任务", Box::new(|_| Ok(())));
         let snaps = wait_terminal(&mgr, &[&id2, &id3], Duration::from_secs(5));
-        assert_eq!(
-            snaps.iter().find(|s| s.id == id2).unwrap().status,
-            TaskStatus::Failed
+        let s2 = snaps.iter().find(|s| s.id == id2).unwrap();
+        assert_eq!(s2.status, TaskStatus::Failed);
+        assert!(
+            s2.error.clone().unwrap_or_default().contains("再来一次"),
+            "格式化 panic 的文案也要能取到，实际：{:?}",
+            s2.error
         );
         assert_eq!(
             snaps.iter().find(|s| s.id == id3).unwrap().status,
