@@ -84,7 +84,7 @@
 
 | TC | 关联 BUG | 验证什么 | 验证方式 | 状态 |
 | --- | --- | --- | --- | --- |
-| TC-019 | BUG-001 | 作业体 panic 后：任务进 Failed、并发槽归还，连续两次 panic 不冻结队列 | `cargo test` 单测 | ✅ 通过（2026-09-21，`panicking_job_fails_task_and_returns_slot`：并发位=1 下连续两次 panic 后第三个任务仍完成，清理钩子照跑一次） |
+| TC-019 | BUG-001 | 作业体 panic 后：任务进 Failed、并发槽归还，连续两次 panic 不冻结队列 | `cargo test` 单测 | ✅ 通过（2026-09-21，`panicking_job_fails_task_and_returns_slot`：并发位=1 下连续两次 panic 后第三个任务仍完成，清理钩子照跑一次；两次 panic 分别走 `&str` 与 `String` 载荷，文案都能取到） |
 | TC-020 | BUG-002 | 输出替换原子性：目标被占用时旧文件不丢、错误信息含 `.part` 完整路径 | `cargo test` 单测（`fs::atomic_replace` 三分支）+ e2e（`output_replace_over_existing_file`） | ✅ 通过（2026-09-21：3 条单测 + 1 条 e2e；目标不可替换时旧文件与 `.part` 均在、错误含完整路径） |
 | TC-021 | BUG-003 | 四处指针拖拽：窗口外松手后监听器不残留、无拖拽态卡死、无意外重排 | 手工（合并页列表 / 工作台素材卡 / 剪切页 Timeline 双手柄 / 工作台 ClipTimeline 与裁剪框选） | ⏳ 待跑（实现已统一到 `utils/pointerDrag` 的 `beginPointerDrag`，四处共用同一收尾兜底） |
 | TC-022 | BUG-004 | `pxToCrop` 边界：x 在界内 / 恰好压界 / 远超界，w 最小 / 恰好 / 超界 | 手工（数值微调）；M11-0 引入 Vitest 后转自动化 | 待建（R4-4） |
