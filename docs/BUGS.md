@@ -4,9 +4,9 @@
 > **唯一真源**：缺陷的编号、状态与关联关系以本文为准；缺陷的**规格依据**仍在 [DESIGN.md](./DESIGN.md)（FR/AC），修复任务的进度仍在 [PLAN.md](./PLAN.md)。
 > **读时机**：收到 bug 反馈、判断"这是缺陷还是需求变更"时；修复前（查是否已登记、是否重复）；写回归测试与发版说明前。
 > **写规则**：只追加新行、不删行；状态单向流转（见下）；号**不复用**（`wontfix`/`duplicate` 也占号）；已 `verified` 的条目按批迁入 `docs/archive/bugs.md` 后从本表移除。
-> **来源**：[archive/code-review-2026-09-19.md](./archive/code-review-2026-09-19.md)（评审报告，只追加）
+> **来源**：[archive/code-review-2026-09-19.md](./archive/code-review-2026-09-19.md)（评审报告，只追加）· 真机 GUI 自动化首跑（[gui-e2e/README.md](./gui-e2e/README.md)，`BUG-007`–`BUG-009`）
 > **关联**：[INDEX.md](./INDEX.md)（ID 规范 §3 · 细则 §6） · [DESIGN.md](./DESIGN.md)（FR/AC） · [PLAN.md](./PLAN.md)（修复任务） · [TESTING.md](./TESTING.md)（回归 TC） · [CHANGELOG.md](./CHANGELOG.md)（Fixed 段）
-> **最后更新**：2026-09-19（建立；首次登记 `BUG-001`–`BUG-005`，来源 [code-review-2026-09-19.md](./archive/code-review-2026-09-19.md)）
+> **最后更新**：2026-09-21（`BUG-007`/`BUG-009` 经真机复验转 `verified`；`BUG-008` 代码已修、解析单测已锁，真机复跑待用户发起，暂为 `fixed`）
 
 ---
 
@@ -48,6 +48,9 @@ open ──> confirmed ──> fixing ──> fixed ──> verified
 | BUG-004 | `pxToCrop` 不钳制 x/y → 归一化选区越界（与函数自身契约"过小或越界返回 null"不符） | confirmed | AC-351-1（框选与数值微调） | R4-4 | TC-022 | 2026-09-19 | |
 | BUG-005 | `generate_thumbnails_sync` 单张失败 `return Err` 中止整批 → 合并页整组缩略图不显示（同族 clip 版为 `continue`） | confirmed | AC-331-1（九项参数检测面板） | R4-5 | TC-023 | 2026-09-19 | |
 | BUG-006 | `needsProxy` 只判视频编码 / `pixFmt` / 音频编码，**未按 §10 判定容器** → 容器不被 WebView2 支持（如 `flv` / `wmv`）而编码"原生可播"时不生成代理，预览可能黑屏 | confirmed | NFR-010（格式支持范围 · DESIGN.md §10） | R4-7 | TC-024 | 2026-09-19 | |
+| BUG-007 | 关键帧吸附值经 `-ss` 三位小数取整后**落到关键帧之前** → ffmpeg 退回上一个关键帧，极速剪切产物比界面承诺长（实测 `merge_test_a`：界面 2.7s / 产物 4.036s、首帧 pts 0.052667 而非 1.319333） | verified | NFR-004（所见即所得 · DESIGN.md §2） | R4-8 | TC-025 | 2026-09-19 | 2026-09-21 |
+| BUG-008 | `parse_keyframes` 用整行 `parse::<f64>()` 解析 ffprobe 输出，**丢弃带额外空 CSV 字段的行** → 关键帧列表丢项（实测 `极乐净土` 67 行→66 条、丢了 `0.0`；`123.mp4` 5 行→4 条、丢了 5.753333） | fixed | FR-313 · AC-313-1（关键帧索引 · DESIGN.md §3.1） | R4-8 | TC-026 | 2026-09-19 | |
+| BUG-009 | 时间轴手柄 tooltip 显示**选区值**而非 ffmpeg 的**实际落点** → 非吸附入点下偏差可达一个 GOP 而用户不可知（界面 35.000s，实际内容从 31.25s 起） | verified | NFR-004（所见即所得 · DESIGN.md §2）· DESIGN.md §13（"UI 事先展示实际落点"） | R4-8 | TC-027 | 2026-09-19 | 2026-09-21 |
 
 > **列填写口径**
 > - **违反规格**：写被违反的 `FR-xxx` / `AC-xxx`（规格没变才登记为 BUG）；无对应 FR 的工程类问题写 `—（工程）`

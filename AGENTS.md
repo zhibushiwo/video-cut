@@ -73,6 +73,10 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 19. **输出文件替换必须原子**：不得"先删目标再 `rename`"，也不得吞掉删除错误 —— 统一走 `fs::atomic_replace(part, final)`（带 token 临时名 → 原子替换 → 清理，失败回滚）；错误信息必须带 `.part` 完整路径（否则用户既丢旧文件又找不到新产物）。见 [BUGS.md](docs/BUGS.md) `BUG-002`。
 20. **指针拖拽必须处理"窗口外松手"**：`pointermove` 内判 `buttons === 0` 即收工，并注册 `pointercancel`（参考 `components/CropOverlay` 的既有实现）；否则监听器常驻 window、拖拽态卡死，后续无关点击会触发意外重排。见 [BUGS.md](docs/BUGS.md) `BUG-003`。
 
+**精度与落点**（2026-09-21 真机首跑补充）
+
+21. **输入侧与输出侧的 `-ss` 格式化必须分开**：**输入侧** seek（copy 路径 `cut_args` / `pipeline_copy_args`）走 `command::fmt_seek`（**+1µs、6 位小数**）；**输出侧** seek 与 `-t` 走 `fmt_sec`（3 位小数）。输入侧语义是"落到 ≤ 请求时刻的最近关键帧"，而关键帧 pts 常非整毫秒（`tb=1/60000` 下 5.753333），被三位小数舍到请求时刻**之前**就会退到**再前一个**关键帧。见 [BUGS.md](docs/BUGS.md) `BUG-007`（界面 2.7s / 产物 4.036s）。新增带输入侧 seek 的构建器都要补"`-ss` 严格大于请求时刻"的参数序列断言。
+
 ## 4. 完事标准
 
 改动**完成**需同时满足：

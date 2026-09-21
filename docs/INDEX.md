@@ -5,7 +5,7 @@
 > **读时机**：新会话第一个读它；提问"这事定过没有 / 该改哪个文件 / 这个编号是什么"时先查这里。
 > **写规则**：新增或调整文档分工、新增 ID 命名空间、改动矩阵时改本文；规格类内容一律改对应专题文档，不写在这里。
 > **关联**：[../AGENTS.md](../AGENTS.md)（agent 作业规程） · 上位 [DESIGN.md](./DESIGN.md)（规格仲裁者） · 进度 [PLAN.md](./PLAN.md)
-> **最后更新**：2026-09-19（B1 建立）
+> **最后更新**：2026-09-19（B1 建立；追加 `gui-e2e/` 目录与 TC `030+` 号段）
 
 ---
 
@@ -21,6 +21,7 @@
 | 想知道"下一步做什么 / 做到哪了" | [PLAN.md](./PLAN.md) | [HANDOFF.md](./HANDOFF.md)（当前状态） |
 | 想加新功能（还没立项） | [CANDIDATES.md](./CANDIDATES.md) | [DECISIONS.md](./DECISIONS.md)（晋升规则） |
 | 跑测试 / 确认验收口径 | [TESTING.md](./TESTING.md) | [DESIGN.md](./DESIGN.md) §3 各节末（AC） |
+| 真机跑关键功能 / 复现"界面说的和产物不一致" | [gui-e2e/README.md](./gui-e2e/README.md) | [TESTING.md](./TESTING.md) §3.5（TC 清单） |
 | 追溯某个历史批次怎么实现的 | [handoff-archive.md](./archive/handoff-archive.md) | — |
 | 让 agent 上手改代码 | [../AGENTS.md](../AGENTS.md) | 本文 |
 
@@ -39,6 +40,7 @@
 | [CANDIDATES.md](./CANDIDATES.md) | 未排期候选池（CAND）与"不做"清单 | 提新需求、排下一批时 |
 | [PLAN.md](./PLAN.md) | 里程碑、任务、验收与**进度** | 接活/汇报进度 |
 | [TESTING.md](./TESTING.md) | 测试用例（TC）、夹具、验收执行方式；**回归测试**小节关联 BUG | 跑测试、写验收结论 |
+| [gui-e2e/README.md](./gui-e2e/README.md) | **真机 GUI 自动化用例的实施细节**：启动与驱动方式、每条用例的步骤/断言/证据（TC 号与一句话覆盖在 TESTING.md §3.5） | 真机跑关键功能、查"界面承诺 vs 产物实测"的判定口径 |
 | [BUGS.md](./BUGS.md) | **活跃缺陷**（BUG）的状态、违反规格、修复任务与回归 TC | 收到 bug 反馈、判断"缺陷还是需求变更" |
 | [HANDOFF.md](./HANDOFF.md) | 会话状态快照（现在在哪/下一步/近期坑） | 会话开场 |
 | [handoff-archive.md](./archive/handoff-archive.md) | 已交付批次的历史实施要点 | 追溯历史实现细节 |
@@ -64,7 +66,7 @@
 | 功能需求 | `FR-3XY` / `FR-9XY` / `FR-17XY` | 3xx / 9xx / 17xx | 首段 = 需求所在文档的节号：DESIGN.md §3 → `FR-3XY`（X=节号，Y=该节内序号，`Y=0` 为组级）· UI.md §9 → `FR-9XY` · TIMELINE.md §17 → `FR-17XY` | DESIGN.md §3（P0）；UI/TIMELINE（随对应里程碑开工发号） |
 | 非功能需求 | `NFR-0NN` | `NFR-001` | 性能承诺、无损承诺、格式矩阵、并发与错误处理 | DESIGN.md §2 · §4 · §8 · §10 · §13 |
 | 验收 | `AC-<FR号>-<序>` | 随 FR | 天然关联 FR，不需要独立映射表；**交付/工程类验收**（打包、日志、缓存）由 TC 或 NFR 承载，不强行挂 FR | DESIGN §3 各节末 |
-| 测试用例 | `TC-0NN` | `TC-001` | `001–003` = 现存 cargo e2e；`010+` = 手工验收组 | TESTING |
+| 测试用例 | `TC-0NN` | `TC-001` | `001–005` = 自动化（cargo e2e / 单测 / 静态检查）；`010–018` = 手工验收组；`019–027` = 缺陷回归组；`030+` = 真机 GUI 自动化 | TESTING（号与一句话覆盖）· gui-e2e（实施细节） |
 | 缺陷 | `BUG-0NN` | `BUG-001` | 活跃缺陷（**规格未变**而实现与 FR/AC 不符）；判定与状态机见 §6；**号不复用** | **BUGS.md** |
 | 评审（review） | **不发号** | — | 评审是**触发源**、不是实体；结论按 §6 分流到 BUG / FR / ADR / T / 未决段 | 本文 §6 |
 | 变更 | `[Unreleased]` / `[x.y.z]` | — | 用户可见变更 | CHANGELOG |
@@ -266,6 +268,7 @@ M11-3: 播放头改 ref 直改 DOM（review 2026-09-19）
 | 新增/晋升候选 | `CANDIDATES.md` | 晋升需先在 DESIGN 补设计 |
 | 新需求 / 验收口径 | `DESIGN.md`（FR/NFR/AC 就地） | AC 一行一条 |
 | 测试方法 / 夹具变化 | `TESTING.md` | 引用 AC，不抄 AC 正文；缺陷的回归用例进「回归测试」小节并标 `关联 BUG-0NN` |
+| 新增真机 GUI 自动化用例 | 先在 `TESTING.md` §3.5 登记 TC 号与一句话覆盖，再到 `gui-e2e/` 补步骤与断言 | `gui-e2e/` 是实施细节的真源，号必须在 TESTING 里存在（脚本按 TESTING 认 TC 定义） |
 | 发现 / 更新缺陷 | `BUGS.md`（追加行、改状态列） | 号不复用；**规格要变走 FR 而不是 BUG** |
 | 评审 / 走读结论 | 按 §6 分流，**不建独立号** | 未定性的进 HANDOFF 未决段并标「待定性」 |
 | 实现级方案（如 M11） | `plans/<批次>.md` | 行为规格仍在规格文档 |
