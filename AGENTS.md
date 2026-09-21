@@ -70,8 +70,8 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 
 **收尾与状态残留**（2026-09-19 审查补充）
 
-19. **输出文件替换必须原子**：不得"先删目标再 `rename`"，也不得吞掉删除错误 —— 统一走 `fs::atomic_replace(part, final)`（带 token 临时名 → 原子替换 → 清理，失败回滚）；错误信息必须带 `.part` 完整路径（否则用户既丢旧文件又找不到新产物）。见 [BUGS.md](docs/BUGS.md) `BUG-002`。
-20. **指针拖拽必须处理"窗口外松手"**：`pointermove` 内判 `buttons === 0` 即收工，并注册 `pointercancel`（参考 `components/CropOverlay` 的既有实现）；否则监听器常驻 window、拖拽态卡死，后续无关点击会触发意外重排。见 [BUGS.md](docs/BUGS.md) `BUG-003`。
+19. **输出文件替换必须原子**：不得"先删目标再 `rename`"，也不得吞掉删除错误 —— 统一走 `fs::atomic_replace(part, final)`。实现只需一次 `std::fs::rename`：它在 Windows 走 `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`、在 Unix 走 `rename(2)`，**目标已存在时由系统替换**，失败则两个文件都原样保留——所以既不先删、也不加中间备份名（多一步就多一个失败窗口）。失败时错误信息必须带 `.part` 完整路径（否则用户既丢旧文件又找不到新产物）。见 [BUGS.md](docs/BUGS.md) `BUG-002`。
+20. **指针拖拽必须处理"窗口外松手"**：统一走 `utils/pointerDrag.ts` 的 `beginPointerDrag(onMove, onEnd)`（4 处拖拽共用：裁剪框选 / 列表排序 / 时间轴手柄 / 时间轴块与池→轴）——它在 `pointermove` 内判 `buttons === 0` 即收工，并注册 `pointercancel`；**不要再本地手写 `addEventListener("pointermove"…)`**。否则监听器常驻 window、拖拽态卡死，后续无关点击会触发意外重排。组件卸载要摘监听时用它的返回值 `detach`（不触发 `onEnd`）。见 [BUGS.md](docs/BUGS.md) `BUG-003`。
 
 **精度与落点**（2026-09-21 真机首跑补充）
 

@@ -229,10 +229,11 @@ ffprobe -v error -select_streams v:0 -skip_frame nokey \
 真实 sidecar ffmpeg/ffprobe 跑通「剪切 → 合并 → pipeline」主链路的集成测试（决策 #23）：
 
 - **夹具**：测试自建——用 sidecar ffmpeg lavfi 生成 320×240 短片段（h264+aac），不依赖 `scripts/fixtures` 与网络；产物写入系统临时目录
-- **链路断言**（全部走 command.rs 真实构建器）：
+- **链路断言**（链路部分全部走 command.rs 真实构建器）：
   1. 极速剪切 `cut_args` → 输出时长 ≈ 请求区间、流完整
   2. 精确剪切 `precise_cut_args` → 时长精确到 ±0.3s、可解码
   3. 合并 `concat_list_content` + `concat_args`（用两个剪切产物）→ 总时长 = 片段和
   4. pipeline 全链 `pipeline_copy_args` + `pipeline_transcode_args`（带裁剪）+ `normalize_args` + `concat_args` → 成品时长 = 片段和、全帧可解码
+  5. 输出收尾 `fs::atomic_replace`（`BUG-002`）→ 目标路径已有旧产物时被**替换**为新产物、目录不留 `.part`
 - **可解码判定**：`ffmpeg -v error -i <out> -f null -` 退出码 0 且 stderr 为空
 - **跳过策略**：sidecar 缺失（未跑 fetch-ffmpeg）时打印 skip 并直接通过，保证裸 `cargo test` 不因环境失败

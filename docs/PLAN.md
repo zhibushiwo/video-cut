@@ -284,9 +284,10 @@
 > **关联**：—（工程批次；其中 6 条为**缺陷修复**，登记见 [BUGS.md](./BUGS.md) `BUG-001`–`BUG-006`；`R4-8` 另收真机首跑缺陷 `BUG-007`–`BUG-009`）　·　**验收**：各条以其回归 TC 为准　——　执行：TESTING.md §3.4（TC-019–TC-027）
 > **排期**：**排在 M11-0 之前** —— §3.1 的作业体会被 M11 的切割/波纹删除放大（panic 一次即泄漏并发槽），§3.3 涉及的 `ClipTimeline` 正是 M11-1/2/4/6 要重写的组件：先修是顺手，M11 后修是返工。
 
-- [ ] **R4-1 [P0] 作业体 panic 隔离**（`task/worker.rs:125`）：`job(&ctx)` 用 `catch_unwind(AssertUnwindSafe(..))` 包裹，panic 视为 `Err("任务内部错误")`，让既有终态处理（`record_terminal` / `run_cleanup` / `task_finished`）照常执行；补单测（模拟 panic → 任务 Failed 且并发槽归还） → **BUG-001 · NFR-006 · `task/worker.rs` · TC-019**
-- [ ] **R4-2 [P1] 输出原子替换（6 处）**（`cut.rs:222` `crop.rs:167` `media.rs:310` `merge.rs:315` `pipeline.rs:473` `rotate.rs:110`）：抽 `fs::atomic_replace(part, final)`（→ 带 token 临时名 → 原子替换 → 清理，失败回滚）；删除错误不再用 `let _ =` 吞掉；`rename` 失败信息带 `.part` 完整路径。**同时补齐 R3-5 遗漏的 cut / media 两处** → **BUG-002 · NFR-007 · `commands/*.rs` · TC-020**
-- [ ] **R4-3 [P1] 指针拖拽收尾兜底（3 处）**（`hooks/useDragSort.ts` · `components/Timeline` · `components/ClipTimeline`）：对齐 `CropOverlay` 既有写法——`pointermove` 内 `buttons === 0` 即收工，并补注册 `pointercancel`；建议同时抽共享的指针拖拽收尾工具，避免第四处再漏 → **BUG-003 · `VideoPlayer`/`Timeline` · `ClipTimeline`/`CropOverlay` · `ProductPreview`/`TaskProgress`/`hooks` · TC-021**
+- [x] **R4-1 [P0] 作业体 panic 隔离**（`task/worker.rs`）：新增 `run_job_isolated`——`catch_unwind(AssertUnwindSafe(..))` 包住 `job(&ctx)`，panic 收敛为 `Err("任务内部错误：<panic 内容>")` 并入日志，让既有终态处理（`record_terminal` / `run_cleanup` / `task_finished`）照常执行；补单测（模拟 panic → 任务 Failed + 清理钩子照跑 + 连续两次 panic 后并发位仍可用） → **BUG-001 · NFR-006 · `task/worker.rs` · TC-019**
+  - **⚠ 边界（已裁决）**：`[profile.release]` 原按 Tauri 体积建议设了 `panic = "abort"`，会让 `catch_unwind` 在 release 下失效（panic 直接终止进程）。**2026-09-21 裁决保留 `unwind`**（见 [DECISIONS.md](./DECISIONS.md) `ADR-034`），即本条隔离在发布版同样生效。
+- [x] **R4-2 [P1] 输出原子替换（6 处）**：新增 `src-tauri/src/fs.rs` 的 `atomic_replace(part, final)`——只做一次 `std::fs::rename`（Windows 走 `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`、Unix 走 `rename(2)`，目标已存在时**由系统替换**，失败则两边都原样保留），取代"先 `remove_file(目标)` 再 `rename`"；错误信息一律带 `.part` 完整路径。6 处全部改走它：`cut.rs` `crop.rs` `media.rs` `merge.rs` `pipeline.rs` `rotate.rs`（含 R3-5 遗漏的 cut / media 两处，也去掉了吞掉删除错误的 `let _ =`）；补 3 条单测（替换已有文件 / 目标不存在 / 目标不可替换时旧文件与 `.part` 双保且错误含路径）+ 1 条 e2e（真实产物替换已有目标、不留 `.part`） → **BUG-002 · NFR-007 · `fs.rs` · `commands/*.rs` · TC-020**
+- [x] **R4-3 [P1] 指针拖拽收尾兜底（4 处）**：新增 `src/utils/pointerDrag.ts` 的 `beginPointerDrag(onMove, onEnd)`——window 上收 `pointermove`/`pointerup`/`pointercancel`，`pointermove` 内判 `buttons === 0` 即收工（窗口外松手时 `pointerup` 不派发），收尾只执行一次，返回值 `detach` 供组件卸载只摘监听；四处拖拽全部改走它：`hooks/useDragSort`（合并页列表 / 工作台素材卡 / 时间轴块）· `components/Timeline` 双手柄 · `components/ClipTimeline` 池→轴 · `components/CropOverlay`（原参考实现，就地收敛）；顺带给 `Timeline` 手柄补 `e.button !== 0` 起手判定 → **BUG-003 · `VideoPlayer`/`Timeline` · `ClipTimeline`/`CropOverlay` · `ProductPreview`/`TaskProgress`/`hooks` · TC-021（手工）**
 - [ ] **R4-4 [P1] `pxToCrop` 钳制 + 边界单测**（`utils/crop.ts`）：`x`/`y` 先钳到 `[0, dims - MIN_CROP_PX]`，再按剩余空间收缩 `w`/`h`；补边界用例（x 界内/恰好压界/远超界 × w 最小/恰好/超界） → **BUG-004 · AC-351-1 · `pages`/`utils`/`types` · TC-022**
 - [ ] **R4-5 [P2] 缩略图单张失败不中止整批**（`commands/media.rs`）：`generate_thumbnails_sync` 的 `return Err` 改 `continue`，与同族 `generate_clip_thumbnails` 口径统一 → **BUG-005 · AC-331-1 · `commands/*.rs` · TC-023**
 - [ ] **R4-6 [P2] 输出容器/扩展名口径统一**（依 `ADR-033`）：copy 类跟随源容器、重编码类统一 mp4；最终输出名按规则生成或校正，消除"扩展名与封装不符" → **ADR-033 · NFR-007 · `commands/*.rs` · `commands/pipeline.rs` · TC-020**
@@ -353,7 +354,7 @@
 > 建议优先级：功能面 B6 音频提取 + B12 任务通知（时间线落地后重排）；工程面 B15（**asset scope 收窄 + CSP 是发布前硬门槛**）。
 > 明确不做：i18n、多轨编辑器、时间线音频轨编辑/空隙模型/调色/命令面板等（见 [CANDIDATES.md](./CANDIDATES.md)「不做」节）。
 
-**建议下一步（2026-09-21 更新）**：R1 已全部完成；R4 段 8 条里 **`R4-8`（真机首跑缺陷 `BUG-007`–`BUG-009`）已实施**（`BUG-007`/`BUG-009` 真机复验通过转 `verified`，`BUG-008` 真机复跑待发起）→ **`R4-1`–`R4-7`（见「R4」段；排期硬约束：必须早于 M11-0）→ M11-0（状态层/撤销基座，吸收 R2 的 Workbench 拆分与重复收敛）→ M11-1~M11-9 → R3 → M12-2 → M12-1/3 → M13**；M10 视反馈随时插入（与时间线零耦合）。M9 已于 2026-09-17 落地，M6-7/M9/M4-5 的 UI 手测部分待用户统一验收。
+**建议下一步（2026-09-21 更新）**：R1 已全部完成；R4 段 8 条里 **`R4-1`（panic 隔离）、`R4-2`（输出原子替换）、`R4-3`（指针拖拽收尾兜底）、`R4-8`（真机首跑缺陷 `BUG-007`–`BUG-009`）已实施**（`BUG-001`–`BUG-003` 转 `fixed`，`BUG-007`/`BUG-009` 转 `verified`；`BUG-008` 真机复跑待发起；`TC-021` 手工待跑）→ **`R4-4`–`R4-7`（见「R4」段；排期硬约束：必须早于 M11-0）→ M11-0（状态层/撤销基座，吸收 R2 的 Workbench 拆分与重复收敛）→ M11-1~M11-9 → R3 → M12-2 → M12-1/3 → M13**；M10 视反馈随时插入（与时间线零耦合）。M9 已于 2026-09-17 落地，M6-7/M9/M4-5 的 UI 手测部分待用户统一验收。
 
 ## 测试与质量约定
 
