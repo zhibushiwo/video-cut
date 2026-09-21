@@ -1,7 +1,9 @@
 //! 任务执行器：状态流转与 ffmpeg 子进程生命周期（DESIGN §8.2）。
 
+use std::any::Any;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
+use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
@@ -110,6 +112,9 @@ pub(crate) fn run_ffmpeg(
 }
 
 /// 任务状态流转：Pending(已由提交时上报) → Running → Completed/Failed/Cancelled。
+///
+/// 作业体经 [`run_job_isolated`] 调用：panic 被收敛成普通失败，本函数负责的终态流转
+/// （状态写入 / 进度 / `record_terminal` / `run_cleanup` / `task_finished`）**必须照常走完**。
 pub(crate) fn run(
     shared: Arc<Shared>,
     handle: Arc<TaskHandle>,
@@ -122,7 +127,7 @@ pub(crate) fn run(
         *ctx.handle.started_at.lock().unwrap() = crate::history::now_ms();
         ctx.emit_status();
 
-        let result = job(&ctx);
+        let result = run_job_isolated(&ctx, job);
 
         let final_status = if ctx.is_cancelled() {
             TaskStatus::Cancelled
@@ -151,4 +156,38 @@ pub(crate) fn run(
     // 终态清理钩子：运行路径（完成/失败/运行中取消）在此兜底；排队中取消由 cancel 侧兜底
     shared.run_cleanup(&ctx.handle.id);
     shared.task_finished();
+}
+
+/// 作业体 panic 隔离（R4-1 / `BUG-001`）。
+///
+/// `job` 是各 submit 命令闭包，内部任何 `unwrap`/切片越界都会 unwind。不拦的话 unwind 会
+/// 直接穿过 [`run`]：状态停在 Running、`record_terminal`/`run_cleanup`/`task_finished` 全被跳过，
+/// 并发槽永不归还——连续两次 panic 即冻结整个队列（作业体里再补回收也救不回来，因为根本走不到）。
+/// 这里把 panic 收敛成一个普通 `Err`，让 [`run`] 的既有终态路径照常执行。
+///
+/// 已知边界：`[profile.release]` 设了 `panic = "abort"`（Tauri 体积优化建议），release 下
+/// panic 会直接终止进程，`catch_unwind` 不生效——本条只在 dev/test（unwind）下成立。
+fn run_job_isolated(ctx: &TaskContext, job: Job) -> Result<(), String> {
+    match std::panic::catch_unwind(AssertUnwindSafe(move || job(ctx))) {
+        Ok(result) => result,
+        Err(payload) => {
+            // 注意必须显式 `&*payload`：`&payload` 会走 unsize 而不是 deref，参数里拿到的
+            // 具体类型会变成 `Box<dyn Any + Send>` 本身，所有 downcast 静默落空（踩过一次）。
+            let detail = panic_payload(&*payload);
+            log::error!("任务 {} 作业体 panic：{}", ctx.handle.id, detail);
+            Err(format!("任务内部错误：{detail}"))
+        }
+    }
+}
+
+/// 从 panic 载荷里取一段可读文字：`panic!("…")`（`&str`）/ `panic!("{}", …)`（`String`）
+/// 覆盖日常全部来源，其余（含 `unwrap` 的标准载荷）走兜底文案。
+fn panic_payload(payload: &(dyn Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "未知 panic（详见日志）".to_string()
+    }
 }

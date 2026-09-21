@@ -626,4 +626,58 @@ mod tests {
             TaskStatus::Cancelled
         );
     }
+
+    /// TC-019 / `BUG-001`：作业体 panic 不得冻结队列。
+    ///
+    /// 并发位取 1 —— 槽位一旦泄漏，后续任务会永远停在排队中，测试即刻失败。
+    /// 注：panic 发生在任务线程，消息会直接打到 stderr（测试并行跑，不做 panic hook 屏蔽）。
+    #[test]
+    fn panicking_job_fails_task_and_returns_slot() {
+        let mgr = TaskManager::new(1);
+        let sink: Arc<dyn EventSink> = Arc::new(CollectSink::default());
+        let cleaned = Arc::new(AtomicUsize::new(0));
+        let c = cleaned.clone();
+
+        let id1 = mgr.submit_with_cleanup(
+            sink.clone(),
+            "test",
+            "panic 任务",
+            Box::new(|_| panic!("模拟作业体 panic")),
+            Box::new(move |_| {
+                c.fetch_add(1, Ordering::Relaxed);
+            }),
+        );
+        let snaps = wait_terminal(&mgr, &[&id1], Duration::from_secs(5));
+        let s1 = snaps.iter().find(|s| s.id == id1).unwrap();
+        assert_eq!(s1.status, TaskStatus::Failed, "panic 应记为失败，而不是停在 Running");
+        assert_eq!(s1.progress, None, "失败保留实际进度（本次从未上报）");
+        let err = s1.error.clone().unwrap_or_default();
+        assert!(err.contains("任务内部错误"), "文案应表明是任务内部错误，实际：{err}");
+        assert!(err.contains("模拟作业体 panic"), "文案应带上 panic 内容，实际：{err}");
+
+        // 第二次 panic + 一个正常任务：并发位只有 1 个，泄漏的话 id3 会永远排不上
+        let id2 = mgr.submit(
+            sink.clone(),
+            "test",
+            "panic 任务 2",
+            Box::new(|_| panic!("再来一次")),
+        );
+        let id3 = mgr.submit(sink, "test", "正常任务", Box::new(|_| Ok(())));
+        let snaps = wait_terminal(&mgr, &[&id2, &id3], Duration::from_secs(5));
+        assert_eq!(
+            snaps.iter().find(|s| s.id == id2).unwrap().status,
+            TaskStatus::Failed
+        );
+        assert_eq!(
+            snaps.iter().find(|s| s.id == id3).unwrap().status,
+            TaskStatus::Completed
+        );
+
+        // 终态路径没被 panic 跳过：清理钩子照常执行一次
+        let start = Instant::now();
+        while cleaned.load(Ordering::Relaxed) == 0 && start.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(cleaned.load(Ordering::Relaxed), 1);
+    }
 }
