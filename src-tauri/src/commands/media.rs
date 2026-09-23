@@ -183,6 +183,63 @@ mod tests {
         assert!(!is_video_file(Path::new("d.txt")));
         assert!(!is_video_file(Path::new("无扩展名")));
     }
+
+    /// TC-023 / `BUG-005`：批里有文件抽不出帧时，**其余缩略图照常返回**（不整批失败）。
+    ///
+    /// 真实 sidecar + lavfi 自建夹具（与 `tests/e2e.rs` 同法）；sidecar 缺失时打印 skip 直接通过，
+    /// 保证裸 `cargo test` 不因环境失败。修复前这个用例会拿到 `Err`，即"一个坏文件拖垮整组"。
+    #[test]
+    fn thumbnail_batch_skips_unreadable_file() {
+        let Ok(ffmpeg) = command::resolve_sidecar("ffmpeg") else {
+            eprintln!("skip: 未找到 sidecar ffmpeg（先运行 scripts/fetch-ffmpeg.ps1）");
+            return;
+        };
+        let dir = std::env::temp_dir().join(format!("video-cut-thumbs-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("建临时目录失败");
+
+        let good1 = dir.join("good1.mp4");
+        let made = std::process::Command::new(&ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi"])
+            .args(["-i", "testsrc=duration=2:size=64x48:rate=10"])
+            .args(["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p"])
+            .arg(&good1)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !made {
+            eprintln!("skip: lavfi 夹具生成失败");
+            return;
+        }
+        let good2 = dir.join("good2.mp4");
+        std::fs::copy(&good1, &good2).expect("复制夹具失败");
+        // 坏文件：存在、扩展名也是视频，但内容不是视频（抽帧必然失败）
+        let bogus = dir.join("bogus.mp4");
+        std::fs::write(&bogus, b"not a video").expect("写坏文件失败");
+
+        let cache = dir.join("thumbs");
+        std::fs::create_dir_all(&cache).expect("建缓存目录失败");
+        let inputs = vec![
+            path_to_string(&good1),
+            path_to_string(&bogus),
+            path_to_string(&good2),
+        ];
+
+        let out =
+            generate_file_thumbs_sync(&cache, &ffmpeg, &inputs).expect("单个坏文件不应让整批失败");
+
+        assert_eq!(out.len(), 2, "坏文件应被跳过，其余两张应返回：{out:?}");
+        assert!(
+            out.iter().all(|t| t.input != path_to_string(&bogus)),
+            "坏文件不该出现在结果里：{out:?}"
+        );
+        assert!(
+            out.iter().all(|t| std::path::Path::new(&t.thumb_path).exists()),
+            "返回的缩略图必须真的落盘：{out:?}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 /// 打开日志文件夹（资源管理器，DESIGN §12.1 的任务面板入口）。
@@ -371,25 +428,44 @@ fn generate_thumbnails_sync(
         .join("thumbs");
     std::fs::create_dir_all(&cache_dir).map_err(|e| format!("无法创建缓存目录：{e}"))?;
     let ffmpeg = command::resolve_sidecar("ffmpeg")?;
+    generate_file_thumbs_sync(&cache_dir, &ffmpeg, inputs)
+}
 
+/// 批量抽帧的实体（与 [`generate_clip_thumbs_sync`] 同口径）。
+///
+/// `BUG-005`：这里原先是 `return Err("生成缩略图失败：…")`——只要有一个文件抽不出帧
+/// （损坏、编码不支持、权限），**整组缩略图都不返回**，合并页看起来像"这个功能坏了"，
+/// 而实际上只是其中一个文件的问题。现在单张失败**只跳过该张**并记一条 warn。
+///
+/// 仍然返回 `Result`：**起不了 ffmpeg**（`spawn` 失败）属于整批性失败，照旧上报——
+/// 与 `generate_clip_thumbs_sync` 一致；缓存目录与 sidecar 路径的解析留在调用方
+/// [`generate_thumbnails_sync`] 里（那里才有 `AppHandle`）。
+///
+/// 边界：**整批都失败**时返回空的 `Ok(vec![])`（日志里有 N 条 warn）——前端目前只显示占位图，
+/// 用户看不到文字提示；这与修复前的 `Err` 等价（前端同样静默 `catch`），已登记待定（见 HANDOFF 未决问题表）。
+///
+/// 注：本函数与 `generate_clip_thumbs_sync` 现在结构几乎逐行同构（只有缓存键与产物结构不同），
+/// 收敛留给重复收敛批次 `R2-2`（并入 M11-0），此处不合并。
+fn generate_file_thumbs_sync(
+    cache_dir: &std::path::Path,
+    ffmpeg: &std::path::Path,
+    inputs: &[String],
+) -> Result<Vec<FileThumbnail>, String> {
     let mut out = Vec::with_capacity(inputs.len());
     for input in inputs {
         let path = cache_dir.join(format!("{:016x}.jpg", fnv1a(input.as_bytes())));
         if !path.exists() {
-            let mut cmd = std::process::Command::new(&ffmpeg);
+            let mut cmd = std::process::Command::new(ffmpeg);
             command::spawn_hidden(&mut cmd);
             let status = cmd
-                .args(command::thumbnail_args(
-                    input,
-                    1.0,
-                    &path.to_string_lossy(),
-                ))
+                .args(command::thumbnail_args(input, 1.0, &path.to_string_lossy()))
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .status()
                 .map_err(|e| format!("无法启动 ffmpeg：{e}"))?;
             if !status.success() || !path.exists() {
-                return Err(format!("生成缩略图失败：{}", file_display(input)));
+                log::warn!("缩略图生成失败，跳过该张：{}", input);
+                continue; // 单个失败跳过，不拖累整批（BUG-005）
             }
         }
         out.push(FileThumbnail {
@@ -465,7 +541,9 @@ fn generate_clip_thumbs_sync(
                 .status()
                 .map_err(|e| format!("无法启动 ffmpeg：{e}"))?;
             if !status.success() || !path.exists() {
-                continue; // 单个失败跳过
+                // 单个失败跳过，不拖累整批（与文件缩略图同口径，见 `BUG-005`）
+                log::warn!("片段缩略图生成失败，跳过该张：{}@{:.2}s", r.input, r.time_sec);
+                continue;
             }
         }
         out.push(ClipThumbnail {
