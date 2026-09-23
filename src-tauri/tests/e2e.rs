@@ -250,3 +250,59 @@ fn output_replace_over_existing_file() {
     assert_decodable(fx, &final_path);
     assert!(!part.exists(), "`.part` 不得残留");
 }
+
+/// ffprobe 读容器名（`format_name`），断言包含期望片段（matroska / mp4 …）。
+fn assert_container(fx: &Fixtures, p: &Path, want: &str) {
+    let out = Command::new(&fx.ffprobe)
+        .args(["-v", "error", "-show_entries", "format=format_name", "-of", "csv=p=0"])
+        .arg(p)
+        .output()
+        .expect("启动 ffprobe 失败");
+    let got = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    assert!(got.contains(want), "{} 的容器应含 {want}，实际：{got}", p.display());
+}
+
+/// 输出容器/扩展名口径（`TC-029` / `ADR-033`）：**名字必须与封装一致**——
+/// copy 类跟随源容器、重编码类固定 mp4，用户给错扩展名时以**封装**为准校正。
+#[test]
+fn output_container_follows_adr_033() {
+    let Some(fx) = setup() else {
+        eprintln!("skip: 未找到 sidecar ffmpeg/ffprobe");
+        return;
+    };
+    // 先造一个 matroska 容器的源（copy 类的容器要跟随它，而不是被硬编码成 mp4）
+    let src_mkv = fx.dir.join("e2e_src.mkv");
+    run_ffmpeg(fx, &cmd::cut_args(0.0, 3.0, &s(&fx.src_a), &s(&src_mkv)), "造 mkv 源");
+    assert_container(fx, &src_mkv, "matroska");
+
+    // ① copy 类（极速剪切）：容器 = 源容器 → 扩展名也跟随源
+    let copy_ext = video_cut_lib::fs::source_container_ext(&s(&src_mkv));
+    assert_eq!(copy_ext, "mkv");
+    let copy_out = video_cut_lib::fs::with_container_ext(&fx.dir.join("e2e_copy_out.mkv"), &copy_ext);
+    run_ffmpeg(fx, &cmd::cut_args(1.0, 1.0, &s(&src_mkv), &s(&copy_out)), "copy 剪切");
+    assert_container(fx, &copy_out, "matroska");
+    assert_decodable(fx, &copy_out);
+
+    // ② 重编码类（精确剪切）：容器固定 mp4；用户把名字写成 .mkv 也要被校正成 .mp4
+    let trans_out =
+        video_cut_lib::fs::with_container_ext(&fx.dir.join("e2e_trans_out.mkv"), "mp4");
+    assert_eq!(
+        trans_out.extension().and_then(|e| e.to_str()),
+        Some("mp4"),
+        "重编码类输出名必须被校正为 mp4"
+    );
+    run_ffmpeg(
+        fx,
+        &cmd::precise_cut_args(
+            1.0,
+            1.0,
+            &s(&src_mkv),
+            &s(&trans_out),
+            "libx264",
+            QualityPreset::Balanced,
+        ),
+        "精确剪切（重编码）",
+    );
+    assert_container(fx, &trans_out, "mp4");
+    assert_decodable(fx, &trans_out);
+}

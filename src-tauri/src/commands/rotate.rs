@@ -32,7 +32,14 @@ pub fn submit_rotate(
     if Path::new(&input) == Path::new(&output) {
         return Err("输出文件不能与输入文件相同".into());
     }
-    let out = PathBuf::from(&output);
+    // ADR-033：元数据旋转是 copy（容器跟随源）；重编码旋转统一 mp4。最终名按容器校正（含同名不覆盖兜底）
+    let container_ext = if transcode {
+        "mp4".to_string()
+    } else {
+        crate::fs::source_container_ext(&input)
+    };
+    let out = crate::fs::output_path_for(&PathBuf::from(&output), &container_ext);
+    crate::fs::reject_if_input_equals(&out, &[&input])?;
     let out_dir = out
         .parent()
         .ok_or_else(|| "输出路径无效".to_string())?
@@ -51,9 +58,9 @@ pub fn submit_rotate(
         .and_then(|n| n.to_str())
         .ok_or_else(|| "输出文件名无效".to_string())?
         .to_string();
-    // 半成品保留真实扩展名 + 提交级令牌，防并发任务互写（DESIGN §8.2）
+    // 半成品与成品**共用同一容器扩展名**（ADR-033 ④；ffmpeg 靠扩展名推断封装）+ 提交级令牌
     let token = super::pipeline::temp_token(&output);
-    let part = out_dir.join(format!("{out_name}.part.{token}.mp4"));
+    let part = out_dir.join(format!("{out_name}.part.{token}.{container_ext}"));
 
     let label = if transcode {
         format!("旋转（重编码）{in_name}")

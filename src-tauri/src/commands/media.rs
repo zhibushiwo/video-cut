@@ -476,13 +476,6 @@ fn generate_file_thumbs_sync(
     Ok(out)
 }
 
-fn file_display(p: &str) -> &str {
-    std::path::Path::new(p)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(p)
-}
-
 /// 片段起点帧缩略图请求（M6-8）：源路径 + 取帧时间。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

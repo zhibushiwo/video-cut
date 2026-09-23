@@ -103,7 +103,11 @@ pub fn submit_crop(
     if Path::new(&input) == Path::new(&output) {
         return Err("输出文件不能与输入文件相同".into());
     }
-    let out = PathBuf::from(&output);
+    // ADR-033 ②：局部放大是重编码类 → 容器固定 mp4；最终名按容器校正（含同名不覆盖兜底），
+    // 并挡住"校正后撞上输入文件"（否则会把源文件替换掉）
+    let container_ext = "mp4";
+    let out = crate::fs::output_path_for(&PathBuf::from(&output), container_ext);
+    crate::fs::reject_if_input_equals(&out, &[&input])?;
     let out_dir = out
         .parent()
         .ok_or_else(|| "输出路径无效".to_string())?
@@ -122,9 +126,9 @@ pub fn submit_crop(
         .and_then(|n| n.to_str())
         .ok_or_else(|| "输出文件名无效".to_string())?
         .to_string();
-    // 半成品保留真实扩展名 + 提交级令牌，防并发任务互写（DESIGN §8.2）
+    // 半成品与成品**共用同一容器扩展名**（ADR-033 ④）+ 提交级令牌，防并发任务互写
     let token = super::pipeline::temp_token(&output);
-    let part = out_dir.join(format!("{out_name}.part.{token}.mp4"));
+    let part = out_dir.join(format!("{out_name}.part.{token}.{container_ext}"));
 
     let label = format!("局部放大 {in_name}");
 

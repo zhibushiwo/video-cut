@@ -247,22 +247,25 @@ pub fn submit_pipeline(
             }
         }
     }
-    let out = PathBuf::from(&output);
-    let out_dir = out
+    // 用户请求的输出路径（真正落盘的名字由作业体按容器校正后决定，见下）
+    let requested = PathBuf::from(&output);
+    let out_dir = requested
         .parent()
         .ok_or_else(|| "输出路径无效".to_string())?
         .to_path_buf();
     std::fs::create_dir_all(&out_dir).map_err(|e| format!("无法创建输出目录：{e}"))?;
     let ffmpeg = command::resolve_sidecar("ffmpeg")?;
     let ffprobe = command::resolve_sidecar("ffprobe")?;
-    let out_name = out
+
+    // ADR-033：容器要按"有没有片段需要转码"来定，而这只在探测+计划之后才知道；
+    // 探测与计划**留在作业体内**（`DESIGN` §8.1/§8.2：按运行时的文件状态做，排队期间文件可能变），
+    // 因此最终名与 `.part` 也在作业体内才定（见下面的容器决策）。
+    let out_name = requested
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or_else(|| "输出文件名无效".to_string())?
         .to_string();
-    // 半成品保留真实扩展名（DESIGN §8.2）；令牌防并发任务互写
     let token = temp_token(&output);
-    let part = out_dir.join(format!("{out_name}.part.{token}.mp4"));
     let list_path = out_dir.join(format!(".concat_{token}.txt"));
 
     let label = format!("工作台 {} 个片段 → {out_name}", items.len());
@@ -285,7 +288,7 @@ pub fn submit_pipeline(
             }
         };
 
-        // 1) 任务内重新探测并计算计划（防前端判定与实际文件不符）
+        // 1) 任务内探测并计算计划（防前端判定与实际文件不符，也防排队期间文件被换掉）
         let mut facts = Vec::with_capacity(n);
         for it in &items {
             if ctx.is_cancelled() {
@@ -298,6 +301,7 @@ pub fn submit_pipeline(
             );
         }
         let plans = plan_items(&plan_inputs(&items, &facts));
+
         // 基准视频轨 timescale：取第 1 个片段的源 time_base（copy 片段 remux 后保持该 tb）。
         // 转码片段强制对齐，否则 concat demuxer 的 copy 拼接会错乱后续段时间戳（DESIGN §6.3⑨⑩）。
         let base_timescale = command::parse_timescale(&facts[0].video_time_base);
@@ -444,6 +448,27 @@ pub fn submit_pipeline(
             sources[i] = norm.to_string_lossy().into_owned();
         }
 
+        // ADR-033：**全 copy 且无需归一化**才跟随源容器；只要有一个片段要转码、**或发生过归一化**
+        // （归一化本身就是一次重编码，`ADR-033` ② 把它归在重编码类），成品容器统一 mp4。
+        // 命名放在这里定：归一化是否需要只有探测完中间文件才知道（`DESIGN` §8.1/§8.2：按运行时状态）。
+        let container_ext = if plans.iter().all(|p| p.copy) && n_norm == 0 {
+            crate::fs::source_container_ext(&items[0].input)
+        } else {
+            "mp4".to_string()
+        };
+        let out = crate::fs::output_path_for(Path::new(&output), &container_ext);
+        crate::fs::reject_if_input_equals(
+            &out,
+            &items.iter().map(|it| it.input.as_str()).collect::<Vec<_>>(),
+        )?;
+        let out_file = out
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("output")
+            .to_string();
+        // 半成品与成品共用同一容器扩展名（ADR-033 ④）
+        let part = out_dir.join(format!("{out_file}.part.{token}.{container_ext}"));
+
         // 4) concat 拼接成成品
         if let Err(e) = std::fs::write(&list_path, command::concat_list_content(&sources)) {
             cleanup(&temps);
@@ -476,7 +501,7 @@ pub fn submit_pipeline(
             cleanup(&temps);
             return Err(e);
         }
-        ctx.add_output(output);
+        ctx.add_output(out.to_string_lossy().into_owned());
         cleanup(&temps);
         Ok(())
     });

@@ -115,11 +115,12 @@ fn submit_cut(
         .and_then(|s| s.to_str())
         .unwrap_or("output")
         .to_string();
-    let ext = src
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("mp4")
-        .to_string();
+    // ADR-033：极速剪切是 stream copy → 容器跟随源；精确剪切是重编码 → 容器统一 mp4
+    let ext = if precise {
+        "mp4".to_string()
+    } else {
+        crate::fs::source_container_ext(&input)
+    };
     let out_dir = PathBuf::from(&output_dir);
 
     let items: Vec<CutItem> = {
@@ -142,7 +143,7 @@ fn submit_cut(
                 let name = part_name(i + 1);
                 CutItem {
                     final_path: out_dir.join(&name),
-                    // 半成品保留真实扩展名（xxx.part.mp4），否则 ffmpeg 无法推断封装格式
+                    // 半成品与成品共用同一容器扩展名（ADR-033 ④），否则 ffmpeg 无法推断封装格式
                     part: out_dir.join(format!(
                         "{}_part_{:03}.{}.part.{}",
                         stem,

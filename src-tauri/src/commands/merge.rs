@@ -171,8 +171,11 @@ pub fn submit_merge(
             return Err("输出文件不能与输入文件相同".into());
         }
     }
-    let out = PathBuf::from(&output);
-    let out_dir = out
+    // ADR-033：容器由命令决定——无损合并（copy）跟随源容器、自动统一后合并（重编码）统一 mp4。
+    // **类别取决于探测结果**，所以最终名与 `.part` 都在作业体内（探测后）才定：提交期定不了，
+    // 也不该提前探测（`DESIGN` §8.1/§8.2：探测与检查按**运行时**的文件状态做）。
+    let requested = PathBuf::from(&output);
+    let out_dir = requested
         .parent()
         .ok_or_else(|| "输出路径无效".to_string())?
         .to_path_buf();
@@ -180,14 +183,12 @@ pub fn submit_merge(
     let ffmpeg = command::resolve_sidecar("ffmpeg")?;
     let ffprobe = command::resolve_sidecar("ffprobe")?;
 
-    let out_name = out
+    let out_name = requested
         .file_name()
         .and_then(|n| n.to_str())
         .ok_or_else(|| "输出文件名无效".to_string())?
         .to_string();
-    // 半成品保留真实扩展名（DESIGN §8.2）；令牌防并发任务互写
     let token = temp_token(&output);
-    let part = out_dir.join(format!("{out_name}.part.{token}.mp4"));
     let list_path = out_dir.join(format!(".concat_{token}.txt"));
 
     let label = format!("合并 {} 个文件 → {out_name}", inputs.len());
@@ -219,6 +220,26 @@ pub fn submit_merge(
             ));
         }
 
+        // ADR-033：容器由探测结果决定（copy 跟随源容器、重编码统一 mp4），
+        // 最终名按容器校正（含同名不覆盖兜底），`.part` 与成品共用同一扩展名（ADR-033 ④）。
+        let all_copy = comparison.compatible && !force_transcode;
+        let container_ext = if all_copy {
+            crate::fs::source_container_ext(job_inputs.first().map(String::as_str).unwrap_or(""))
+        } else {
+            "mp4".to_string()
+        };
+        let out = crate::fs::output_path_for(Path::new(&job_output), &container_ext);
+        crate::fs::reject_if_input_equals(
+            &out,
+            &job_inputs.iter().map(String::as_str).collect::<Vec<_>>(),
+        )?;
+        let out_file = out
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("output")
+            .to_string();
+        let part = out_dir.join(format!("{out_file}.part.{token}.{container_ext}"));
+
         let mut temps: Vec<PathBuf> = vec![list_path.clone()];
         let cleanup = |temps: &[PathBuf]| {
             for t in temps {
@@ -230,7 +251,7 @@ pub fn submit_merge(
         let sources: Vec<String>;
         let steps_total: f64;
         let copy_offset: f64;
-        if comparison.compatible && !force_transcode {
+        if all_copy {
             sources = job_inputs.clone();
             steps_total = 1.0;
             copy_offset = 0.0;
@@ -318,7 +339,7 @@ pub fn submit_merge(
             cleanup(&temps);
             return Err(e);
         }
-        ctx.add_output(job_output);
+        ctx.add_output(out.to_string_lossy().into_owned());
         cleanup(&temps);
         Ok(())
     });
