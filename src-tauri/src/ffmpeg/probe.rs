@@ -410,6 +410,10 @@ mod tests {
             }
         });
         let info = parse_media_json(&v).unwrap();
+        // container 必须原样保留 ffprobe 的 `format_name`（**逗号分隔的解复用器列表**）：
+        // 前端 `needsProxy` 按它做容器判定（DESIGN §10 · `BUG-006`），
+        // 若哪天改成展示名（如 "QuickTime/MP4"）会静默破坏该判定。
+        assert_eq!(info.container, "mov,mp4,m4a,3gp,3g2,mj2");
         assert_eq!(info.video.codec, "h264");
         assert_eq!((info.video.width, info.video.height), (1920, 1080));
         assert_eq!(info.video.frame_rate, 60.0);
@@ -421,6 +425,22 @@ mod tests {
         assert!((info.duration_sec - 264.554667).abs() < 1e-6);
         assert_eq!(info.size_bytes, 1_074_504_363);
         assert_eq!(info.rotation, None);
+    }
+
+    /// `BUG-006`：容器维度靠 `container` 原样透传，非 ISO-BMFF / Matroska 的容器
+    /// （avi/flv/mpegts/asf）不得被"友好化"或截断——否则前端会误判为可播、不生成代理。
+    #[test]
+    fn keeps_non_native_container_verbatim() {
+        for name in ["avi", "flv", "mpegts", "asf", "matroska,webm"] {
+            let v = json!({
+                "streams": [
+                    { "codec_name": "h264", "codec_type": "video", "width": 640, "height": 480,
+                      "pix_fmt": "yuv420p", "avg_frame_rate": "25/1" }
+                ],
+                "format": { "format_name": name, "duration": "10.0", "size": "1000" }
+            });
+            assert_eq!(parse_media_json(&v).unwrap().container, name);
+        }
     }
 
     #[test]

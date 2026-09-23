@@ -56,6 +56,9 @@ pub fn file_exists(path: String) -> bool {
 }
 
 /// 支持的视频扩展名（与前端 services/tauri.ts 的 VIDEO_EXTENSIONS 一致）。
+/// 文件对话框与目录扫描认的**扩展名**（= 处理范围，与前端 `services/tauri.ts` 的 `VIDEO_EXTENSIONS` 同表）。
+/// ⚠ 这不是"能直接预览"的范围——预览判定按 ffprobe 的 `format_name`（解复用器名）走
+/// 另一张白名单（`src/utils/media.ts` 的 `NATIVE_CONTAINERS`），两者命名空间不同，别拿它当预览依据。
 const VIDEO_EXTS: &[&str] = &["mp4", "mov", "mkv", "avi", "webm", "m4v", "ts", "flv", "wmv"];
 
 fn is_video_file(p: &std::path::Path) -> bool {
