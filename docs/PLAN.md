@@ -281,18 +281,21 @@
 
 ### R4 —— 第二轮审查整改（2026-09-19 立项，来源 archive/code-review-2026-09-19.md）
 
-> **关联**：—（工程批次；其中 6 条为**缺陷修复**，登记见 [BUGS.md](./BUGS.md) `BUG-001`–`BUG-006`；`R4-8` 另收真机首跑缺陷 `BUG-007`–`BUG-009`）　·　**验收**：各条以其回归 TC 为准　——　执行：TESTING.md §3.4（TC-019–TC-027）
+> **关联**：—（工程批次；其中 6 条为**缺陷修复**，登记见 [BUGS.md](./BUGS.md) `BUG-001`–`BUG-006`；`R4-8` 另收真机首跑缺陷 `BUG-007`–`BUG-009`，`R4-9` 收 `R4-4` 实施时同族复查发现的 `BUG-010`）　·　**验收**：各条以其回归 TC 为准　——　执行：TESTING.md §3.4（TC-019–TC-028）
 > **排期**：**排在 M11-0 之前** —— §3.1 的作业体会被 M11 的切割/波纹删除放大（panic 一次即泄漏并发槽），§3.3 涉及的 `ClipTimeline` 正是 M11-1/2/4/6 要重写的组件：先修是顺手，M11 后修是返工。
 
 - [x] **R4-1 [P0] 作业体 panic 隔离**（`task/worker.rs`）：新增 `run_job_isolated`——`catch_unwind(AssertUnwindSafe(..))` 包住 `job(&ctx)`，panic 收敛为 `Err("任务内部错误：<panic 内容>")` 并入日志，让既有终态处理（`record_terminal` / `run_cleanup` / `task_finished`）照常执行；补单测（模拟 panic → 任务 Failed + 清理钩子照跑 + 连续两次 panic 后并发位仍可用） → **BUG-001 · NFR-006 · `task/worker.rs` · TC-019**
   - **⚠ 边界（已裁决）**：`[profile.release]` 原按 Tauri 体积建议设了 `panic = "abort"`，会让 `catch_unwind` 在 release 下失效（panic 直接终止进程）。**2026-09-21 裁决保留 `unwind`**（见 [DECISIONS.md](./DECISIONS.md) `ADR-034`），即本条隔离在发布版同样生效。
 - [x] **R4-2 [P1] 输出原子替换（6 处）**：新增 `src-tauri/src/fs.rs` 的 `atomic_replace(part, final)`——只做一次 `std::fs::rename`（Windows 走 `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`、Unix 走 `rename(2)`，目标已存在时**由系统替换**，失败则两边都原样保留），取代"先 `remove_file(目标)` 再 `rename`"；错误信息一律带 `.part` 完整路径。6 处全部改走它：`cut.rs` `crop.rs` `media.rs` `merge.rs` `pipeline.rs` `rotate.rs`（含 R3-5 遗漏的 cut / media 两处，也去掉了吞掉删除错误的 `let _ =`）；补 3 条单测（替换已有文件 / 目标不存在 / 目标不可替换时旧文件与 `.part` 双保且错误含路径）+ 1 条 e2e（真实产物替换已有目标、不留 `.part`） → **BUG-002 · NFR-007 · `fs.rs` · `commands/*.rs` · TC-020**
 - [x] **R4-3 [P1] 指针拖拽收尾兜底（4 处）**：新增 `src/utils/pointerDrag.ts` 的 `beginPointerDrag(onMove, onEnd)`——window 上收 `pointermove`/`pointerup`/`pointercancel`，`pointermove` 内判 `buttons === 0` 即收工（窗口外松手时 `pointerup` 不派发），收尾只执行一次，返回值 `detach` 供组件卸载只摘监听；四处拖拽全部改走它：`hooks/useDragSort`（合并页列表 / 工作台素材卡 / 时间轴块）· `components/Timeline` 双手柄 · `components/ClipTimeline` 池→轴 · `components/CropOverlay`（原参考实现，就地收敛）；顺带给 `Timeline` 手柄补 `e.button !== 0` 起手判定 → **BUG-003 · `VideoPlayer`/`Timeline` · `ClipTimeline`/`CropOverlay` · `ProductPreview`/`TaskProgress`/`hooks` · TC-021（手工）**
-- [ ] **R4-4 [P1] `pxToCrop` 钳制 + 边界单测**（`utils/crop.ts`）：`x`/`y` 先钳到 `[0, dims - MIN_CROP_PX]`，再按剩余空间收缩 `w`/`h`；补边界用例（x 界内/恰好压界/远超界 × w 最小/恰好/超界） → **BUG-004 · AC-351-1 · `pages`/`utils`/`types` · TC-022**
+- [x] **R4-4 [P1] `pxToCrop` 钳制 + 边界矩阵**（`utils/crop.ts`）：**锚点 `x`/`y` 先钳到 `[0, dims - MIN_CROP_PX]`**，再按锚点到右/下边界的剩余空间收缩 `w`/`h`；`x + w == dims.w` 恰好压界仍允许（只有严格 `>` 才收缩）。**锚点上界与收缩步都用新加的 `evenFloor`（向下取偶）**——奇数尺寸下两处都不能就近取偶：`dims.w=101` 时上界就近取偶会给到 `86`（本该 `84`，`86+16=102` 已放不下），收缩步就近取偶会把剩余空间 `17` 给成 `18`（`84+18=102 > 101`）。边界矩阵用**一次性命令级脚本**（`node --experimental-strip-types` 直跑 TS，脚本不入库）验证：14 组期望值 + 4000 组随机扫描 = 12730 断言 0 失败，**同一矩阵在修复前实现上越界 993/1554**；矩阵已按含期望值的形式记入 [TESTING.md](./TESTING.md) TC-022 供 M11-0 落 Vitest。**验收口径**：代码修复 + 矩阵记录；**自动化单测随 M11-0 的 Vitest 交付**（TESTING TC-022 原就注明），TC-022 的真机手工半仍待发起 → **BUG-004 · AC-351-1 · `pages`/`utils`/`types` · TC-022**
 - [ ] **R4-5 [P2] 缩略图单张失败不中止整批**（`commands/media.rs`）：`generate_thumbnails_sync` 的 `return Err` 改 `continue`，与同族 `generate_clip_thumbnails` 口径统一 → **BUG-005 · AC-331-1 · `commands/*.rs` · TC-023**
 - [ ] **R4-6 [P2] 输出容器/扩展名口径统一**（依 `ADR-033`）：copy 类跟随源容器、重编码类统一 mp4；最终输出名按规则生成或校正，消除"扩展名与封装不符" → **ADR-033 · NFR-007 · `commands/*.rs` · `commands/pipeline.rs` · TC-020**
 - [ ] **R4-7 [P2] 代理判定纳入容器维度**（`utils/media.ts`）：`needsProxy` 补容器白名单（WebView2 可播子集，实现时以实测为准），与 `VIDEO_EXTENSIONS` 口径对齐 + 单测 → **BUG-006 · NFR-010 · `pages`/`utils`/`types` · TC-024**
 - [x] **R4-8 真机首跑缺陷修复**（2026-09-21，来源 [gui-e2e/README.md](./gui-e2e/README.md) 首跑 → `BUG-007`–`BUG-009`）：**输入侧** `-ss` 改用 `fmt_seek`（+1µs、6 位小数），杜绝吸附值被三位小数舍到目标时刻之前而倒退一个关键帧（**输出侧** seek 与 `-t` 仍用 `fmt_sec`）；`parse_keyframes` 只取行内首个 CSV 字段，带额外空字段的行不再被整行解析静默丢弃；新增 `realCutStart()`（≤入点的最近关键帧，二分）+ `Timeline` 落点虚线 + 界面「实际入点」提示，片段时长按真实落点算。**`BUG-008` 的真机复跑（`TC-030`）待用户发起** → **NFR-004（DESIGN.md §2）· `ffmpeg/command.rs` · `ffmpeg/probe.rs` · `components/Timeline` · `components/CutEditor` · `pages`/`utils` · TC-025–TC-027**
+
+- [x] **R4-9 [P1] `cropToPx` 边缘对齐**（`R4-4` 实施时的同族复查发现，`BUG-010`）：`cropToPx`（归一化→像素，**拖拽框选**走这条路）原先对左右/上下边缘**各自**就近取偶，叠加后 `x + w` 可超画面 1~2px（1920 宽下贴右边界 `x=6, w=1916 → 1922`；奇数尺寸整幅 `101×57 → h=58 > 57`），而越界只在**作业体内**的 `align_rect` 被拒。修法：宽高改由**对齐后的边缘**相减得出（`right`/`bottom` 先就近取偶、再收进画面可用的偶数边界 `evenFloor(dims)`），`x`/`y` 也一并收进画面（奇数尺寸下 `nx=1` 的就近取偶会给到 `dims + 1`）。命令级扫描：3 组尺寸 × 3688320 样本**越界 0**（修复前 1920×1080 为 792、1280×720 为 0、101×57 为 19000/1844160）；退化输入（单击 → `nw=0`）在奇数尺寸下也落在画面内（`x=100 ≤ 101`，修复前 `102`）→ **BUG-010 · AC-351-1 · `pages`/`utils`/`types` · TC-028**
+  - **仍待做**：**提交期**预检（`check_pipeline` 目前不查裁剪越界，越界要等作业体内的 `display_crop_rect → align_rect` 才报错）——仍归 [技术任务 `T-003`](#技术任务t)，本条只保证前端不再产出越界裁剪。
 
 > **同源但按技术债处理的项**：§4.1 校验时机、§4.4 锁回调、§4.6–4.8 前端健壮性、§5.3 的 `locked_encoder` 白名单 → [技术任务 `T-003`](#技术任务t)。
 > **已排除项**（报告 §6，不重复讨论）：`VideoPlayer` 缺 `ended` 监听、`ProductPreview.switchTo` 竞态。
@@ -354,7 +357,7 @@
 > 建议优先级：功能面 B6 音频提取 + B12 任务通知（时间线落地后重排）；工程面 B15（**asset scope 收窄 + CSP 是发布前硬门槛**）。
 > 明确不做：i18n、多轨编辑器、时间线音频轨编辑/空隙模型/调色/命令面板等（见 [CANDIDATES.md](./CANDIDATES.md)「不做」节）。
 
-**建议下一步（2026-09-21 更新）**：R1 已全部完成；R4 段 8 条里 **`R4-1`（panic 隔离）、`R4-2`（输出原子替换）、`R4-3`（指针拖拽收尾兜底）、`R4-8`（真机首跑缺陷 `BUG-007`–`BUG-009`）已实施**（`BUG-001`/`BUG-002`/`BUG-007`/`BUG-009` 转 `verified`，`BUG-003` 转 `fixed`——其回归 `TC-021` 是手工用例、待真机复跑；`BUG-008` 真机复跑待发起）→ **`R4-4`–`R4-7`（见「R4」段；排期硬约束：必须早于 M11-0）→ M11-0（状态层/撤销基座，吸收 R2 的 Workbench 拆分与重复收敛）→ M11-1~M11-9 → R3 → M12-2 → M12-1/3 → M13**；M10 视反馈随时插入（与时间线零耦合）。M9 已于 2026-09-17 落地，M6-7/M9/M4-5 的 UI 手测部分待用户统一验收。
+**建议下一步（2026-09-23 更新）**：R1 已全部完成；R4 段里 **`R4-1`（panic 隔离）、`R4-2`（输出原子替换）、`R4-3`（指针拖拽收尾兜底）、`R4-4`（`pxToCrop` 锚点钳制）、`R4-8`（真机首跑缺陷 `BUG-007`–`BUG-009`）、`R4-9`（`cropToPx` 边缘对齐，同族新发现的 `BUG-010`）已实施**（`BUG-001`/`BUG-002`/`BUG-007`/`BUG-009` 转 `verified`；`BUG-003`/`BUG-004`/`BUG-008`/`BUG-010` 转 `fixed`——`TC-021`/`TC-022`/`TC-028` 手工半、`TC-030` 真机复跑均待用户发起）→ **`R4-5`–`R4-7`（见「R4」段；排期硬约束：必须早于 M11-0）→ M11-0（状态层/撤销基座，吸收 R2 的 Workbench 拆分与重复收敛）→ M11-1~M11-9 → R3 → M12-2 → M12-1/3 → M13**；M10 视反馈随时插入（与时间线零耦合）。M9 已于 2026-09-17 落地，M6-7/M9/M4-5 的 UI 手测部分待用户统一验收。
 
 ## 测试与质量约定
 

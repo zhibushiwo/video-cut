@@ -4,9 +4,9 @@
 > **唯一真源**：缺陷的编号、状态与关联关系以本文为准；缺陷的**规格依据**仍在 [DESIGN.md](./DESIGN.md)（FR/AC），修复任务的进度仍在 [PLAN.md](./PLAN.md)。
 > **读时机**：收到 bug 反馈、判断"这是缺陷还是需求变更"时；修复前（查是否已登记、是否重复）；写回归测试与发版说明前。
 > **写规则**：只追加新行、不删行；状态单向流转（见下）；号**不复用**（`wontfix`/`duplicate` 也占号）；已 `verified` 的条目按批迁入 `docs/archive/bugs.md` 后从本表移除。
-> **来源**：[archive/code-review-2026-09-19.md](./archive/code-review-2026-09-19.md)（评审报告，只追加）· 真机 GUI 自动化首跑（[gui-e2e/README.md](./gui-e2e/README.md)，`BUG-007`–`BUG-009`）
+> **来源**：[archive/code-review-2026-09-19.md](./archive/code-review-2026-09-19.md)（评审报告，只追加）· 真机 GUI 自动化首跑（[gui-e2e/README.md](./gui-e2e/README.md)，`BUG-007`–`BUG-009`）· `R4-4` 实施时的同族复查（`BUG-010`，2026-09-23）
 > **关联**：[INDEX.md](./INDEX.md)（ID 规范 §3 · 细则 §6） · [DESIGN.md](./DESIGN.md)（FR/AC） · [PLAN.md](./PLAN.md)（修复任务） · [TESTING.md](./TESTING.md)（回归 TC） · [CHANGELOG.md](./CHANGELOG.md)（Fixed 段）
-> **最后更新**：2026-09-21（`R4-1`/`R4-2` 落地：`BUG-001`、`BUG-002` → `verified`；`R4-3` 落地：`BUG-003` → `fixed`（`TC-021` 手工待跑）；`BUG-007`/`BUG-009` 已 `verified`，`BUG-008` 代码已修、解析单测已锁、真机复跑待发起）
+> **最后更新**：2026-09-23（`R4-4` 落地：`BUG-004` → `fixed`；同批复查发现并修复同族 `BUG-010` → `fixed`（回归 TC-028）；此前 2026-09-21：`R4-1`/`R4-2` → `verified`、`R4-3` → `fixed`、`BUG-007`/`BUG-009` → `verified`）
 
 ---
 
@@ -45,12 +45,13 @@ open ──> confirmed ──> fixing ──> fixed ──> verified
 | BUG-001 | 任务作业体 `job(&ctx)` 无 `catch_unwind` → 任务永停 Running 且并发槽泄漏（连续两次 panic 冻结整个队列） | verified | NFR-006（并发控制 · DESIGN.md §8） | R4-1 | TC-019 | 2026-09-19 | 2026-09-21 |
 | BUG-002 | 输出"先删目标再 rename"且吞掉删除错误 → 旧文件可能已丢、新产物只留在 `.part`，错误信息不含中间文件路径（6 处） | verified | NFR-007（半成品保护 · DESIGN.md §8） | R4-2 | TC-020 | 2026-09-19 | 2026-09-21 |
 | BUG-003 | 指针拖拽在窗口外松手无兜底 → 监听器常驻 window、拖拽态卡死、后续无关点击触发意外重排（3 处） | fixed | UI.md §9.5 / §9.8（拖拽排序与时间轴） | R4-3 | TC-021 | 2026-09-19 | |
-| BUG-004 | `pxToCrop` 不钳制 x/y → 归一化选区越界（与函数自身契约"过小或越界返回 null"不符） | confirmed | AC-351-1（框选与数值微调） | R4-4 | TC-022 | 2026-09-19 | |
+| BUG-004 | `pxToCrop` 不钳制 x/y → 归一化选区越界（与函数自身契约"过小或越界返回 null"不符） | fixed | AC-351-1（框选与数值微调） | R4-4 | TC-022 | 2026-09-19 | |
 | BUG-005 | `generate_thumbnails_sync` 单张失败 `return Err` 中止整批 → 合并页整组缩略图不显示（同族 clip 版为 `continue`） | confirmed | AC-331-1（九项参数检测面板） | R4-5 | TC-023 | 2026-09-19 | |
 | BUG-006 | `needsProxy` 只判视频编码 / `pixFmt` / 音频编码，**未按 §10 判定容器** → 容器不被 WebView2 支持（如 `flv` / `wmv`）而编码"原生可播"时不生成代理，预览可能黑屏 | confirmed | NFR-010（格式支持范围 · DESIGN.md §10） | R4-7 | TC-024 | 2026-09-19 | |
 | BUG-007 | 关键帧吸附值经 `-ss` 三位小数取整后**落到关键帧之前** → ffmpeg 退回上一个关键帧，极速剪切产物比界面承诺长（实测 `merge_test_a`：界面 2.7s / 产物 4.036s、首帧 pts 0.052667 而非 1.319333） | verified | NFR-004（所见即所得 · DESIGN.md §2） | R4-8 | TC-025 | 2026-09-19 | 2026-09-21 |
 | BUG-008 | `parse_keyframes` 用整行 `parse::<f64>()` 解析 ffprobe 输出，**丢弃带额外空 CSV 字段的行** → 关键帧列表丢项（实测 `极乐净土` 67 行→66 条、丢了 `0.0`；`123.mp4` 5 行→4 条、丢了 5.753333） | fixed | FR-313 · AC-313-1（关键帧索引 · DESIGN.md §3.1） | R4-8 | TC-026 | 2026-09-19 | |
 | BUG-009 | 时间轴手柄 tooltip 显示**选区值**而非 ffmpeg 的**实际落点** → 非吸附入点下偏差可达一个 GOP 而用户不可知（界面 35.000s，实际内容从 31.25s 起） | verified | NFR-004（所见即所得 · DESIGN.md §2）· DESIGN.md §13（"UI 事先展示实际落点"） | R4-8 | TC-027 | 2026-09-19 | 2026-09-21 |
+| BUG-010 | `cropToPx`（归一化→像素，**拖拽框选**走这条路）对左右/上下边缘**各自**就近取偶 → `x + w` 可超画面 1~2px（1920 宽下拖到贴右边界：`x=6, w=1916 → 1922`；奇数尺寸更甚：101×57 整幅得 `h=58 > 57`，`nx=1` 单击得 `x=102 > 101`）。越界结果经 `display_crop_rect → align_rect` **只在作业体内**被拒（`check_pipeline` 不查越界）→ "框好选区 → 提交 → 跑到一半才失败" | fixed | AC-351-1（框选与数值微调） | R4-9 | TC-028 | 2026-09-23 | |
 
 > **列填写口径**
 > - **违反规格**：写被违反的 `FR-xxx` / `AC-xxx`（规格没变才登记为 BUG）；无对应 FR 的工程类问题写 `—（工程）`
