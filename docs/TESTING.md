@@ -15,7 +15,7 @@
 | --- | --- | --- |
 | 类型检查 | `node_modules/.bin/tsc --noEmit`（或 `pnpm build`） | 前端类型与未使用变量（`noUnusedLocals`/`noUnusedParameters`） |
 | 静态检查 | `pnpm lint`（`eslint .`） | react-hooks 依赖、`@tauri-apps/*` 只允许 `services/` 内导入 |
-| 后端全量 | `cd src-tauri && cargo test` | **71 个单测 + 4 条 e2e**；e2e 需要 sidecar，缺失时自动跳过 |
+| 后端全量 | `cd src-tauri && cargo test` | **72 个单测 + 4 条 e2e**；需要 sidecar 的用例（e2e 与 `commands::media` 的缩略图回归）在 sidecar 缺失时打印 skip 并通过 |
 | 真实素材冒烟（可选，默认不跑） | `cd src-tauri && cargo test --test real_media_smoke -- --ignored --nocapture --test-threads=1` | `tests/real_media_smoke.rs` 8 条用例全部 `#[ignore]`（默认只编译）；按 `command.rs` 真实参数构建器打真实素材，约 3.5 分钟，缺 `video/` 素材自动跳过 |
 | 端到端应用 | `pnpm tauri dev` | 手测与 UI 验收 |
 | 真机 GUI 自动化 | 见 [gui-e2e/README.md](./gui-e2e/README.md) §2（沙箱关闭 + CDP 调试端口 + 驱动脚本） | 关键功能的端到端回归，断言"界面显示值 == 产物实测值"；用例见 §3.5 |
@@ -46,7 +46,7 @@
 | TC-001 | cargo e2e `fast_cut_and_merge_chain` | 极速剪切 → 精确剪切 → 合并全链，断言时长与全帧可解码 | AC-321-1 · AC-332-1 |
 | TC-002 | cargo e2e `precise_cut_is_accurate_and_decodable` | 精确剪切入点精度与可解码 | AC-322-1 |
 | TC-003 | cargo e2e `pipeline_full_chain` | 工作台 pipeline 全链（含 timescale 归一化） | AC-380-1（组级） |
-| TC-004 | `cargo test` 单元测试（71 条，代码内） | 命令构建器参数序列、probe 缓存、进度解析、任务状态机与清理钩子、输出原子替换 | NFR-001（无损优先）· NFR-006–009（并发/半成品/预检/节流） |
+| TC-004 | `cargo test` 单元测试（72 条，代码内） | 命令构建器参数序列、probe 缓存、进度解析、任务状态机与清理钩子、输出原子替换、缩略图批处理容错 | NFR-001（无损优先）· NFR-006–009（并发/半成品/预检/节流） |
 | TC-005 | `tsc --noEmit` + `pnpm lint` | 类型与前端约束 | NFR-012（配置与错误处理） |
 
 > 新增命令/参数改动时：**先补 `ffmpeg/command.rs` 的参数序列断言**，再靠 TC-001~003 兜回归（DESIGN 决策 #23）。
@@ -88,7 +88,7 @@
 | TC-020 | BUG-002 | 输出替换原子性：目标被占用时旧文件不丢、错误信息含 `.part` 完整路径 | `cargo test` 单测（`fs::atomic_replace` 三分支）+ e2e（`output_replace_over_existing_file`） | ✅ 通过（2026-09-21：3 条单测 + 1 条 e2e；目标不可替换时旧文件与 `.part` 均在、错误含完整路径） |
 | TC-021 | BUG-003 | 四处指针拖拽：窗口外松手后监听器不残留、无拖拽态卡死、无意外重排 | 手工（合并页列表 / 工作台素材卡 / 剪切页 Timeline 双手柄 / 工作台 ClipTimeline 与裁剪框选） | ⏳ 待跑（实现已统一到 `utils/pointerDrag` 的 `beginPointerDrag`，四处共用同一收尾兜底） |
 | TC-022 | BUG-004 | `pxToCrop` 边界：x 在界内 / 恰好压界 / 远超界，w 最小 / 恰好 / 超界 | 命令级脚本（矩阵，见下方注）+ 手工（数值微调）；M11-0 转 Vitest | ⏳ 矩阵已用命令级脚本验证通过（2026-09-23）：**14 组期望值 + 4000 组随机扫描，12730 断言 0 失败**；同一矩阵在**修复前**实现上 1554 个非 null 结果里越界 **993** 个（CR 复现值精确复现）。真机手工（数值微调）待跑，Vitest 落地时按下方矩阵逐条转 |
-| TC-023 | BUG-005 | 合并页选 N 个文件、其中一个无法抽帧 → 其余缩略图仍显示 | 手工 | 待建（R4-5） |
+| TC-023 | BUG-005 | 合并页选 N 个文件、其中一个无法抽帧 → 其余缩略图仍显示 | `cargo test` 单测（真实 sidecar + lavfi 自建夹具，sidecar 缺失时跳过）+ 手工（合并页 UI） | ⏳ 命令级半已过（2026-09-23，`thumbnail_batch_skips_unreadable_file`：坏文件被跳过、其余两张返回且真的落盘；**把 `continue` 换回 `return Err` 该用例立即失败**，证明有灵敏度）；合并页 UI 半待跑 |
 | TC-024 | BUG-006 | 容器不被 WebView2 支持（如 `.flv` / `.wmv`，编码为 H.264/AAC）的素材导入 → `needsProxy` 为真、生成代理并正常预览 | `cargo test`/Vitest 单测（判定）+ 手工（实际预览） | 待建（R4-7） |
 | TC-025 | BUG-007 | 关键帧吸附后**产物时长与首帧落点**等于界面承诺（界面 2.7s 而产物 4.036s 即为不过） | 真机 GUI（步骤见 [gui-e2e/cases-import-cut.md](./gui-e2e/cases-import-cut.md) TC-031） | ✅ 通过（2026-09-21 真机复验：产物 2.756s、首帧 pts 0.039333、h264+aac 原样 copy；修复前为 4.036s / 0.052667） |
 | TC-026 | BUG-008 | 关键帧列表**条数 == ffprobe 原始行数**、首项为 `0.0` 且严格升序 | 真机 GUI / `cargo test` 解析单测（步骤见 [gui-e2e/cases-import-cut.md](./gui-e2e/cases-import-cut.md) TC-030） | ⏳ 解析单测已通过（2 条，锁住"带额外空字段的行"不再被丢）；真机复跑待发起 |
