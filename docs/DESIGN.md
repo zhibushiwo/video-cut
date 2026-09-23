@@ -518,22 +518,29 @@ Pending ──▶ Running ──▶ Completed
 
 ## 10. 格式支持矩阵 · NFR-010
 
-**处理能力**（交给 FFmpeg，目标是全支持）：容器 MP4 / MOV / MKV / AVI / WebM / M4V / TS；视频编码 H.264 / H.265 / AV1 / VP9 / MPEG-4 Part 2 / MPEG-2；音频 AAC / MP3 / Opus / FLAC / AC-3 / E-AC-3。
+**处理能力**（交给 FFmpeg，目标是全支持）：容器 MP4 / MOV / MKV / AVI / WebM / M4V / TS / FLV / WMV（与 `services/tauri.ts` 的 `VIDEO_EXTENSIONS` 一致）；视频编码 H.264 / H.265 / AV1 / VP9 / MPEG-4 Part 2 / MPEG-2；音频 AAC / MP3 / Opus / FLAC / AC-3 / E-AC-3。
 
 **预览能力**（WebView2 `<video>`，决定是否生成代理）：
 
 | 情况 | 预览 | 策略 |
 | --- | --- | --- |
-| MP4/MOV/MKV + H.264/VP9/AV1 + AAC/MP3/Opus/FLAC（≤1080p yuv420p） | ✅ 直接播放 | 不生成代理 |
-| H.265/HEVC | ⚠ 依赖系统 HEVC 扩展 | 探测失败 → 代理 |
-| 10bit / HDR（yuv420p10le 等） | ⚠ 多数不可播 | 统一 → 代理 |
-| AVI / MPEG-2 / 其他老编码 | ❌ | → 代理 |
-| AC-3 / E-AC-3 音频 | ⚠ 依赖系统解码器 | 音频探测失败 → 代理 |
+| MP4/MOV/MKV/WebM + H.264/VP9/AV1 + AAC/MP3/Opus/FLAC（≤1080p yuv420p） | ✅ 直接播放 | 不生成代理 |
+| **容器不可播**：AVI / FLV / TS / WMV（**即使编码是 H.264/AAC**） | ❌ | → 代理 |
+| H.265/HEVC | ⚠ 依赖系统 HEVC 扩展 | → 代理（判定为**静态白名单**，装了扩展也照转——见下方"容器维度的实现口径"与 HANDOFF 未决项） |
+| 10bit / HDR（yuv420p10le 等） | ⚠ 多数不可播 | → 代理 |
+| MPEG-2 等老编码（容器可播时） | ❌ | → 代理 |
+| AC-3 / E-AC-3 音频 | ⚠ 依赖系统解码器 | → 代理（同上，静态判定） |
 | 4K 及以上 | ✅ 但可能卡顿 | 提供"始终用代理预览"设置 |
 
 代理判定逻辑集中在一次 ffprobe 结果上实现。**规格**：`needsProxy = 容器 / 视频编码 / 像素格式 / 音频编码 任一不被 WebView2 支持`（"用户强制代理"由 `ProxyMode = always` 表达，见 §12）。
 
-> **实现差异（2026-09-19 核对）**：`src/utils/media.ts` 实际只判**视频编码 + `pixFmt === "yuv420p"` + 音频编码**，**未含容器维度** → 已登记 [BUGS.md](./BUGS.md) `BUG-006`，修复任务 PLAN `R4-7`。
+> **容器维度的实现口径（2026-09-23 落地，`BUG-006` / PLAN `R4-7`）**：容器判定按 ffprobe `MediaInfo.container` 做，而它**不是扩展名、也不是单一名字**——`format_name` 是**逗号分隔的候选解复用器列表**（按匹配度排序），且只看文件内容（实测：mp4/mov/m4v → `mov,mp4,m4a,3gp,3g2,mj2`；mkv/webm → `matroska,webm`；avi → `avi`；flv → `flv`；ts → `mpegts`；wmv → `asf`；把 asf 内容改名成 `.mp4` 仍是 `asf`）。实现取**首位**解复用器（即 ffprobe 实际选中的那个）比对白名单 `NATIVE_CONTAINERS`（`src/utils/media.ts`，= ISO-BMFF/QuickTime 家族 + Matroska 家族）；**判不出来一律按"不可播"**——空串、`unknown`、首位不在白名单，宁可多生成一次代理，也不让用户面对黑屏。
+>
+> **MKV 与 WebM 同属 Matroska 家族**（`format_name` 都是 `matroska,webm`），故白名单天然覆盖两者；Chromium 原生支持 WebM，但**两者能否直接播最终以真机预览为准**（`TESTING.md` §3.2 `TC-018` / §3.4 `TC-024` 的真机半待跑）。
+>
+> **判定为静态（不探测系统能力）**：视频 / 音频侧一律按上表"不支持就走代理"处理，**不区分系统是否装了 HEVC / AC-3 解码器**——保守方向不会漏（真漏了还有播放失败后的 `onError` 兜底），代价是此类素材在能播的机器上也会转一次代理。上表 H.265 / AC-3 两行原写"探测失败 → 代理"（暗示运行时探测），**2026-09-23 按实现事实改写了表述——行为未变，仓库从未有过这类探测**；是否引入 `canPlayType` 运行时探测见 [HANDOFF.md](./HANDOFF.md) 未决问题表（M12 预览强化时定）。
+>
+> **两套命名空间不可混用**：**处理范围**（`services/tauri.ts` 的 `VIDEO_EXTENSIONS`，按**扩展名**）是"能交给 FFmpeg 的容器集合"，**预览范围**（`NATIVE_CONTAINERS`，按 **`format_name` 解复用器名**）是"能直接播的容器集合"；**前者是后者的容器超集**（还含 AVI / FLV / TS / WMV），但两者的取值命名空间不同（扩展名 vs 解复用器名），实现上不可互相复用。
 
 **重编码注意**：10bit/HDR 源走重编码路径时，硬件编码器对 10bit/HDR 支持参差，command.rs 需按 pix_fmt 选择编码器与参数（10bit 优先 `hevc_*` 硬编或 libx265）；VFR（可变帧率）源在重编码路径会被 CFR 化，需在 UI 提示（copy 路径不受影响）。
 

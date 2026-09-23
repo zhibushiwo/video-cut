@@ -5,7 +5,7 @@
 > **读时机**：写/改测试前；跑一次完整验证前；需要给出"这条验收过了吗"的结论时。
 > **写规则**：新增测试或验收组时追加 TC 行并写明 `引用 AC`（缺陷驱动的写在 §3.4，标注 `关联 BUG-0NN`）；TC 号不复用；只记**验收/回归级**用例——单元测试留在代码里（`cargo test` 即执行记录），不抄进本文。
 > **关联**：[INDEX.md](./INDEX.md)（ID 与地图） · 上位 [DESIGN.md](./DESIGN.md) · 进度 [PLAN.md](./PLAN.md) · 缺陷 [BUGS.md](./BUGS.md) · 夹具规范 [FFMPEG.md](./FFMPEG.md) §6.6
-> **最后更新**：2026-09-23（新增 `TC-029`（`ADR-033` 容器/扩展名口径）与 `TC-028`（`BUG-010`）、TC-022/TC-028 边界矩阵；单测/e2e 计数 76/5；此前 2026-09-21：§3.4 回填 TC-025–TC-027、§3.5 更新 TC-030/TC-031、§1/§3.1 单测数修正）
+> **最后更新**：2026-09-23（新增 `TC-029`（`ADR-033` 容器/扩展名口径）、`TC-028`（`BUG-010`）与 `TC-024` 容器矩阵（`BUG-006`）；单测/e2e 计数 77/5；此前 2026-09-21：§3.4 回填 TC-025–TC-027、§3.5 更新 TC-030/TC-031、§1/§3.1 单测数修正）
 
 ---
 
@@ -15,7 +15,7 @@
 | --- | --- | --- |
 | 类型检查 | `node_modules/.bin/tsc --noEmit`（或 `pnpm build`） | 前端类型与未使用变量（`noUnusedLocals`/`noUnusedParameters`） |
 | 静态检查 | `pnpm lint`（`eslint .`） | react-hooks 依赖、`@tauri-apps/*` 只允许 `services/` 内导入 |
-| 后端全量 | `cd src-tauri && cargo test` | **76 个单测 + 5 条 e2e**；需要 sidecar 的用例（e2e 与 `commands::media` 的缩略图回归）在 sidecar 缺失时打印 skip 并通过 |
+| 后端全量 | `cd src-tauri && cargo test` | **77 个单测 + 5 条 e2e**；需要 sidecar 的用例（e2e 与 `commands::media` 的缩略图回归）在 sidecar 缺失时打印 skip 并通过 |
 | 真实素材冒烟（可选，默认不跑） | `cd src-tauri && cargo test --test real_media_smoke -- --ignored --nocapture --test-threads=1` | `tests/real_media_smoke.rs` 8 条用例全部 `#[ignore]`（默认只编译）；按 `command.rs` 真实参数构建器打真实素材，约 3.5 分钟，缺 `video/` 素材自动跳过 |
 | 端到端应用 | `pnpm tauri dev` | 手测与 UI 验收 |
 | 真机 GUI 自动化 | 见 [gui-e2e/README.md](./gui-e2e/README.md) §2（沙箱关闭 + CDP 调试端口 + 驱动脚本） | 关键功能的端到端回归，断言"界面显示值 == 产物实测值"；用例见 §3.5 |
@@ -46,7 +46,7 @@
 | TC-001 | cargo e2e `fast_cut_and_merge_chain` | 极速剪切 → 精确剪切 → 合并全链，断言时长与全帧可解码 | AC-321-1 · AC-332-1 |
 | TC-002 | cargo e2e `precise_cut_is_accurate_and_decodable` | 精确剪切入点精度与可解码 | AC-322-1 |
 | TC-003 | cargo e2e `pipeline_full_chain` | 工作台 pipeline 全链（含 timescale 归一化） | AC-380-1（组级） |
-| TC-004 | `cargo test` 单元测试（76 条，代码内） | 命令构建器参数序列、probe 缓存、进度解析、任务状态机与清理钩子、输出原子替换、输出容器/扩展名命名、缩略图批处理容错 | NFR-001（无损优先）· NFR-006–009（并发/半成品/预检/节流） |
+| TC-004 | `cargo test` 单元测试（77 条，代码内） | 命令构建器参数序列、probe 缓存、进度解析、任务状态机与清理钩子、输出原子替换、输出容器/扩展名命名、缩略图批处理容错 | NFR-001（无损优先）· NFR-006–009（并发/半成品/预检/节流） |
 | TC-005 | `tsc --noEmit` + `pnpm lint` | 类型与前端约束 | NFR-012（配置与错误处理） |
 
 > 新增命令/参数改动时：**先补 `ffmpeg/command.rs` 的参数序列断言**，再靠 TC-001~003 兜回归（DESIGN 决策 #23）。
@@ -63,7 +63,7 @@
 | TC-015 | 历史记录与任务面板 | 任务终态落历史、只读展示、清空；全局面板进度/速度/取消/复制日志 | AC-360-1 · AC-362-1 |
 | TC-016 | 打包冒烟（M4-5） | **干净 Win11** 装 NSIS 包：中文向导、图标、SmartScreen 提示、首启探测 FFmpeg | NFR-011（打包与分发，DESIGN.md §11） |
 | TC-017 | 快捷键 | 剪切页与工作台各模式：空格、←/→、Shift+←/→、I/O | AC 待发号（UI.md §9.4） |
-| TC-018 | 代理预览 | 不支持格式（AVI / 无 HEVC 扩展）自动走代理 + 提示条；关闭代理时仅提示不阻塞 | AC-371-1 · AC-372-1 |
+| TC-018 | 代理预览 | 不支持格式（AVI / 无 HEVC 扩展）自动走代理 + 提示条；关闭代理时仅提示不阻塞。**`BUG-006` 的回归**：素材取"容器不可播而编码可播"的组合（H.264 + yuv420p + AAC 装进 `.avi` / `.flv` / `.ts` / `.wmv`）——修复前这类素材不生成代理、预览黑屏 | AC-371-1 · AC-372-1 |
 
 ### 3.3 真机 GUI 自动化的操作经验（复用；详细运行手册见 [gui-e2e/README.md](./gui-e2e/README.md) §2）
 
@@ -89,7 +89,7 @@
 | TC-021 | BUG-003 | 四处指针拖拽：窗口外松手后监听器不残留、无拖拽态卡死、无意外重排 | 手工（合并页列表 / 工作台素材卡 / 剪切页 Timeline 双手柄 / 工作台 ClipTimeline 与裁剪框选） | ⏳ 待跑（实现已统一到 `utils/pointerDrag` 的 `beginPointerDrag`，四处共用同一收尾兜底） |
 | TC-022 | BUG-004 | `pxToCrop` 边界：x 在界内 / 恰好压界 / 远超界，w 最小 / 恰好 / 超界 | 命令级脚本（矩阵，见下方注）+ 手工（数值微调）；M11-0 转 Vitest | ⏳ 矩阵已用命令级脚本验证通过（2026-09-23）：**14 组期望值 + 4000 组随机扫描，12730 断言 0 失败**；同一矩阵在**修复前**实现上 1554 个非 null 结果里越界 **993** 个（CR 复现值精确复现）。真机手工（数值微调）待跑，Vitest 落地时按下方矩阵逐条转 |
 | TC-023 | BUG-005 | 合并页选 N 个文件、其中一个无法抽帧 → 其余缩略图仍显示 | `cargo test` 单测（真实 sidecar + lavfi 自建夹具，sidecar 缺失时跳过）+ 手工（合并页 UI） | ⏳ 命令级半已过（2026-09-23，`thumbnail_batch_skips_unreadable_file`：坏文件被跳过、其余两张返回且真的落盘；**把 `continue` 换回 `return Err` 该用例立即失败**，证明有灵敏度）；合并页 UI 半待跑 |
-| TC-024 | BUG-006 | 容器不被 WebView2 支持（如 `.flv` / `.wmv`，编码为 H.264/AAC）的素材导入 → `needsProxy` 为真、生成代理并正常预览 | `cargo test`/Vitest 单测（判定）+ 手工（实际预览） | 待建（R4-7） |
+| TC-024 | BUG-006 | 容器不被 WebView2 支持（如 `avi` / `flv` / `ts` / `wmv`，编码为 H.264/AAC 的"原生可播"组合）的素材 → `needsProxy` 为真、生成代理；`VIDEO_EXTENSIONS` 九种容器每种都有明确结论 | 命令级脚本（矩阵，见下方注）+ `cargo test`（`container` 原样透传）+ 手工（实际预览，复用 §3.2 的 `TC-018`） | ⏳ 命令级矩阵已通过（2026-09-23）：**27 条断言 0 失败**（9+7+7+4，分项见下方注），九种容器逐一断言，容器维度修复使 `avi/flv/ts/wmv` 四处判定翻转；`cargo test` 锁定 `container` 为原始 `format_name`（2 条）。**真机预览半待跑**（复用 `TC-018`，本轮已在该行写明 `BUG-006` 的回归素材口径） |
 | TC-025 | BUG-007 | 关键帧吸附后**产物时长与首帧落点**等于界面承诺（界面 2.7s 而产物 4.036s 即为不过） | 真机 GUI（步骤见 [gui-e2e/cases-import-cut.md](./gui-e2e/cases-import-cut.md) TC-031） | ✅ 通过（2026-09-21 真机复验：产物 2.756s、首帧 pts 0.039333、h264+aac 原样 copy；修复前为 4.036s / 0.052667） |
 | TC-026 | BUG-008 | 关键帧列表**条数 == ffprobe 原始行数**、首项为 `0.0` 且严格升序 | 真机 GUI / `cargo test` 解析单测（步骤见 [gui-e2e/cases-import-cut.md](./gui-e2e/cases-import-cut.md) TC-030） | ⏳ 解析单测已通过（2 条，锁住"带额外空字段的行"不再被丢）；真机复跑待发起 |
 | TC-027 | BUG-009 | 非吸附入点下 UI **展示实际落点**（而非选区值） | 真机 GUI（步骤见 [gui-e2e/cases-import-cut.md](./gui-e2e/cases-import-cut.md) TC-031） | ✅ 通过（2026-09-21 真机复验：界面出现「实际入点 00:00:01.319」+ 落点虚线） |
@@ -112,6 +112,14 @@
 > 4. 不变量（3 组尺寸 × 3688320 组交互选区）：`x ≤ dims.w`、`y ≤ dims.h`、`x + w ≤ dims.w`、`y + h ≤ dims.h`、宽高为偶数
 >
 > 以上命令级验证用**一次性脚本**（`node --experimental-strip-types` 直跑 TS，脚本不入库）：随机扫描域 = `dims` 各维 `16..415`、`x/y/w/h ∈ [−50, 550]`，固定种子 `20260923`；M11-0 落 Vitest 时按同域同种子重跑并固化为用例。
+
+> **TC-024 容器矩阵**（同样是一次性命令级脚本，M11-0 落 Vitest 时逐条转成用例）——容器取值 = **真实 ffprobe 9.0.1 实测的 `format_name`**（lavfi 夹具，`-c:v libx264 -pix_fmt yuv420p -c:a aac`；九种容器的编码**全是**原生可播组合，正是 `BUG-006` 的陷阱）。**断言数 27 = 9（A 段）+ 7（B 段）+ 7（C 段）+ 4（D 段）**：
+> 1. **A. 九种容器 → 判定**：`mp4`/`mov`/`m4v` = `mov,mp4,m4a,3gp,3g2,mj2`（首位 `mov`）→ **不代理**；`mkv`/`webm` = `matroska,webm`（首位 `matroska`）→ **不代理**；`avi` = `avi`、`flv` = `flv`、`ts` = `mpegts`、`wmv` = `asf` → **代理**（修复前这四处均为"不代理"，即本缺陷）
+> 2. **B. 其余三维回归**：`h265` → 代理；`yuv420p10le` → 代理；`ac3` / 多音轨 `aac+eac3` → 代理；无音轨 → 不代理；`vp9+opus`、`vorbis` → 不代理
+> 3. **C. 容器串健壮性**：全大写 `MOV,MP4,…`、带空格 `" matroska , webm "` → 不代理（小写 + trim）；空串 / `unknown` → **代理**；**跨族列表取首位**——`mpegts,matroska` 与 `avi,mp4` → **代理**（首位不可播，保守方向），`matroska,mpegts` → 不代理（首位可播）
+> 4. **D. `wantsProxy` 三态（4 条）**（DESIGN §3.7/§12）：`off` + 不可播源 → false（只提示、不生成）；`always` + 可播源 → true；`auto` + 不可播源 → true；`auto` + 可播源 → false
+>
+> `cargo test` 侧另锁一条**跨层契约**：`MediaInfo.container` 必须原样保留 ffprobe 的 `format_name`（不得"友好化"成展示名），否则前端白名单静默失效（`ffmpeg::probe::tests::keeps_non_native_container_verbatim`）。
 
 ### 3.5 真机 GUI 自动化（TC-030+）
 
