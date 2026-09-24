@@ -5,7 +5,7 @@
 > **读时机**：写/改测试前；跑一次完整验证前；需要给出"这条验收过了吗"的结论时。
 > **写规则**：新增测试或验收组时追加 TC 行并写明 `引用 AC`（缺陷驱动的写在 §3.4，标注 `关联 BUG-0NN`）；TC 号不复用；只记**验收/回归级**用例——单元测试留在代码里（`cargo test` 即执行记录），不抄进本文。
 > **关联**：[INDEX.md](./INDEX.md)（ID 与地图） · 上位 [DESIGN.md](./DESIGN.md) · 进度 [PLAN.md](./PLAN.md) · 缺陷 [BUGS.md](./BUGS.md) · 夹具规范 [FFMPEG.md](./FFMPEG.md) §6.6
-> **最后更新**：2026-09-23（新增 `TC-029`（`ADR-033` 容器/扩展名口径）、`TC-028`（`BUG-010`）与 `TC-024` 容器矩阵（`BUG-006`）；单测/e2e 计数 77/5；此前 2026-09-21：§3.4 回填 TC-025–TC-027、§3.5 更新 TC-030/TC-031、§1/§3.1 单测数修正）
+> **最后更新**：2026-09-24（单测数 77→81：`R3-7` 的同一性比较四条用例（`..` 绕行 / 大小写 / 末尾点空格 / 不同文件不 panic）；此前 2026-09-23：新增 `TC-029`（`ADR-033` 容器/扩展名口径）、`TC-028`（`BUG-010`）与 `TC-024` 容器矩阵（`BUG-006`）；单测/e2e 计数 77/5）
 
 ---
 
@@ -15,7 +15,7 @@
 | --- | --- | --- |
 | 类型检查 | `node_modules/.bin/tsc --noEmit`（或 `pnpm build`） | 前端类型与未使用变量（`noUnusedLocals`/`noUnusedParameters`） |
 | 静态检查 | `pnpm lint`（`eslint .`） | react-hooks 依赖、`@tauri-apps/*` 只允许 `services/` 内导入 |
-| 后端全量 | `cd src-tauri && cargo test` | **77 个单测 + 5 条 e2e**；需要 sidecar 的用例（e2e 与 `commands::media` 的缩略图回归）在 sidecar 缺失时打印 skip 并通过 |
+| 后端全量 | `cd src-tauri && cargo test` | **81 个单测 + 5 条 e2e**（Windows 计数：含 2 条 `#[cfg(windows)]` 同一性用例）；需要 sidecar 的用例（e2e 与 `commands::media` 的缩略图回归）在 sidecar 缺失时打印 skip 并通过 |
 | 真实素材冒烟（可选，默认不跑） | `cd src-tauri && cargo test --test real_media_smoke -- --ignored --nocapture --test-threads=1` | `tests/real_media_smoke.rs` 8 条用例全部 `#[ignore]`（默认只编译）；按 `command.rs` 真实参数构建器打真实素材，约 3.5 分钟，缺 `video/` 素材自动跳过 |
 | 端到端应用 | `pnpm tauri dev` | 手测与 UI 验收 |
 | 真机 GUI 自动化 | 见 [gui-e2e/README.md](./gui-e2e/README.md) §2（沙箱关闭 + CDP 调试端口 + 驱动脚本） | 关键功能的端到端回归，断言"界面显示值 == 产物实测值"；用例见 §3.5 |
@@ -46,7 +46,7 @@
 | TC-001 | cargo e2e `fast_cut_and_merge_chain` | 极速剪切 → 精确剪切 → 合并全链，断言时长与全帧可解码 | AC-321-1 · AC-332-1 |
 | TC-002 | cargo e2e `precise_cut_is_accurate_and_decodable` | 精确剪切入点精度与可解码 | AC-322-1 |
 | TC-003 | cargo e2e `pipeline_full_chain` | 工作台 pipeline 全链（含 timescale 归一化） | AC-380-1（组级） |
-| TC-004 | `cargo test` 单元测试（77 条，代码内） | 命令构建器参数序列、probe 缓存、进度解析、任务状态机与清理钩子、输出原子替换、输出容器/扩展名命名、缩略图批处理容错 | NFR-001（无损优先）· NFR-006–009（并发/半成品/预检/节流） |
+| TC-004 | `cargo test` 单元测试（81 条，代码内） | 命令构建器参数序列、probe 缓存、进度解析、任务状态机与清理钩子、输出原子替换、输出容器/扩展名命名、**输出路径同一性比较（归一化）**、缩略图批处理容错 | NFR-001（无损优先）· NFR-006–009（并发/半成品/预检/节流） |
 | TC-005 | `tsc --noEmit` + `pnpm lint` | 类型与前端约束 | NFR-012（配置与错误处理） |
 
 > 新增命令/参数改动时：**先补 `ffmpeg/command.rs` 的参数序列断言**，再靠 TC-001~003 兜回归（DESIGN 决策 #23）。
@@ -95,6 +95,7 @@
 | TC-027 | BUG-009 | 非吸附入点下 UI **展示实际落点**（而非选区值） | 真机 GUI（步骤见 [gui-e2e/cases-import-cut.md](./gui-e2e/cases-import-cut.md) TC-031） | ✅ 通过（2026-09-21 真机复验：界面出现「实际入点 00:00:01.319」+ 落点虚线） |
 | TC-028 | BUG-010 | `cropToPx`（归一化→像素，拖拽框选路径）不得产出越界裁剪：`x + w ≤ dims`、偶数、含贴边与奇数尺寸 | 命令级脚本（同 TC-022）；M11-0 转 Vitest；真机手工（拖到贴右边界后导出） | ⏳ 命令级扫描通过（2026-09-23）：3 组尺寸 × 3688320 组交互选区**越界 0**（修复前 1920×1080 为 792、101×57 为 19000 右 / 1844160 下）；真机待跑 |
 | TC-029 | `ADR-033`（输出容器/扩展名口径） | 容器由命令决定、名字与之一致：copy 类跟随源容器、重编码类固定 mp4、用户给错扩展名时以封装为准校正；`.part` 与成品同扩展名；**校正撞名不静默覆盖**、**校正后撞上输入文件要报错** | `cargo test` 单测（`fs::with_container_ext` / `source_container_ext` / `output_path_for` / `reject_if_input_equals`）+ e2e（`output_container_follows_adr_033`，真实 ffmpeg + matroska 源） | ✅ 通过（2026-09-23）：单测 4 条 + e2e 1 条；e2e 用 matroska 源验证"copy 产物仍是 matroska、把名字写成 `.mkv` 的重编码产物被校正为 `.mp4` 且容器确为 mp4"。**覆盖边界**：`merge`/`pipeline` 的容器决策与 `add_output` 在作业体内（需 AppHandle），命令级无自动化回归，靠走查 + 上面的原语测试兜底 |
+| TC-039 | BUG-011 | 输出=输入的同一性守卫**不可被写法差异绕过**：大小写、末尾点/空格、`..` 绕行都判为同一文件；退化输入（空路径、只有文件名、父目录不存在）不 panic 且放行；两处守卫共用同一实现 | `cargo test` 单测（`fs::same_path` 4 条 + `reject_if_input_equals` 经守卫路径；2 条为 `#[cfg(windows)]`） | ✅ 通过（2026-09-24）：81 单测全绿。**灵敏度已验证**：把 `same_path` 临时改成 `a == b`（模拟改动前的逐字符比较）后，`same_path_normalizes_dotdot_detour` 与 `same_path_ignores_case_on_windows` 立即失败。**实测澄清**：`/` 与 `\` 混用、`./` 前缀在 Rust `Path` 里本来就相等（按组件比较），**不是**绕过途径；真正能绕过的是大小写、末尾点/空格、`..` 绕行 |
 
 > **TC-022 / TC-028 边界矩阵**（M11-0 落 Vitest 时逐条转成用例，测试文件放 `src/utils/` 下、现尚未创建）：
 >

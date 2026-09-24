@@ -5,7 +5,7 @@
 > **读时机**：接活前 / 汇报进度 / 判断下一步做什么。
 > **写规则**：一个任务一个 checkbox，完成即勾选并按约定粒度提交（信息前缀 `M11-3:` 等）；验收行只写 AC 编号，验收口径在 [DESIGN.md](./DESIGN.md)、执行方式在 [TESTING.md](./TESTING.md)；不在此写规格。
 > **关联**：[INDEX.md](./INDEX.md) · 上位 [DESIGN.md](./DESIGN.md)（规格仲裁者）与 [TIMELINE.md](./TIMELINE.md) · 当前状态 [HANDOFF.md](./HANDOFF.md)
-> **最后更新**：2026-09-23（`R4-7` 勾选——R4 段 9 条全部实施完毕；总览行与「建议下一步」改指 M11-0）
+> **最后更新**：2026-09-24（`R3-7` 勾选并登记 `BUG-011`——输出=输入同一性比较归一化提前实施；`R3-5`/`R3-6` 各去掉一条已由 `R4-2`/`R3-7` 完成的分句；总览 R3 行改为"部分完成"）
 
 ## 里程碑总览
 
@@ -27,7 +27,7 @@
 | **M13 打磨（可选）** | 缩略图条、标记、多选拖拽（决策 #31） | M12 | ~1 周 | ⏳ 待实施 |
 | **R1 评审修复（第一轮）** | 2026-09-17 三路走读的 P0/P1 整改（rAF 单链 / 事件退订 / 清理钩子 / CropOverlay / ESLint） | M9 | 1 天 | ✅ 完成（2026-09-19） |
 | **R2 重构** | Workbench 拆分、重复收敛、useHotkeys 门控、ESLint 基线、死代码清理 | M11-0 | 2~3 天 | ⏳ 未开工（并入 M11-0） |
-| **R3 收尾** | probe 缓存改 LRU、取消清理按 kind 统一、snapshot 过滤 internal、speed 接通、输出前导抽取、锁策略 | M11 | 1~2 天 | ⏳ 未开工（M12-2 前） |
+| **R3 收尾** | probe 缓存改 LRU、取消清理按 kind 统一、snapshot 过滤 internal、speed 接通、输出前导抽取、锁策略 | M11 | 1~2 天 | 🔜 **部分完成**：`R3-7`（输出=输入同一性比较归一化）已提前实施（2026-09-24）；其余待 M12-2 前 |
 | **R4 第二轮审查整改** | 2026-09-19 四路复审的 P0/P1（`R4-1`–`R4-7`，`BUG-001`–`BUG-006`）：panic 隔离、原子替换、拖拽收尾、crop 钳制、缩略图容错、代理判定纳入容器维度；另并入真机首跑缺陷修复 `R4-8`（`BUG-007`–`BUG-009`）与 `R4-9`（`BUG-010`） | R1 | 1~2 天 | ✅ **9 条全部实施完毕**（2026-09-21 ~ 09-23，见「R4」段）；剩真机/手测半待发起 |
 
 > 预估按单人全职工时，仅供排期参考；顺序上 M2 与 M3 可并行挑选。
@@ -276,8 +276,9 @@
 - [ ] **R3-2** 取消清理由 TaskManager 按 kind 统一管理（替代 pending_proxies 手工模式） → **FR-361 · FR-362 · AC-362-1 · `task/manager.rs` · TC-004**
 - [ ] **R3-3** snapshot 过滤 internal 任务（否则常驻 preview 任务令关闭窗口确认失效） → **FR-360（面板可见性）· AC-360-1 · `task/manager.rs` · `services/tauri.ts` · TC-015**
 - [ ] **R3-4** 进度节流样板收敛（7 份）+ **speed 接通**（现 speed 恒 None，前端速度列空壳） → **FR-361 · AC-361-1 · `ffmpeg/progress.rs` · `services/tauri.ts` · TC-004 · TC-015**
-- [ ] **R3-5** `prepare_output` 提交前导抽取（4 份）；`finalize_output` 消除"先删后改名"旧成品丢失窗口（pipeline/merge/crop/rotate 四处；**另有 `cut.rs` / `media.rs` 两处同类问题 → 见 R4-2**） → **NFR-008（输出前导/磁盘预检）· `commands/*.rs` · `commands/pipeline.rs` · TC-004**
-- [ ] **R3-6** parking_lot 统一锁中毒策略；输出=输入比较改 canonicalize（大小写/斜杠绕过会覆盖源）；`cargo fmt --check` 纳入流程 → **NFR-006 · NFR-007 · `task/manager.rs` · `task/worker.rs` · TC-004**
+- [ ] **R3-5** `prepare_output` 提交前导抽取（4 份）——**剩下只有这半**：`finalize_output` 消除"先删后改名"旧成品丢失窗口（pipeline/merge/crop/rotate 四处，另有 `cut.rs`/`media.rs` 两处同类问题）**已由 `R4-2` 做掉**（`fs::atomic_replace`，六处） → **NFR-008（输出前导/磁盘预检）· `commands/*.rs` · `commands/pipeline.rs` · TC-004**
+- [ ] **R3-6** parking_lot 统一锁中毒策略；`cargo fmt --check` 纳入流程（"输出=输入比较改 canonicalize"一条**已提前由 `R3-7` 完成**） → **NFR-006 · NFR-007 · `task/manager.rs` · `task/worker.rs` · TC-004**
+- [x] **R3-7 输出=输入同一性比较归一化**（2026-09-24 提前实施，原属 `R3-6` 第二条；**登记为缺陷 `BUG-011`**）：新增 `fs::same_path(a, b)` —— `std::fs::canonicalize` 两侧（消大小写、`.`/`..`、末尾点/空格），输出路径**还不存在**时退回"父目录 canonicalize + 文件名"，父目录也解析不了才退回原始比较；Windows 下比较不区分大小写（仅 ASCII 折叠）。**五处守卫收敛为一份**：`fs::reject_if_input_equals` 同时服务"提交期（请求路径）"与"容器校正后复查"，四处命令改为调用它、删掉各自的重复注释与文案。**实测澄清**（避免把猜测写进文档）：`/` 与 `\` 混用、`./` 前缀在 Rust `Path` 里**本来就相等**（按组件比较），真正会被逐字符比较放行的是**大小写 / 末尾点空格 / `..` 绕行**；`movie.mp4.` 实测写入确实改到 `movie.mp4`。**定性**：守卫的意图（"不得覆盖源文件"）在改动前的代码注释里就写明，只是比较方式漏了——**按 `BUGS.md` §1 记 BUG**（数据丢失级影响，不按技术债降级），规格侧在 `DESIGN` §13 补明口径（该节即 NFR-012 的载体） → **BUG-011 · NFR-012 · `fs.rs` · `commands/*.rs` · TC-039**
 
 ### R4 —— 第二轮审查整改（2026-09-19 立项，来源 archive/code-review-2026-09-19.md）
 
