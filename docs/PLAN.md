@@ -5,7 +5,7 @@
 > **读时机**：接活前 / 汇报进度 / 判断下一步做什么。
 > **写规则**：一个任务一个 checkbox，完成即勾选并按约定粒度提交（信息前缀 `M11-3:` 等）；验收行只写 AC 编号，验收口径在 [DESIGN.md](./DESIGN.md)、执行方式在 [TESTING.md](./TESTING.md)；不在此写规格。
 > **关联**：[INDEX.md](./INDEX.md) · 上位 [DESIGN.md](./DESIGN.md)（规格仲裁者）与 [TIMELINE.md](./TIMELINE.md) · 当前状态 [HANDOFF.md](./HANDOFF.md)
-> **最后更新**：2026-09-24（`M11-0` 勾选——状态层/撤销基座落地，Vitest 就位，`TC-040`；总览 M11 行改为"进行中"；同日 `R3-7` 勾选并登记 `BUG-011`）
+> **最后更新**：2026-09-24（`R2-1` 勾选——Workbench 拆分落地（`index.tsx` 1636→780 行，拆出 10 文件）；总览 R2 行改为"进行中"；同日 `M11-0` 勾选与 `R3-7` 勾选）
 
 ## 里程碑总览
 
@@ -26,7 +26,7 @@
 | **M12 预览强化** | 连播改进、渲染即预览（决策 #28）、暂停帧服务 spike（TIMELINE.md §17.6） | M11 | 1~2 周 | ⏳ 待实施 |
 | **M13 打磨（可选）** | 缩略图条、标记、多选拖拽（决策 #31） | M12 | ~1 周 | ⏳ 待实施 |
 | **R1 评审修复（第一轮）** | 2026-09-17 三路走读的 P0/P1 整改（rAF 单链 / 事件退订 / 清理钩子 / CropOverlay / ESLint） | M9 | 1 天 | ✅ 完成（2026-09-19） |
-| **R2 重构** | Workbench 拆分、重复收敛、useHotkeys 门控、ESLint 基线、死代码清理 | M11-0 ✅ | 2~3 天 | ⏳ **下一步**（并入 M11 阶段，紧随 M11-0 之后） |
+| **R2 重构** | Workbench 拆分、重复收敛、useHotkeys 门控、ESLint 基线、死代码清理 | M11-0 ✅ | 2~3 天 | 🔄 **进行中**：`R2-1` Workbench 拆分 ✅（2026-09-24，1636→780 行）；`R2-2`–`R2-5` 待做 |
 | **R3 收尾** | probe 缓存改 LRU、取消清理按 kind 统一、snapshot 过滤 internal、speed 接通、输出前导抽取、锁策略 | M11 | 1~2 天 | 🔜 **部分完成**：`R3-7`（输出=输入同一性比较归一化）已提前实施（2026-09-24）；其余待 M12-2 前 |
 | **R4 第二轮审查整改** | 2026-09-19 四路复审的 P0/P1（`R4-1`–`R4-7`，`BUG-001`–`BUG-006`）：panic 隔离、原子替换、拖拽收尾、crop 钳制、缩略图容错、代理判定纳入容器维度；另并入真机首跑缺陷修复 `R4-8`（`BUG-007`–`BUG-009`）与 `R4-9`（`BUG-010`） | R1 | 1~2 天 | ✅ **9 条全部实施完毕**（2026-09-21 ~ 09-23，见「R4」段）；剩真机/手测半待发起 |
 
@@ -262,7 +262,8 @@
 
 > **关联**：—（工程批次，无 FR）　·　**验收**：—　——　执行：TESTING.md TC-005 + M11 回归
 
-- [ ] **R2-1** Workbench 拆分（SourceCards / CutModeView / EditModeView / CropFields / TimeField / useProxyPreview 各自成文件，净减约 700 行） → **—（工程批次）· `ProductPreview`/`TaskProgress`/`hooks` · `pages`/`utils`/`types` · TC-005**
+- [x] **R2-1 Workbench 拆分**（SourceCards / CutModeView / EditModeView / TimeField / useProxyPreview 各自成文件，另拆 Header / Footer / ClipPool / BatchBar / shared；`index.tsx` 1636 → 780 行，净减 856 行） → **—（工程批次）· `ProductPreview`/`TaskProgress`/`hooks` · `pages`/`utils`/`types` · TC-005**
+  - **落地内容**（2026-09-24）：`src/pages/Workbench/` 新增 10 个文件——`shared.ts`（类型 / 常量 / 纯 helper：`SourceFile`·`PreviewMode`·`ClipEdit`·`QUALITY_LABELS`·`NAV_ITEMS`·`fieldBtn`·`freshId`·`newClipOf`·`displayedDims`·`basename`）、`useProxyPreview.ts`、`TimeField.tsx`、`SourceCards.tsx`、`CutModeView.tsx`、`EditModeView.tsx`、`Header.tsx`、`Footer.tsx`、`ClipPool.tsx`、`BatchBar.tsx`；`index.tsx` 只留编排（state / effects / handlers / derived / 组装 JSX）。**纯机械拆分、零行为变化**：四个既有组件签名逐字保留，新拆组件 props 全部由页面显式传入（不闭包捕获页面 state）。**原列的 "`CropFields` 成文件" 已过时**——Workbench 自 R1-4 起即从 `components/CropOverlay` 导入 `CropFields`，本地无此组件，故不重复做。验证：`tsc --noEmit` 通过 · `eslint .` 0 problems · `vite build` 通过 · `vitest` 19 全绿。
 - [ ] **R2-2** 重复收敛：useProxyPreview 提升 `hooks/` 四端复用、CropOverlay 统一、TimeField 以 CutEditor 版为准、basename/resolveUniqueTarget/moveAt/QUALITY_LABELS 进 `utils/`、播放快捷键块抽 usePlaybackHotkeys；**另并入 `M11-0` 留下的两处**：①「片段最短时长 0.05s」在 `Workbench` 有两处字面量（导出映射与片段卡展示）→ 收敛为一个常量；②「片段成品时长」有两份实现（`Workbench` 的 `clipDuration` 与 `utils/undo/commands.ts` 的 `productDuration`，口径已对齐为"源未探测按 0"，纯命令层不能 import 页面回调）→ 收敛或至少共用一个纯函数 → **—（工程批次）· `services/tauri.ts` · `ProductPreview`/`TaskProgress`/`hooks` · `pages`/`utils`/`types` · TC-005**
 - [ ] **R2-3** `useHotkeys` 页面激活门控（M11 新快捷键前置，否则 Cut 与 Workbench 的 I/O 同时响应） → **—（工程批次，M11-8 前置）· `ProductPreview`/`TaskProgress`/`hooks` · TC-005**
 - [ ] **R2-4** ESLint 基线 + tsconfig `noUncheckedIndexedAccess`（可选） → **—（工程批次）· 构建配置（eslint/tsconfig）· TC-005**
