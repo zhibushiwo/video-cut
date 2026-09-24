@@ -46,22 +46,66 @@ pub fn with_container_ext(requested: &Path, ext: &str) -> PathBuf {
     p
 }
 
-/// 校正后的最终路径**不得落在输入文件上**（扩展名校正可能把请求的 `x.mp4` 变成源文件 `x.mkv`）。
+/// 输出路径**不得落在输入文件上**——命令的提交期检查（请求路径）与扩容器校正后的复查都走这里。
 ///
-/// 提交期的"输出不能与输入相同"只检查了**用户请求的**路径；校正可能把它改成另一个已存在的
-/// 输入文件，而 `atomic_replace` 会直接替换掉目标 —— 那就把源文件删了。这里按校正后的路径再挡一次。
-/// （口径与既有检查一致：逐字符比较，不改大小写/斜杠形式——规范化收敛见 `T-003`。）
+/// 提交期只检查了**用户请求的**路径；扩展名校正可能把它改成另一个已存在的输入文件，而
+/// `atomic_replace` 会直接替换掉目标 —— 那就把源文件删了。所以校正后要再挡一次。
+/// 两处守卫**共用这一份实现**（同一性比较见 [`same_path`]），避免口径分叉。
 pub fn reject_if_input_equals(final_path: &Path, inputs: &[&str]) -> Result<(), String> {
     if let Some(hit) = inputs
         .iter()
-        .find(|i| !i.is_empty() && Path::new(i) == final_path)
+        .find(|i| !i.is_empty() && same_path(Path::new(i), final_path))
     {
         return Err(format!(
-            "输出路径与输入文件相同：{}（按容器校正后与 {hit} 撞车，已阻止以免覆盖源文件）",
+            "输出路径与输入文件相同：{}（与输入 {hit} 撞车，已阻止以免覆盖源文件）",
             final_path.display()
         ));
     }
     Ok(())
+}
+
+/// 两个路径是否指向**同一个文件**（`R3-6` 第二条 / `R3-7`）。
+///
+/// 守卫的用途是"输出不得落在输入上"，**逐字符比较会失效**：Windows 上 `C:\a\b.mp4`、
+/// `c:/a/b.mp4`、`C:\a\..\a\b.mp4` 是同一个文件，只比字面就会放行——随后 `atomic_replace`
+/// 会把**用户的源文件**替换掉（不可逆的数据丢失）。
+///
+/// 做法：`std::fs::canonicalize` 解析两侧（消大小写、斜杠形式、`.`/`..`）；输出路径常常**还不存在**，
+/// 此时退回"父目录 canonicalize + 文件名"；父目录也解析不了才退回原始比较。
+/// **输入一侧必定可解析**（调用方此前已校验 `is_file`），所以退回分支实际只在输出父目录尚不存在时走到。
+pub fn same_path(a: &Path, b: &Path) -> bool {
+    match (resolve_for_compare(a), resolve_for_compare(b)) {
+        (Some(x), Some(y)) => path_eq(&x, &y),
+        _ => a == b,
+    }
+}
+
+/// 尽量把路径解析成可比较的形式：整体 canonicalize；文件不存在时用"父目录 + 文件名"。
+fn resolve_for_compare(p: &Path) -> Option<PathBuf> {
+    if let Ok(c) = std::fs::canonicalize(p) {
+        return Some(c);
+    }
+    let name = p.file_name()?;
+    let parent = p
+        .parent()
+        .filter(|d| !d.as_os_str().is_empty())
+        .unwrap_or(Path::new("."));
+    std::fs::canonicalize(parent).ok().map(|dir| dir.join(name))
+}
+
+/// Windows 的文件系统不区分大小写，比较时也不区分（仅 ASCII 折叠）；其他平台按原样比较。
+///
+/// 只在"两侧都解析不出来"的退化情形下这条折叠才起作用——能 canonicalize 时 Windows 会给出
+/// 磁盘上的真实大小写，本来就已经一致。
+fn path_eq(a: &Path, b: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        a.to_string_lossy().eq_ignore_ascii_case(&b.to_string_lossy())
+    }
+    #[cfg(not(windows))]
+    {
+        a == b
+    }
 }
 
 /// 输出路径 = **校正容器扩展名** + **同名不静默覆盖**（`ADR-033` ③ + 决策 #19）。
@@ -125,6 +169,70 @@ mod tests {
         assert!(err.contains("与输入文件相同"), "实际信息：{err}");
         // 不同路径时放行
         assert!(reject_if_input_equals(&d.join("other.mkv"), &[&src.to_string_lossy()]).is_ok());
+    }
+
+    /// `R3-7`：同一性比较必须归一化——把输出写成 `<dir>/sub/../movie.mkv` 这种"绕行"形式
+    /// 就能绕过逐字符比较，随后 `atomic_replace` 会把**源文件**替换掉（数据丢失）。
+    #[test]
+    fn same_path_normalizes_dotdot_detour() {
+        let d = tmp_dir("same-path-detour");
+        std::fs::create_dir_all(d.join("sub")).unwrap();
+        let src = d.join("movie.mkv");
+        std::fs::write(&src, b"src").unwrap();
+        let detour = d.join("sub").join("..").join("movie.mkv");
+
+        assert_ne!(detour, src, "构造前提：两条路径字面必须不同");
+        assert!(detour.exists(), "构造前提：该写法指向同一个已存在的文件");
+        assert!(same_path(&detour, &src), "归一化后必须判为同一文件");
+        assert!(same_path(&src, &detour), "比较应当是对称的");
+
+        let err = reject_if_input_equals(&detour, &[&src.to_string_lossy()])
+            .expect_err("绕行写法撞上输入文件也必须报错");
+        assert!(err.contains("与输入文件相同"), "实际信息：{err}");
+    }
+
+    /// 不同文件必须放行；解析不了的路径**不得 panic**（退回原始比较）。
+    #[test]
+    fn same_path_distinguishes_and_never_panics() {
+        let d = tmp_dir("same-path-distinct");
+        std::fs::write(d.join("a.mkv"), b"a").unwrap();
+
+        assert!(!same_path(&d.join("a.mkv"), &d.join("b.mkv")));
+        // 同名但不同目录，且该目录不存在（走不通解析分支 → 退回原始比较）
+        assert!(!same_path(&d.join("a.mkv"), &d.join("nodir").join("a.mkv")));
+        // 空路径 / 只有文件名的相对路径都不得 panic
+        assert!(!same_path(Path::new(""), &d.join("a.mkv")));
+        assert!(!same_path(Path::new("a.mkv"), &d.join("a.mkv")));
+    }
+
+    /// Windows 文件系统不区分大小写：`<dir>/NEW.MP4` 与 `<dir>/new.mp4` 是同一个文件。
+    /// 这里两者都不存在，正好检验"父目录 + 文件名"分支里的大小写折叠。
+    #[cfg(windows)]
+    #[test]
+    fn same_path_ignores_case_on_windows() {
+        let d = tmp_dir("same-path-case");
+        assert!(!d.join("new.mp4").exists(), "构造前提：目标文件不存在");
+
+        assert!(same_path(&d.join("new.mp4"), &d.join("NEW.MP4")));
+        assert!(!same_path(&d.join("new.mp4"), &d.join("OLD.MP4")), "名字不同仍应放行");
+    }
+
+    /// Windows 会剥掉文件名末尾的点/空格：`<dir>/movie.mp4.` 与 `<dir>/movie.mp4` 是**同一个文件**
+    /// （实测 `canonicalize` 两者都解析到真实路径，且往 `movie.mp4.` 写入确实改到了 `movie.mp4`）
+    /// ——这条也必须在守卫覆盖范围内。
+    #[cfg(windows)]
+    #[test]
+    fn same_path_catches_windows_trailing_dot_and_space() {
+        let d = tmp_dir("same-path-trailing");
+        let real = d.join("movie.mp4");
+        std::fs::write(&real, b"real").unwrap();
+
+        assert!(same_path(&d.join("movie.mp4."), &real), "末尾点指向同一文件");
+        assert!(same_path(&d.join("movie.mp4 "), &real), "末尾空格同理");
+        assert!(
+            reject_if_input_equals(&d.join("movie.mp4."), &[&real.to_string_lossy()]).is_err(),
+            "守卫必须拦下这种写法"
+        );
     }
 
     /// 校正扩展名 + 同名不静默覆盖（`ADR-033` ③ + 决策 #19）。

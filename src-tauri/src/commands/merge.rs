@@ -167,10 +167,12 @@ pub fn submit_merge(
         if !Path::new(i).is_file() {
             return Err(format!("输入文件不存在：{i}"));
         }
-        if Path::new(i) == Path::new(&output) {
-            return Err("输出文件不能与输入文件相同".into());
-        }
     }
+    // 输出不得落在任一输入上（同一性比较走 fs::same_path 的归一化，见 R3-7）
+    crate::fs::reject_if_input_equals(
+        Path::new(&output),
+        &inputs.iter().map(String::as_str).collect::<Vec<_>>(),
+    )?;
     // ADR-033：容器由命令决定——无损合并（copy）跟随源容器、自动统一后合并（重编码）统一 mp4。
     // **类别取决于探测结果**，所以最终名与 `.part` 都在作业体内（探测后）才定：提交期定不了，
     // 也不该提前探测（`DESIGN` §8.1/§8.2：探测与检查按**运行时**的文件状态做）。

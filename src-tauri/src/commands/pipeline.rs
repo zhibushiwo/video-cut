@@ -238,15 +238,17 @@ pub fn submit_pipeline(
         if !Path::new(&it.input).is_file() {
             return Err(format!("输入文件不存在：{}", it.input));
         }
-        if Path::new(&it.input) == Path::new(&output) {
-            return Err("输出文件不能与输入文件相同".into());
-        }
         if let Some(seg) = &it.segment {
             if !(seg.start_sec >= 0.0 && seg.end_sec > seg.start_sec + 0.05) {
                 return Err(format!("{} 的剪切区间无效", file_name(&it.input)));
             }
         }
     }
+    // 输出不得落在任一输入上（同一性比较走 fs::same_path 的归一化，见 R3-7）
+    crate::fs::reject_if_input_equals(
+        Path::new(&output),
+        &items.iter().map(|it| it.input.as_str()).collect::<Vec<_>>(),
+    )?;
     // 用户请求的输出路径（真正落盘的名字由作业体按容器校正后决定，见下）
     let requested = PathBuf::from(&output);
     let out_dir = requested

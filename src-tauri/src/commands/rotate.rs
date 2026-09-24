@@ -29,9 +29,8 @@ pub fn submit_rotate(
     if !Path::new(&input).is_file() {
         return Err(format!("输入文件不存在：{input}"));
     }
-    if Path::new(&input) == Path::new(&output) {
-        return Err("输出文件不能与输入文件相同".into());
-    }
+    // 输出不得落在输入上（同一性比较走 fs::same_path 的归一化，见 R3-7）
+    crate::fs::reject_if_input_equals(Path::new(&output), &[&input])?;
     // ADR-033：元数据旋转是 copy（容器跟随源）；重编码旋转统一 mp4。最终名按容器校正（含同名不覆盖兜底）
     let container_ext = if transcode {
         "mp4".to_string()
