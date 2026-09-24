@@ -53,6 +53,7 @@ import {
 } from "../../services/tauri";
 import type {
   AppSettings,
+  Clip,
   EnvironmentInfo,
   MediaInfo,
   PageName,
@@ -60,10 +61,20 @@ import type {
   PipelineItem,
   QualityPreset,
 } from "../../types";
-import { cropSizeText, cropToPx, type CropRect } from "../../utils/crop";
+import { cropSizeText, cropToPx } from "../../utils/crop";
 import { formatTime, parseTime, withFileTimestamp } from "../../utils/time";
 import { wantsProxy } from "../../utils/media";
 import { resolveOutputDir } from "../../utils/paths";
+import {
+  buildAppendToTimeline,
+  buildComposite,
+  buildCreateClip,
+  buildInsert,
+  buildRemoveAndDelete,
+  buildReorder,
+} from "../../utils/undo/commands";
+import { useUndoStack } from "../../utils/undo/store";
+import type { BuildCtx, EditorDoc } from "../../utils/undo/types";
 
 const QUALITY_LABELS: Record<QualityPreset, string> = {
   high: "高质量",
@@ -131,17 +142,6 @@ interface SourceFile {
   probeError: string | null;
 }
 
-/** 片段：加工与合成的最小单元，= 后端一个 PipelineItem */
-interface Clip {
-  id: string;
-  sourceId: string;
-  /** 源内区间（秒），null = 整段保留 */
-  seg: { start: number; end: number } | null;
-  rot: RotateState;
-  crop: CropRect | null;
-  lockRatio: boolean;
-}
-
 /** 预览区三态（§9.8 ①）：成品（M6-6 连播）/ 源剪切 / 片段加工 */
 type PreviewMode =
   | { type: "product" }
@@ -150,6 +150,21 @@ type PreviewMode =
 
 let nextId = 1;
 const freshId = (prefix: string) => `${prefix}-${nextId++}`;
+
+/** 新建片段的默认形态（无旋转 / 无裁剪 / 锁定比例）；`id` 由命令层在构建时分配 */
+const newClipOf = (sourceId: string, seg: Clip["seg"]): Omit<Clip, "id"> => ({
+  sourceId,
+  seg,
+  rot: NO_ROTATE,
+  crop: null,
+  lockRatio: true,
+});
+
+/**
+ * 加工编辑（旁路状态）可改的字段：**不含 `seg`** —— 区间属于文档状态，只能经命令栈改
+ * （plans/M11.md §18.1 的三类边界表）；收窄类型是为了让"绕过撤销栈改区间"在编译期就不可能。
+ */
+type ClipEdit = Partial<Pick<Clip, "rot" | "crop" | "lockRatio">>;
 
 /** 显示空间宽高：90°/270° 时为源宽高交换（DESIGN §9.8 预览约定） */
 function displayedDims(info: MediaInfo, rot: RotateState) {
@@ -226,9 +241,13 @@ export default function WorkbenchPage({
   initialFiles?: string[] | null;
 }) {
   const [files, setFiles] = useState<SourceFile[]>([]);
-  const [clips, setClips] = useState<Clip[]>([]);
-  /** 成品顺序：片段 id 有序表（唯一顺序语义，决策 #13） */
-  const [timeline, setTimeline] = useState<string[]>([]);
+  /**
+   * 文档状态收敛为单一 `EditorDoc`（plans/M11.md §18.1）：`clips`（池序 = 创建序）+
+   * `timeline`（成品顺序）是**唯一可撤销**的部分。UI 状态（mode/playhead/check…）各自 useState；
+   * 旁路状态（`files`、片段的 rot/crop/lockRatio）不入栈，直接经 `applyRaw` 改文档。
+   */
+  const [doc, setDoc] = useState<EditorDoc>({ clips: [], timeline: [] });
+  const { clips, timeline } = doc;
   const [thumbs, setThumbs] = useState<Record<string, string>>({});
   const [mode, setMode] = useState<PreviewMode>({ type: "product" });
   const [check, setCheck] = useState<PipelineCheck | null>(null);
@@ -272,6 +291,26 @@ export default function WorkbenchPage({
     },
     [clipSource],
   );
+
+  /** 命令层上下文（plans/M11.md §18.1）：钳制用的源参数 + id 分配 */
+  const buildCtx: BuildCtx = useMemo(
+    () => ({
+      source: (clipId: string) => {
+        const clip = clips.find((c) => c.id === clipId);
+        const info = clip ? fileById(clip.sourceId)?.info : null;
+        return info ? { fps: info.video.frameRate, durationSec: info.durationSec } : null;
+      },
+      newId: () => freshId("clip"),
+    }),
+    [clips, fileById],
+  );
+
+  /**
+   * 撤销栈基座（TIMELINE.md §17.5）：片段 / 时间轴的结构操作全部经 `execute(builder)` 提交，
+   * 一次手势 = 一条撤销记录；加工编辑（rot/crop）与素材增删走 `applyRaw`（旁路状态，不入栈）。
+   * Ctrl+Z / Ctrl+Shift+Z 的按键接线归 M11-7（本次只落基座，现有行为不变）。
+   */
+  const { execute, applyRaw } = useUndoStack({ doc, setDoc, ctx: buildCtx });
 
   const addFiles = useCallback(async (paths: string[]) => {
     setFiles((prev) => {
@@ -351,8 +390,12 @@ export default function WorkbenchPage({
         if (!ok) return;
       }
       setFiles((prev) => prev.filter((f) => f.id !== file.id));
-      setClips((prev) => prev.filter((c) => c.sourceId !== file.id));
-      setTimeline((prev) => prev.filter((id) => !ownedIds.has(id)));
+      // 素材增删本身不可撤销（plans/M11.md §18.1 旁路状态），它联动删掉的片段也只能直接改文档：
+      // 否则会留下"片段还在、素材没了"的文档 → 导出映射出空 input。
+      applyRaw((d) => ({
+        clips: d.clips.filter((c) => c.sourceId !== file.id),
+        timeline: d.timeline.filter((id) => !ownedIds.has(id)),
+      }));
       setMode((m) =>
         (m.type === "cut" && m.sourceId === file.id) ||
         (m.type === "edit" && ownedIds.has(m.clipId))
@@ -361,7 +404,7 @@ export default function WorkbenchPage({
       );
       setCheck(null);
     },
-    [clips],
+    [clips, applyRaw],
   );
 
   // 片段起点帧缩略图（M6-8）：对有入点的片段取其入点帧，全段片段取 0s
@@ -398,59 +441,62 @@ export default function WorkbenchPage({
   }, [clips, clipThumbs, clipThumbKey, clipSource]);
 
   // ---------- 片段操作 ----------
+  /** 剪出片段并接入轴末尾（id 由命令层在构建时分配 → 重做复现同一 id） */
   const addClip = useCallback(
-    (sourceId: string, seg: { start: number; end: number } | null) => {
-      const clip: Clip = {
-        id: freshId("clip"),
-        sourceId,
-        seg,
-        rot: NO_ROTATE,
-        crop: null,
-        lockRatio: true,
-      };
-      setClips((prev) => [...prev, clip]);
-      setTimeline((prev) => [...prev, clip.id]);
+    (sourceId: string, seg: Clip["seg"]) => {
+      execute(buildCreateClip(newClipOf(sourceId, seg)));
       setCheck(null);
-      return clip.id;
     },
-    [],
+    [execute],
   );
 
-  const updateClip = useCallback((id: string, patch: Partial<Clip>) => {
-    setClips((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
-    setCheck(null);
-  }, []);
+  /** 加工编辑（旋转/裁剪/锁比例）：旁路状态，直接改文档、不入撤销栈（plans/M11.md §18.1） */
+  const updateClip = useCallback(
+    (id: string, patch: ClipEdit) => {
+      applyRaw((d) => ({
+        ...d,
+        clips: d.clips.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+      }));
+      setCheck(null);
+    },
+    [applyRaw],
+  );
 
-  const removeClip = useCallback((id: string) => {
-    setClips((prev) => prev.filter((c) => c.id !== id));
-    setTimeline((prev) => prev.filter((x) => x !== id));
-    setMode((m) => (m.type === "edit" && m.clipId === id ? { type: "product" } : m));
-    setCheck(null);
-  }, []);
+  /**
+   * 块 ✕ / 拖出时间轴：**M11-0 保持既有语义**（片段同时出池 = `buildRemoveAndDelete`）。
+   * M11-4 按决策 #13 改为只出轴、池保留（`buildRemoveFromTimeline`）。
+   */
+  const removeClip = useCallback(
+    (id: string) => {
+      execute(buildRemoveAndDelete(id));
+      setMode((m) => (m.type === "edit" && m.clipId === id ? { type: "product" } : m));
+      setCheck(null);
+    },
+    [execute],
+  );
 
-  const reorderTimeline = useCallback((from: number, to: number) => {
-    if (from === to) return;
-    setTimeline((prev) => {
-      const next = [...prev];
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved);
-      return next;
-    });
-  }, []);
+  const reorderTimeline = useCallback(
+    (from: number, to: number) => {
+      execute(buildReorder(from, to));
+    },
+    [execute],
+  );
 
-  /** 池「+」加入时间轴末尾（已在轴内则无操作） */
-  const appendToTimeline = useCallback((clipId: string) => {
-    setTimeline((prev) => (prev.includes(clipId) ? prev : [...prev, clipId]));
-  }, []);
+  /** 池「+」加入时间轴末尾（已在轴上 = 无操作，保持既有语义） */
+  const appendToTimeline = useCallback(
+    (clipId: string) => {
+      execute(buildAppendToTimeline(clipId));
+    },
+    [execute],
+  );
 
   /** 池拖入/块拖动插入：已在轴内 = 移动，否则插入（M6-3） */
-  const insertToTimeline = useCallback((clipId: string, index: number) => {
-    setTimeline((prev) => {
-      const next = prev.filter((x) => x !== clipId);
-      next.splice(Math.min(index, next.length), 0, clipId);
-      return next;
-    });
-  }, []);
+  const insertToTimeline = useCallback(
+    (clipId: string, index: number) => {
+      execute(buildInsert(clipId, index));
+    },
+    [execute],
+  );
 
   // ---------- 批量能力（M6-8 = 原 M4-4） ----------
   const toggleSourceSelect = useCallback((id: string) => {
@@ -465,11 +511,18 @@ export default function WorkbenchPage({
   const batchAddClips = useCallback(() => {
     const targets = files.filter((f) => selectedSources.has(f.id) && f.info);
     if (targets.length === 0) return;
-    for (const f of targets) addClip(f.id, null);
+    // 一次手势 = 一条撤销记录：N 个片段用 composite 合成
+    execute(
+      buildComposite(
+        `批量剪出 ${targets.length} 个片段`,
+        targets.map((f) => buildCreateClip(newClipOf(f.id, null))),
+      ),
+    );
+    setCheck(null);
     setBatchMsg(`已为 ${targets.length} 个素材各建全段片段并入轴`);
     setSelectedSources(new Set());
     window.setTimeout(() => setBatchMsg(null), 2500);
-  }, [files, selectedSources, addClip]);
+  }, [files, selectedSources, execute]);
 
   const applyBatchRot = useCallback(() => {
     const targets = clips.filter((c) => selectedSources.has(c.sourceId));
@@ -478,17 +531,19 @@ export default function WorkbenchPage({
       window.setTimeout(() => setBatchMsg(null), 2500);
       return;
     }
-    setClips((prev) =>
-      prev.map((c) =>
+    // 加工编辑是旁路状态：不入撤销栈
+    applyRaw((d) => ({
+      ...d,
+      clips: d.clips.map((c) =>
         selectedSources.has(c.sourceId) ? { ...c, rot: batchRot, crop: null } : c,
       ),
-    );
+    }));
     setCheck(null);
     setBatchMsg(
       `已把 ${batchRot.deg}°${batchRot.hflip ? "+水平翻转" : ""}${batchRot.vflip ? "+垂直翻转" : ""} 应用到 ${targets.length} 个片段`,
     );
     window.setTimeout(() => setBatchMsg(null), 2500);
-  }, [clips, selectedSources, batchRot]);
+  }, [clips, selectedSources, batchRot, applyRaw]);
 
   // ---------- 导出链路（timeline → PipelineItem[]） ----------
   const timelineClips = useMemo(
@@ -1385,7 +1440,7 @@ function EditModeView({
   clip: Clip;
   source: SourceFile;
   useProxy: boolean;
-  onChange(patch: Partial<Clip>): void;
+  onChange(patch: ClipEdit): void;
 }) {
   const info = source.info!;
   const { proxyPath, onError } = useProxyPreview(source.path, useProxy);

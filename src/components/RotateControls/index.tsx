@@ -1,11 +1,8 @@
 import { RotateCcw, RotateCw } from "lucide-react";
+import type { RotateState } from "../../types";
 
-/** 旋转组合状态：增量角度（0/90/180/270）+ 独立翻转（旋转页与工作台共用） */
-export interface RotateState {
-  deg: number;
-  hflip: boolean;
-  vflip: boolean;
-}
+/** 旋转组合状态（0/90/180/270 + 独立翻转）——定义已收进共享模型 `types/`（M11-0），此处再导出保持既有 import 不变 */
+export type { RotateState };
 
 export const NO_ROTATE: RotateState = { deg: 0, hflip: false, vflip: false };
 

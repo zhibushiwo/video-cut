@@ -6,13 +6,10 @@
  * 交互与 UI 见 `src/components/CropOverlay`（R1-4：编辑器页与工作台共用一套实现）。
  */
 
-/** 归一化选区（0..1，相对画面宽高） */
-export interface CropRect {
-  nx: number;
-  ny: number;
-  nw: number;
-  nh: number;
-}
+import type { CropRect } from "../types";
+
+/** 归一化选区（0..1，相对画面宽高）——定义已收进共享模型 `types/`（M11-0），此处再导出保持既有 import 不变 */
+export type { CropRect };
 
 /** 像素选区（宽高已偶数对齐） */
 export interface CropPx {

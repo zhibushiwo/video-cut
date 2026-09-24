@@ -1,5 +1,8 @@
 /**
- * 与 Rust 后端共享的数据模型，字段与 src-tauri/src/lib.rs 及 docs/DESIGN.md §7 一一对应。
+ * 前端类型总入口，两类内容：
+ * ① **Rust 契约模型的镜像**——字段与 `src-tauri/src/lib.rs` 及 `docs/DESIGN.md` §7 一一对应
+ *    （改 `lib.rs` 的数据模型必须同提交改这里与 DESIGN §7，见 [AGENTS.md](../AGENTS.md) §3 第 17 条）；
+ * ② **前端自有类型**——导航/偏好/编辑模型，Rust 侧没有对应结构，见文内「前端编辑模型」分区。
  */
 
 /** 前端导航状态（App 顶层 state 切换，DESIGN §9.2；工作台 = 落地页） */
@@ -51,6 +54,46 @@ export interface MediaInfo {
 export interface Segment {
   startSec: number;
   endSec: number;
+}
+
+// ---------------------------------------------------------------------------
+// 前端编辑模型（**不对应 Rust**，不要与上面的契约模型混用）
+//
+// 下面几个类型是纯前端概念，`lib.rs` 里没有对应结构：
+// - `RotateState` = 累计旋转 + 独立翻转（Rust 侧收到的是拆开的 `rotateDeg`/`hflip`/`vflip`）
+// - `Clip` = 编辑态片段（Rust 侧收到的是扁平化的 `PipelineItem`，见 `PipelineItem`）
+// - `CropRect` = **归一化**选区 `nx/ny/nw/nh`（0..1）；而契约里的 `PipelineItem.crop`
+//   是**像素**矩形 `x/y/width/height`（下发前由 `utils/crop.ts::cropToPx` 转换）。
+//   ⚠ 两者同名但口径不同，改这一带时先看 `docs/DESIGN.md` §3.5（局部放大）与 §7（类型契约）。
+// ---------------------------------------------------------------------------
+
+/** 旋转组合状态：增量角度（0/90/180/270）+ 独立翻转（旋转页与工作台共用，M11-0 起收进共享模型） */
+export interface RotateState {
+  deg: number;
+  hflip: boolean;
+  vflip: boolean;
+}
+
+/** 归一化裁剪选区（0..1，相对画面宽高；见 `utils/crop.ts`）——**不是**契约里的像素 `crop` */
+export interface CropRect {
+  nx: number;
+  ny: number;
+  nw: number;
+  nh: number;
+}
+
+/**
+ * 片段：加工与合成的最小单元，= 后端一个 `PipelineItem`（DESIGN §3.8）。
+ * M11-0 起从 `pages/Workbench` 内部类型提到共享模型——`utils/undo/` 的命令层要用它。
+ */
+export interface Clip {
+  id: string;
+  sourceId: string;
+  /** 源内区间（秒），null = 整段保留 */
+  seg: { start: number; end: number } | null;
+  rot: RotateState;
+  crop: CropRect | null;
+  lockRatio: boolean;
 }
 
 export type CutMode = "fast" | "precise";
