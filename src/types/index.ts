@@ -46,6 +46,7 @@ export interface MediaInfo {
   bitrate: number | null;
   video: VideoStreamInfo;
   audio: AudioStreamInfo[];
+  /** 后端发送、前端暂未消费（面板暂无字幕流展示位）；保留以对齐 `lib.rs` 契约 */
   subtitleCount: number;
   rotation: number | null;
 }
@@ -223,6 +224,7 @@ export interface PipelineItemCheck {
   facts: MergeFileFacts;
   copy: boolean;
   reasons: string[];
+  /** 后端发送、前端暂未消费（徽标由 copy/reasons 表达）；保留以对齐 pipeline.rs `PipelineItemCheck` 契约 */
   displayDeg: number;
 }
 
@@ -235,7 +237,6 @@ export interface PipelineCheck {
 
 export type TaskStatus =
   | "pending"
-  | "probing"
   | "running"
   | "completed"
   | "failed"
@@ -264,6 +265,7 @@ export interface TaskProgressPayload {
   taskId: string;
   percent: number;
   speed: string | null;
+  /** 后端 payload（manager.rs ProgressPayload）恒发 null、值归 `R3-4` 接通 */
   etaSeconds: number | null;
 }
 
@@ -285,6 +287,7 @@ export interface HistoryEntry {
 
 /** 合并检测事实：MediaInfo + 视频流 time_base（Rust 端 flatten 序列化） */
 export interface MergeFileFacts extends MediaInfo {
+  /** 后端发送、前端暂未消费（tb 一致性由后端检测表达）；保留以对齐 probe.rs `MergeFileFacts` 契约 */
   videoTimeBase: string;
 }
 

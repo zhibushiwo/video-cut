@@ -8,9 +8,6 @@ importers:
 
   .:
     dependencies:
-      '@tailwindcss/vite':
-        specifier: ^4.3.3
-        version: 4.3.3(vite@8.3.0(jiti@2.7.0)(less@4.9.1))
       '@tauri-apps/api':
         specifier: ^2
         version: 2.11.1
@@ -32,10 +29,10 @@ importers:
       react-dom:
         specifier: ^19.1.0
         version: 19.3.0(react@19.3.0)
-      tailwindcss:
-        specifier: ^4.3.3
-        version: 4.3.3
     devDependencies:
+      '@tailwindcss/vite':
+        specifier: ^4.3.3
+        version: 4.3.3(vite@8.3.0(jiti@2.7.0)(less@4.9.1))
       '@tauri-apps/cli':
         specifier: ^2
         version: 2.11.4
@@ -54,9 +51,9 @@ importers:
       eslint-plugin-react-hooks:
         specifier: ^7.1.1
         version: 7.1.1(eslint@10.10.0(jiti@2.7.0))
-      less:
-        specifier: ^4.9.1
-        version: 4.9.1
+      tailwindcss:
+        specifier: ^4.3.3
+        version: 4.3.3
       typescript:
         specifier: ~6.0.3
         version: 6.0.3
@@ -1950,6 +1947,7 @@ snapshots:
   copy-anything@3.0.5:
     dependencies:
       is-what: 4.1.16
+    optional: true
 
   cross-spawn@7.0.6:
     dependencies:
@@ -2152,7 +2150,8 @@ snapshots:
     dependencies:
       is-extglob: 2.1.1
 
-  is-what@4.1.16: {}
+  is-what@4.1.16:
+    optional: true
 
   isexe@2.0.0: {}
 
@@ -2186,6 +2185,7 @@ snapshots:
       source-map: 0.6.1
     transitivePeerDependencies:
       - supports-color
+    optional: true
 
   levn@0.4.1:
     dependencies:
@@ -2368,7 +2368,8 @@ snapshots:
     dependencies:
       p-limit: 3.1.0
 
-  parse-node-version@1.0.1: {}
+  parse-node-version@1.0.1:
+    optional: true
 
   path-exists@4.0.0: {}
 

@@ -50,7 +50,6 @@ pub struct ProgressPayload {
 }
 
 /// Tauri 事件通道实现。
-#[allow(dead_code)] // M1 起由各 submit 命令构造
 pub struct TauriEmitter(pub tauri::AppHandle);
 
 impl EventSink for TauriEmitter {
@@ -137,7 +136,6 @@ impl TaskContext {
     }
 
     /// 登记成功产物路径，任务完成后展示给用户。
-    #[allow(dead_code)] // M1 起由各任务作业调用
     pub fn add_output(&self, path: String) {
         self.handle.outputs.lock().unwrap().push(path);
     }
@@ -278,7 +276,6 @@ impl TaskManager {
     }
 
     /// 提交任务：立即返回 TaskId，作业由调度线程在并发配额内执行（DESIGN §8.2）。
-    #[allow(dead_code)] // M1 起由 commands/cut.rs 等调用
     pub fn submit(&self, sink: Arc<dyn EventSink>, kind: &str, label: &str, job: Job) -> String {
         self.submit_with_cleanup(sink, kind, label, job, Box::new(|_| {}))
     }
@@ -331,13 +328,12 @@ impl TaskManager {
         inner.tasks.get(id).is_some_and(|e| {
             matches!(
                 *e.handle.status.lock().unwrap(),
-                TaskStatus::Pending | TaskStatus::Probing | TaskStatus::Running
+                TaskStatus::Pending | TaskStatus::Running
             )
         })
     }
 
     /// 取消任务：排队中直接置 Cancelled；运行中置标记并触发 killer（kill 子进程）。
-    #[allow(dead_code)]
     pub fn cancel(&self, id: &str) -> bool {
         let (handle, sink, killer, pending) = {
             let mut inner = self.shared.inner.lock().unwrap();
@@ -379,7 +375,7 @@ impl TaskManager {
                 inner.tasks.get(*id).is_some_and(|e| {
                     matches!(
                         *e.handle.status.lock().unwrap(),
-                        TaskStatus::Pending | TaskStatus::Probing | TaskStatus::Running
+                        TaskStatus::Pending | TaskStatus::Running
                     )
                 })
             })

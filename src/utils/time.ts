@@ -37,8 +37,8 @@ export function formatBitrate(bitsPerSec: number): string {
   return `${Math.round(bitsPerSec / 1e3)} Kbps`;
 }
 
-/** 导出文件名用的时间戳：yyyyMMdd_HHmmss */
-export function fileTimestamp(now = new Date()): string {
+/** 导出文件名用的时间戳：yyyyMMdd_HHmmss（模块内 `withFileTimestamp` 使用） */
+function fileTimestamp(now = new Date()): string {
   const p = (n: number) => String(n).padStart(2, "0");
   return (
     `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}` +

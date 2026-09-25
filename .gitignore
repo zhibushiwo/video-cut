@@ -35,3 +35,4 @@ src-tauri/icons/android/
 src-tauri/icons/ios/
 
 .workbuddy
+.zcodeignore

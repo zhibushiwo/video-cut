@@ -26,7 +26,6 @@ pub struct EnvironmentInfo {
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
     Pending,
-    Probing,
     Running,
     Completed,
     Failed,

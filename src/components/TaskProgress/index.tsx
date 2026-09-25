@@ -103,8 +103,7 @@ export default function TaskProgress({ autoCloseSec = 0 }: { autoCloseSec?: numb
             error: p.error,
             outputs: p.outputs,
           },
-          percent:
-            p.status === "completed" ? 1 : p.status === "running" ? old.percent : old.percent,
+          percent: p.status === "completed" ? 1 : old.percent,
           speed: p.status === "running" ? old.speed : null,
         });
         return next;

@@ -201,7 +201,6 @@ pub fn parse_timescale(video_time_base: &str) -> u32 {
 /// 参数统一转码（DESIGN §6.3④）：scale + fps + format，libx264 + aac 192k。
 /// `video_timescale` > 0 时强制视频轨 timescale，保证与基准片段 time_base 一致
 /// （concat demuxer 对 tb 不一致的 copy 拼接会错乱第二段的时间戳，见 §6.3⑨⑩）。
-#[allow(dead_code)] // M2 起由 commands/merge.rs 使用
 pub fn normalize_args(
     input: &str,
     width: u32,

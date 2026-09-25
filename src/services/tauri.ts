@@ -213,7 +213,7 @@ export function onWindowCloseGuard(): Promise<UnlistenFn> {
     try {
       const tasks = await listTasks();
       const busy = tasks.some(
-        (t) => t.status === "pending" || t.status === "probing" || t.status === "running",
+        (t) => t.status === "pending" || t.status === "running",
       );
       if (!busy) return;
       event.preventDefault();

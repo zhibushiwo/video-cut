@@ -3,7 +3,6 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import { appendFrontendLog } from "./services/tauri";
 import "./global.css";
-import "./App.css";
 
 // 前端错误全量入日志（DESIGN §12.1）；转发失败静默（避免错误→上报失败→错误的循环）
 const report = (message: string) => {

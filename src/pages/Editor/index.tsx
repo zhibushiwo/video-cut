@@ -17,7 +17,7 @@ import { needsProxy, wantsProxy } from "../../utils/media";
 import { basename, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
 import { QUALITY_LABELS } from "../../utils/quality";
 
-export type EditorTool = "rotate" | "crop";
+type EditorTool = "rotate" | "crop";
 
 export default function EditorPage({
   tool,
