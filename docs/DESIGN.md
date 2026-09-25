@@ -5,7 +5,7 @@
 > **读时机**：任何改动前的上位规格；新会话先读本文（地图见 [INDEX.md](./INDEX.md)）。
 > **写规则**：行为规格变化就地改本文并同步对应 FR/AC（一条一行）；实现级方案进 `plans/`，进度进 [PLAN.md](./PLAN.md)，决策进 [DECISIONS.md](./DECISIONS.md)。
 > **关联**：[INDEX.md](./INDEX.md)（地图与 ID 规范） · [../AGENTS.md](../AGENTS.md)（工程红线） · 下位：FFMPEG / UI / TIMELINE / plans
-> **最后更新**：2026-09-24（§10 代理判定的容器维度与处理范围、§13 新增"输出=输入同一文件"一行；此前 2026-09-23：§8.3 容器/扩展名口径）
+> **最后更新**：2026-09-25（§7 `TaskStatus` 删除无构造点的 `Probing` 变体（R2-5）；此前 2026-09-24：§10 代理判定的容器维度与处理范围、§13 新增"输出=输入同一文件"一行）
 
 > 状态：M0–M9 已实现（M4-5 实机冒烟、M6-7 e2e 与 M7/M9 验收归用户手测）；M10（保活+深浅主题）已立项**暂缓**（决策 #32）；M11–M13（单轨装配时间线）**实施中**——`M11-0` 状态层/撤销基座已落地（2026-09-24，无行为变化），`M11-1`–`M11-9` 待实施；行为规格见 [TIMELINE.md](./TIMELINE.md)、实施方案见 [plans/M11.md](./plans/M11.md)。
 >
@@ -439,8 +439,9 @@ pub enum VideoTask {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-pub enum TaskStatus { Pending, Probing, Running, Completed, Failed, Cancelled }
-// 注：`Probing` 目前无任何构造点（探测在作业线程内完成，不经状态机），保留类型仅为兼容 wire 格式。
+pub enum TaskStatus { Pending, Running, Completed, Failed, Cancelled }
+// R2-5：删除了从未有构造点的 `Probing` 变体（探测在作业线程内完成，不经状态机）；
+// history.json 只落终态，无旧数据兼容问题。
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -485,7 +486,7 @@ Pending ──▶ Running ──▶ Completed
    └──▶ Cancelled (排队中被取消)
 ```
 
-- **Running**：进入后先跑 ffprobe（探测在作业线程内完成，**不单独占一个状态**——`TaskStatus::Probing` 保留类型但无构造点，见 §7 注释），probe 失败立即进 Failed（如文件损坏）；随后启动 ffmpeg 主命令，进度事件按 ~200ms 节流后 emit（NFR-009）
+- **Running**：进入后先跑 ffprobe（探测在作业线程内完成，**不单独占一个状态**——原 `TaskStatus::Probing` 变体已于 R2-5 删除，见 §7 注释），probe 失败立即进 Failed（如文件损坏）；随后启动 ffmpeg 主命令，进度事件按 ~200ms 节流后 emit（NFR-009）
 - 剪切多片段 = 一个任务内串行执行 N 个 ffmpeg 子进程，进度按 (已完成片段 + 当前片段进度)/N 汇总
 
 ### 8.2 实现要点（manager.rs / worker.rs）

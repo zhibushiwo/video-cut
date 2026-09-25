@@ -133,7 +133,7 @@ Workbench ──右上角──▶ History / Settings
   - **任务浮层自动关闭**（M7-5）：秒数输入（0 = 不关闭，默认 0），终态任务浮层到时自动消失
 - **缓存管理区**（M4-8）：显示代理文件 + 缩略图占用（`cache_usage`），「清理缓存」按钮（`clear_cache`，ask 二次确认，被占用文件跳过并提示数量）；清理后刷新占用显示
 - **页尾静态区**（M4-8）：重置全部设置（ask 二次确认 → 写回默认值）；关于——应用版本、FFmpeg/ffprobe 版本、"所有处理在本机完成"声明、内置 FFmpeg 构建的 GPL 许可注记（DESIGN.md §11）
-- **关闭窗口确认**（M4-8，DESIGN.md §13 既有承诺的落地）：有未完成任务（Pending/Probing/Running）时 CloseRequested → 确认对话框；无任务直接退出。固定行为，不设开关
+- **关闭窗口确认**（M4-8，DESIGN.md §13 既有承诺的落地）：有未完成任务（Pending/Running）时 CloseRequested → 确认对话框；无任务直接退出。固定行为，不设开关
 
 ### 9.10 历史记录（M4-2）
 

@@ -5,7 +5,7 @@
 > **读时机**：接活前 / 汇报进度 / 判断下一步做什么。
 > **写规则**：一个任务一个 checkbox，完成即勾选并按约定粒度提交（信息前缀 `M11-3:` 等）；验收行只写 AC 编号，验收口径在 [DESIGN.md](./DESIGN.md)、执行方式在 [TESTING.md](./TESTING.md)；不在此写规格。
 > **关联**：[INDEX.md](./INDEX.md) · 上位 [DESIGN.md](./DESIGN.md)（规格仲裁者）与 [TIMELINE.md](./TIMELINE.md) · 当前状态 [HANDOFF.md](./HANDOFF.md)
-> **最后更新**：2026-09-25（`R2-4` 勾选——ESLint type-aware 基线 + `noUncheckedIndexedAccess` 开启（44 处判空适配）；同日 `R2-2`/`R2-3` 勾选）
+> **最后更新**：2026-09-25（`R2-5` 勾选——死代码清理落地，R2 全部完成；同日 `R2-2`/`R2-3`/`R2-4` 勾选）
 
 ## 里程碑总览
 
@@ -26,7 +26,7 @@
 | **M12 预览强化** | 连播改进、渲染即预览（决策 #28）、暂停帧服务 spike（TIMELINE.md §17.6） | M11 | 1~2 周 | ⏳ 待实施 |
 | **M13 打磨（可选）** | 缩略图条、标记、多选拖拽（决策 #31） | M12 | ~1 周 | ⏳ 待实施 |
 | **R1 评审修复（第一轮）** | 2026-09-17 三路走读的 P0/P1 整改（rAF 单链 / 事件退订 / 清理钩子 / CropOverlay / ESLint） | M9 | 1 天 | ✅ 完成（2026-09-19） |
-| **R2 重构** | Workbench 拆分、重复收敛、useHotkeys 门控、ESLint 基线、死代码清理 | M11-0 ✅ | 2~3 天 | 🔄 **进行中**：`R2-1` ✅（2026-09-24）· `R2-2` ✅（2026-09-25）· `R2-3` ✅（2026-09-25）· `R2-4` ✅（2026-09-25）；`R2-5` 待做 |
+| **R2 重构** | Workbench 拆分、重复收敛、useHotkeys 门控、ESLint 基线、死代码清理 | M11-0 ✅ | 2~3 天 | ✅ **完成**：`R2-1` ✅（2026-09-24）· `R2-2`/`R2-3`/`R2-4`/`R2-5` ✅（2026-09-25） |
 | **R3 收尾** | probe 缓存改 LRU、取消清理按 kind 统一、snapshot 过滤 internal、speed 接通、输出前导抽取、锁策略 | M11 | 1~2 天 | 🔜 **部分完成**：`R3-7`（输出=输入同一性比较归一化）已提前实施（2026-09-24）；其余待 M12-2 前 |
 | **R4 第二轮审查整改** | 2026-09-19 四路复审的 P0/P1（`R4-1`–`R4-7`，`BUG-001`–`BUG-006`）：panic 隔离、原子替换、拖拽收尾、crop 钳制、缩略图容错、代理判定纳入容器维度；另并入真机首跑缺陷修复 `R4-8`（`BUG-007`–`BUG-009`）与 `R4-9`（`BUG-010`） | R1 | 1~2 天 | ✅ **9 条全部实施完毕**（2026-09-21 ~ 09-23，见「R4」段）；剩真机/手测半待发起 |
 
@@ -271,7 +271,8 @@
   - **落地内容**（2026-09-25）：`useHotkeys` 加 `enabled = true` 第二参——false 时**不挂监听**（effect deps `[enabled]`，handler 仍走 ref），头注释写明契约：App 当前按页条件挂载（挂载即激活，调用点默认即可），**M10-1 keep-alive 落地后各页必须传激活态**，否则隐藏页快捷键仍响应（M10 冲突清单 ③）；`usePlaybackHotkeys` 透传 `enabled`（原 handler 内早退改为不挂监听）；Workbench 成品模式 Delete 的手动 mode gate 换成 `enabled` 参（全库唯一"挂载但不激活"的现存调用点，其余 6 个调用点逐一核对均为挂载即激活、无需接线）。**验证**：`tsc`/`eslint` 0 · vitest 36 全绿 · `vite build` 通过。**披露**：mode 经异步上下文转换（`removeSource` 确认弹窗后）时的 effect-flush 毫秒级窗口内，走带键由"响应"变"忽略"（方向保守、实际不可观测）；**M11-8 接线新键时沿用 enabled 门控、勿复制调用漏传**。门控的挂载/摘除断言需 DOM（Vitest node 环境测不了），待 M10-1 落地时连同 `useTauriEvent` 一并补 jsdom 渲染测试（作 M10-1 验收项）。
 - [x] **R2-4** ESLint 基线 + tsconfig `noUncheckedIndexedAccess`（可选） → **—（工程批次）· 构建配置（eslint/tsconfig）· TC-005**
   - **落地内容**（2026-09-25）：`tsconfig.json` 开启 `noUncheckedIndexedAccess`（PLAN 标"可选"，**选择开启**——M11 时间线核心大量数组操作前装上编译期防线）→ **44 处**下标访问判空适配（13 文件；全部为类型层收窄或等价重写，防御分支在既有不变量下不可达，两轴 CR 逐处核对行为等价；`realCutStart` 的 BUG-007 落点语义零变化）。`eslint.config.js` 升 **type-aware**（`recommendedTypeChecked` + `projectService`）：显式启用 `no-floating-promises`（存量零命中）与 `no-misused-promises`（揪出 1 处：剪切页 footer 内联 `onClick={async…}` → 抽 `changeDir` + `void` 调用）、`no-unnecessary-type-assertion`（删 3 处冗余断言）；`no-unsafe-*` 等 17 条存量噪音规则显式 off（含 5 条 strict/stylistic 档预关闭声明），配置注释写明"off 之外推荐集内其余 type-aware 规则随升级隐式生效"。lint 耗时 4.1s → 9.8s（≈2.4x，pre-commit 不跑 lint、可接受）。**披露**：changeDir 与旧内联实现同样依赖 `void` 惯例、`pickDirectory` reject 时同为 unhandled rejection（等价未补洞，属既有模式）。**验证**：`tsc`/`eslint` 0 · vitest 36 全绿 · `vite build` 通过。**手测点**（防御性改动、预期无观感变化）：工作台时间轴点击 seek 与插入指示线、Cut 页"更改目录"、倍速按钮循环、成品连播跨段、素材卡缩略图。
-- [ ] **R2-5** 死代码清理：`App.css` 整文件 + main.tsx import、`TaskStatus::Probing`、4 处 `#[allow(dead_code)]`、TaskProgress 死三目、Editor CropControls `rect` prop、`fileTimestamp`/`EditorTool` 过度导出、package.json 删 `less`、tailwind 两包移 devDependencies → **—（工程批次）· 多模块 · TC-005**
+- [x] **R2-5** 死代码清理：`App.css` 整文件 + main.tsx import、`TaskStatus::Probing`、4 处 `#[allow(dead_code)]`、TaskProgress 死三目、Editor CropControls `rect` prop、`fileTimestamp`/`EditorTool` 过度导出、package.json 删 `less`、tailwind 两包移 devDependencies → **—（工程批次）· 多模块 · TC-005**
+  - **落地内容**（2026-09-25）：删 `App.css` + main.tsx import；删 `TaskStatus::Probing`（lib.rs 枚举值 + manager.rs 两处 busy-match 分支 + 前端 types `"probing"` + services/tauri.ts 关闭守卫比较）——Spec 轴三层证据确认无兼容风险（git 全史从未构造过该值、history.json 只落终态、旧数据即便含它也只是整文件解析降级为空列表）；删 5 处 `#[allow(dead_code)]` 属性（walkthrough 记 4 处、现 5 处；grep 证实 TauriEmitter/add_output/submit/cancel/normalize_args 全部有真实调用者，cargo 0 warning 佐证）；修 TaskProgress percent 死三目；`fileTimestamp`/`EditorTool` 去 export（均模块内使用）；package.json 删 `less`（零引用）、`@tailwindcss/vite` + `tailwindcss` 移 devDependencies（均为构建期消费，无运行时 import）。types 四字段加"暂未消费"注释（displayDeg/subtitleCount/videoTimeBase = 后端发送前端未用；etaSeconds = 后端 payload 恒发 null、值归 R3-4）。**走空的两项**（清单过时，代码已不存在）：Editor CropControls（R1-4 被 CropFields 取代）、drawingRef。**规格同步**：DESIGN §7 枚举图 + §8.1 注、UI.md §9.9 关闭确认措辞随 Probing 删除同批更新（CR 两轴抓到的 P1，已修）。**披露**：`pnpm-lock.yaml` 未随 package.json 更新——**需在正常终端跑一次 `pnpm install` 重新生成 lockfile 后一并入库**（新环境 `--frozen-lockfile` 会失败）；`.zcodeignore`（工具产物）已从本批暂存区摘出、去留待用户定。**验证**：tsc/eslint 0 · vitest 36 · `vite build` · cargo test 81+5 全绿（0 warning）· check-docs 五绿。
 
 ### R3 —— M12-2 前实施
 
@@ -369,7 +370,7 @@
 
 **建议下一步（2026-09-24 更新）**：R1 与 **R4 段 9 条全部实施完毕**（`R4-1` panic 隔离 · `R4-2` 输出原子替换 · `R4-3` 指针拖拽收尾兜底 · `R4-4` `pxToCrop` 锚点钳制 · `R4-5` 缩略图批处理容错 · `R4-6` 输出容器/扩展名口径 · `R4-7` 代理判定纳入容器维度 · `R4-8` 真机首跑缺陷 `BUG-007`–`BUG-009` · `R4-9` `cropToPx` 边缘对齐），另 `R3-7` 也已提前实施；缺陷状态：`BUG-001`/`BUG-002`/`BUG-007`/`BUG-009` 为 `verified`，`BUG-003`/`BUG-004`/`BUG-005`/`BUG-006`/`BUG-008`/`BUG-010`/`BUG-011` 为 `fixed`——**各条的回归 TC 都卡在"手工/真机"那一半**（`TC-021`/`TC-022`/`TC-023`/`TC-024`/`TC-028` 的手工半、`TC-030` 的复跑），均**待用户显式发起**；`fixed` → `verified` 只差这一步。
 
-**M11 已开工**：`M11-0`（状态层/撤销基座，含 Vitest 载体与 `TC-040`）✅ → **下一步 `R2-5`（死代码清理）→ `M11-1`~`M11-9` → R3 → M12-2 → M12-1/3 → M13**；M10 视反馈随时插入（与时间线零耦合）。M9 已于 2026-09-17 落地，M6-7/M9/M4-5 的 UI 手测部分待用户统一验收。
+**M11 已开工**：`M11-0`（状态层/撤销基座，含 Vitest 载体与 `TC-040`）✅ → **下一步 `M11-1`~`M11-9` → R3 → M12-2 → M12-1/3 → M13**（R2 五项全部完成）；M10 视反馈随时插入（与时间线零耦合）。M9 已于 2026-09-17 落地，M6-7/M9/M4-5 的 UI 手测部分待用户统一验收。
 
 ## 测试与质量约定
 
