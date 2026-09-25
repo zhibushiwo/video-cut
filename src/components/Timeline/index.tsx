@@ -53,7 +53,7 @@ function snapToKeyframe(t: number, kfs: number[], snap: boolean): number {
   return Math.abs(best - t) <= SNAP_TOLERANCE_SEC ? best : t;
 }
 
-/** 按时长选择合适的刻度步长（秒）；ClipTimeline 复用 */
+/** 按时长选择合适的刻度步长（秒）——"总长内 ≤16 格"语义，剪切页自用；工作台时间轴（M11-1 起）用 `ClipTimeline/geometry.ts::tickStep`（≥目标间距语义），两者不可混用 */
 export function pickTickStep(duration: number): number {
   const steps = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1200, 3600];
   for (const s of steps) {

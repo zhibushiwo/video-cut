@@ -5,6 +5,10 @@ import { beginPointerDrag } from "../utils/pointerDrag";
 interface DragSortOptions {
   boundsRef?: RefObject<HTMLElement | null>;
   onDropOutside?: (index: number) => void;
+  /** 拖拽激活（过死区）/收尾各回调一次——帧时间埋点挂点（plans/M11.md §18.6 drag 场景）。
+   *  ⚠ 组件在拖拽中卸载（detach 收尾路径）不保证收到 false——消费方需自行兜底
+   *  （如 ClipTimeline 卸载时的采样器清理）。 */
+  onDragActive?: (active: boolean) => void;
 }
 
 /**
@@ -59,6 +63,7 @@ export function useDragSort(
         if (Math.abs(pos - startPos) < 4) return;
         active = true;
         setDragIndex(index);
+        options?.onDragActive?.(true);
       }
       const to = indexAt(pos);
       overRef.current = to;
@@ -84,6 +89,7 @@ export function useDragSort(
         }
         setDragIndex(null);
         setOverIndex(null);
+        options?.onDragActive?.(false);
       }
     });
   };

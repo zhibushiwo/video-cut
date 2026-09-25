@@ -16,6 +16,25 @@ export function formatTime(sec: number, withMs = true): string {
   return `${base}.${String(ms % 1000).padStart(3, "0")}`;
 }
 
+/**
+ * 总帧数时间码 `HH:MM:SS:FF`（TIMELINE.md §17.3 / plans/M11.md §18.5）：
+ * 先 `round(t × fps)` 取**总帧数**再分解时/分/秒/帧——逐段取整会让 59.99s 显示成
+ * `00:00:59:30`（帧字段溢出）这类进位错。fps 缺省/非正按 30（与 undo 层 `DEFAULT_FPS`
+ * 同口径）。非整数帧率（NTSC 浮点）：**总帧数按原始帧率取、仅 FF 字段的除数取整**，
+ * v1 不做 drop-frame 计数。
+ */
+export function formatTimecode(sec: number, fps = 30): string {
+  const rate = fps > 0 ? fps : 30;
+  const perSec = Math.max(1, Math.round(rate));
+  const totalFrames = Math.max(0, Math.round(sec * rate));
+  const ff = totalFrames % perSec;
+  const totalSec = Math.floor(totalFrames / perSec);
+  return (
+    `${pad2(Math.floor(totalSec / 3600))}:${pad2(Math.floor(totalSec / 60) % 60)}:` +
+    `${pad2(totalSec % 60)}:${pad2(ff)}`
+  );
+}
+
 /** HH:MM:SS.mmm → 秒；非法返回 null */
 export function parseTime(text: string): number | null {
   const m = text.trim().match(/^(\d{1,3}):([0-5]?\d):([0-5]?\d)(?:\.(\d{1,3}))?$/);

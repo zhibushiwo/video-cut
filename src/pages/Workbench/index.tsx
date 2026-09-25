@@ -16,6 +16,7 @@ import { NO_ROTATE, type RotateState } from "../../components/RotateControls";
 import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useHotkeys } from "../../hooks/useHotkeys";
 import {
+  appendFrontendLog,
   checkPipeline,
   confirmDialog,
   fileExists,
@@ -39,6 +40,7 @@ import { moveAt } from "../../utils/array";
 import { cropToPx } from "../../utils/crop";
 import { wantsProxy } from "../../utils/media";
 import { basename, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
+import { createSpanRecorder, formatPerfLine } from "../../utils/perf";
 import { formatTime } from "../../utils/time";
 import {
   buildAppendToTimeline,
@@ -47,10 +49,11 @@ import {
   buildInsert,
   buildRemoveAndDelete,
   buildReorder,
+  DEFAULT_FPS,
   productDurationOf,
 } from "../../utils/undo/commands";
 import { useUndoStack } from "../../utils/undo/store";
-import type { BuildCtx, EditorDoc } from "../../utils/undo/types";
+import type { BuildCtx, CommandBuilder, EditorDoc } from "../../utils/undo/types";
 import { BatchBar } from "./BatchBar";
 import { ClipPool } from "./ClipPool";
 import { CutModeView } from "./CutModeView";
@@ -147,7 +150,21 @@ export default function WorkbenchPage({
    * 一次手势 = 一条撤销记录；加工编辑（rot/crop）与素材增删走 `applyRaw`（旁路状态，不入栈）。
    * Ctrl+Z / Ctrl+Shift+Z 的按键接线归 M11-7（本次只落基座，现有行为不变）。
    */
-  const { execute, applyRaw } = useUndoStack({ doc, setDoc, ctx: buildCtx });
+  const { execute: executeRaw, applyRaw } = useUndoStack({ doc, setDoc, ctx: buildCtx });
+
+  // 帧时间埋点（plans/M11.md §18.6 undo 场景）：结构操作经 performance.now span 采样，
+  // 5s 窗口汇总落 logger debug（M11-9 验收取数）；undo/redo 按键归 M11-7 接线，届时同包 span。
+  const undoPerf = useMemo(
+    () =>
+      createSpanRecorder("undo", (scene, s) =>
+        void appendFrontendLog("debug", formatPerfLine(scene, s)),
+      ),
+    [],
+  );
+  const execute = useCallback(
+    (builder: CommandBuilder) => undoPerf.span(() => executeRaw(builder)),
+    [executeRaw, undoPerf],
+  );
 
   const addFiles = useCallback(async (paths: string[]) => {
     setFiles((prev) => {
@@ -512,6 +529,15 @@ export default function WorkbenchPage({
     };
   });
 
+  /** 时间码帧率（刻度标签，§17.3 总帧数时间码）：轴上首个片段的源帧率，缺省 30（undo 层同口径） */
+  const timelineFps = useMemo(() => {
+    for (const c of timelineClips) {
+      const fps = clipSource(c)?.info?.video.frameRate;
+      if (fps && fps > 0) return fps;
+    }
+    return DEFAULT_FPS;
+  }, [timelineClips, clipSource]);
+
   const selectedClipId = mode.type === "edit" ? mode.clipId : null;
   const proxyEnabled = (info: MediaInfo | null) =>
     !!info && wantsProxy(info, settings.proxyMode);
@@ -695,6 +721,7 @@ export default function WorkbenchPage({
               onRemove={removeClip}
               onSeek={productSeek}
               currentTime={playhead}
+              fps={timelineFps}
             />
 
             {/* ③ 片段池 */}
