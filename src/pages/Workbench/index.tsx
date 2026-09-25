@@ -48,8 +48,8 @@ import {
   buildComposite,
   buildCreateClip,
   buildInsert,
-  buildRemoveAndDelete,
   buildReorder,
+  buildRemoveFromTimeline,
   DEFAULT_FPS,
   productDurationOf,
 } from "../../utils/undo/commands";
@@ -113,6 +113,10 @@ export default function WorkbenchPage({
   const [pps, setPps] = useState(PPS_MIN);
   const ppsRef = useRef(pps);
   ppsRef.current = pps;
+
+  // 时间轴块选中（M11-4，§17.4 选择）：独立 UI state，不入撤销栈。块点击 = 选中 + 进加工
+  // 视图（加工的直达入口；M11-8 右键「加工」菜单落地后点击是否仍切模式再裁）；点空白取消。
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
 
   // 播放头渲染路径（M11-3，plans/M11.md §18.4）：权威播放头是 ref——ProductPreview 的
   // rAF tick 每帧直写它与时间轴播放头 DOM 的 transform（整条路径 0 个 setState）；
@@ -348,21 +352,43 @@ export default function WorkbenchPage({
   );
 
   /**
-   * 块 ✕ / 拖出时间轴：**M11-0 保持既有语义**（片段同时出池 = `buildRemoveAndDelete`）。
-   * M11-4 按决策 #13 改为只出轴、池保留（`buildRemoveFromTimeline`）。
+   * 波纹删除（M11-4，§18.5）：块 ✕ / 拖出时间轴 / Delete 键统一走 `buildRemoveFromTimeline`
+   * ——**只出轴、池保留库存**（决策 #13；行为变更：M11-0 前是同时出池）。可撤销（走命令栈，
+   * Ctrl+Z 接线归 M11-7）。
    */
-  const removeClip = useCallback(
+  const removeFromTimeline = useCallback(
     (id: string) => {
-      execute(buildRemoveAndDelete(id));
-      setMode((m) => (m.type === "edit" && m.clipId === id ? { type: "product" } : m));
+      execute(buildRemoveFromTimeline(id));
+      // 同步清选（与 deleteFromPool 一致）：片段仍在池里，但轴上高亮必须立即消失
+      setSelectedClipId((s) => (s === id ? null : s));
       setCheck(null);
     },
     [execute],
   );
 
+  /**
+   * 池卡 ✕ = 真删（M11-4）：直接改文档不经栈、不可逆——直接依据是 §18.5 正文
+   * 「池卡 ✕ 才是真删」，联动清轴上残留项（否则导出映射出空 input，同素材删除口径）。
+   * 可撤销的删除用右键「移除并删除池片段」（复合命令，M11-8 接菜单）。
+   */
+  const deleteFromPool = useCallback(
+    (id: string) => {
+      applyRaw((doc) => ({
+        clips: doc.clips.filter((c) => c.id !== id),
+        timeline: doc.timeline.filter((cid) => cid !== id),
+      }));
+      setMode((m) => (m.type === "edit" && m.clipId === id ? { type: "product" } : m));
+      setSelectedClipId((s) => (s === id ? null : s));
+      setCheck(null);
+    },
+    [applyRaw],
+  );
+
   const reorderTimeline = useCallback(
     (from: number, to: number) => {
       execute(buildReorder(from, to));
+      // 与其余结构操作同口径：旧 check.items 按下标映射，重排后立即失效
+      setCheck(null);
     },
     [execute],
   );
@@ -574,7 +600,10 @@ export default function WorkbenchPage({
     return DEFAULT_FPS;
   }, [timelineClips, clipSource]);
 
-  const selectedClipId = mode.type === "edit" ? mode.clipId : null;
+  // 选中清理：选中片段离开时间轴（波纹删除/池真删）后取消高亮（池里还在也不高亮轴外片段）
+  useEffect(() => {
+    if (selectedClipId && !timeline.includes(selectedClipId)) setSelectedClipId(null);
+  }, [timeline, selectedClipId]);
   const proxyEnabled = (info: MediaInfo | null) =>
     !!info && wantsProxy(info, settings.proxyMode);
 
@@ -611,8 +640,9 @@ export default function WorkbenchPage({
     [playheadRef, writePlayheadTransform],
   );
 
-  // 快捷键（M4-3，成品模式）：走带共用块见 usePlaybackHotkeys；页面专属：Delete 删选中片段。
-  // Delete 只在成品模式挂监听（enabled 参，激活门控见 useHotkeys）——勿复制此调用漏传 enabled
+  // 快捷键（M4-3，成品模式）：走带共用块见 usePlaybackHotkeys；页面专属：Delete 波纹删除。
+  // Delete/Backspace 波纹删除选中片段（§17.4/§17.8，无模式限制——时间轴全模式可见）；
+  // 选中为 M11-4 的独立 UI state，未选中时不挂监听（enabled 参，激活门控见 useHotkeys）
   usePlaybackHotkeys({
     enabled: mode.type === "product",
     currentTime: playhead,
@@ -624,10 +654,10 @@ export default function WorkbenchPage({
   useHotkeys(
     (e) => {
       if ((e.key === "Delete" || e.key === "Backspace") && !e.repeat && selectedClipId) {
-        removeClip(selectedClipId);
+        removeFromTimeline(selectedClipId);
       }
     },
-    mode.type === "product",
+    !!selectedClipId,
   );
 
   // 切走预览模式时暂停连播；切回成品模式时把播放头同步给播放器。
@@ -761,12 +791,19 @@ export default function WorkbenchPage({
               clips={tlClips}
               externalDrag={extDrag}
               selectedId={selectedClipId}
-              onSelect={(id) => setMode({ type: "edit", clipId: id })}
+              onSelect={(id) => {
+                setSelectedClipId(id);
+                setMode({ type: "edit", clipId: id });
+              }}
               onReorder={reorderTimeline}
               onInsert={insertToTimeline}
               onExternalDragEnd={() => setExtDrag(null)}
-              onRemove={removeClip}
-              onSeek={productSeek}
+              onRemove={removeFromTimeline}
+              onSeek={(t) => {
+                // 点空白 = seek + 取消选择（§17.4 选择行）；块点击 stopPropagation 不会到这里
+                productSeek(t);
+                setSelectedClipId(null);
+              }}
               fps={timelineFps}
               pps={pps}
               onChangePps={setPps}
@@ -787,7 +824,7 @@ export default function WorkbenchPage({
               selectedClipId={selectedClipId}
               onOpen={(id) => setMode({ type: "edit", clipId: id })}
               onAppend={appendToTimeline}
-              onRemove={removeClip}
+              onRemove={deleteFromPool}
               onDragStart={(id) => setExtDrag({ clipId: id })}
             />
 
