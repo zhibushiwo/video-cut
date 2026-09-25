@@ -11,6 +11,7 @@ import {
   revealInFolder,
 } from "../../services/tauri";
 import type { HistoryEntry, TaskStatus } from "../../types";
+import { basename } from "../../utils/paths";
 import { formatDateTime, formatDurationMs } from "../../utils/time";
 
 const KIND_LABELS: Record<string, string> = {
@@ -72,7 +73,7 @@ function HistoryRow({ entry }: { entry: HistoryEntry }) {
       {entry.outputs.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
           {entry.outputs.map((out) => {
-            const name = out.split(/[\\/]/).pop() ?? out;
+            const name = basename(out);
             return (
               <button
                 key={out}

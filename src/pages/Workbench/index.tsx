@@ -4,14 +4,16 @@
  * 三层数据模型：SourceFile（素材）/ Clip（片段 = 后端一个 PipelineItem）/ timeline（成品顺序）。
  *
  * R2-1：按职责拆为同目录多文件（Header / Footer / ClipPool / BatchBar / SourceCards /
- * CutModeView / EditModeView / TimeField / useProxyPreview / shared）；**本文件只保留编排**
+ * CutModeView / EditModeView / shared）；**本文件只保留编排**
  * （state / effects / handlers / derived / 组装），无行为变化。
+ * R2-2：TimeField 收敛至 components/TimeField、useProxyPreview 提升至 hooks/，其余收敛见 PLAN R2-2。
  */
 import { Film, Scissors, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ClipTimeline, { type TimelineClip } from "../../components/ClipTimeline";
 import ProductPreview, { type ProductEntry } from "../../components/ProductPreview";
 import { NO_ROTATE, type RotateState } from "../../components/RotateControls";
+import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useHotkeys } from "../../hooks/useHotkeys";
 import {
   checkPipeline,
@@ -33,10 +35,11 @@ import type {
   PipelineItem,
   QualityPreset,
 } from "../../types";
+import { moveAt } from "../../utils/array";
 import { cropToPx } from "../../utils/crop";
 import { wantsProxy } from "../../utils/media";
-import { resolveOutputDir } from "../../utils/paths";
-import { formatTime, withFileTimestamp } from "../../utils/time";
+import { basename, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
+import { formatTime } from "../../utils/time";
 import {
   buildAppendToTimeline,
   buildComposite,
@@ -44,6 +47,7 @@ import {
   buildInsert,
   buildRemoveAndDelete,
   buildReorder,
+  productDurationOf,
 } from "../../utils/undo/commands";
 import { useUndoStack } from "../../utils/undo/store";
 import type { BuildCtx, EditorDoc } from "../../utils/undo/types";
@@ -54,9 +58,9 @@ import { EditModeView } from "./EditModeView";
 import { WorkbenchFooter } from "./Footer";
 import { WorkbenchHeader } from "./Header";
 import {
-  basename,
   displayedDims,
   freshId,
+  MIN_SEG_DURATION_SEC,
   newClipOf,
   type ClipEdit,
   type PreviewMode,
@@ -110,12 +114,9 @@ export default function WorkbenchPage({
   const fileById = useCallback((id: string) => files.find((f) => f.id === id), [files]);
   const clipById = useCallback((id: string) => clips.find((c) => c.id === id), [clips]);
   const clipSource = useCallback((c: Clip) => fileById(c.sourceId), [fileById]);
+  // 片段成品时长：唯一实现 = 命令层的 productDurationOf（R2-2 收敛，源未探测按 0）
   const clipDuration = useCallback(
-    (c: Clip) => {
-      const info = clipSource(c)?.info;
-      if (!info) return 0;
-      return c.seg ? c.seg.end - c.seg.start : info.durationSec;
-    },
+    (c: Clip) => productDurationOf(c.seg, clipSource(c)?.info?.durationSec ?? null),
     [clipSource],
   );
   // 片段起点帧缩略图缓存 key（M6-8）
@@ -205,12 +206,7 @@ export default function WorkbenchPage({
   // ---------- 素材操作 ----------
   const reorderSources = useCallback((from: number, to: number) => {
     if (from === to) return;
-    setFiles((prev) => {
-      const next = [...prev];
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved);
-      return next;
-    });
+    setFiles((prev) => moveAt(prev, from, to));
   }, []);
 
   const removeSource = useCallback(
@@ -396,7 +392,7 @@ export default function WorkbenchPage({
         return {
           input: clipSource(c)?.path ?? "",
           segment:
-            c.seg && c.seg.end > c.seg.start + 0.05
+            c.seg && c.seg.end > c.seg.start + MIN_SEG_DURATION_SEC
               ? { startSec: c.seg.start, endSec: c.seg.end }
               : null,
           rotateDeg: c.rot.deg,
@@ -459,8 +455,7 @@ export default function WorkbenchPage({
       const dir = outputDir.replace(/[\\/]+$/, "");
       const name = outputName.trim();
       // 同名才追加时间戳（DESIGN 决策 #19）：目标已存在时自动改名防覆盖
-      const base = `${dir}\\${name}`;
-      const target = (await fileExists(base)) ? `${dir}\\${withFileTimestamp(name)}` : base;
+      const target = await resolveUniqueTarget(dir, name, fileExists);
       await submitTask({
         type: "pipeline",
         items: payload,
@@ -526,7 +521,7 @@ export default function WorkbenchPage({
     let acc = 0;
     return timelineClips.map((c) => {
       const info = clipSource(c)?.info ?? null;
-      const dur = c.seg ? c.seg.end - c.seg.start : info?.durationSec ?? 0;
+      const dur = clipDuration(c);
       const entry: ProductEntry = {
         clipId: c.id,
         sourcePath: clipSource(c)?.path ?? "",
@@ -541,7 +536,7 @@ export default function WorkbenchPage({
       acc += dur;
       return entry;
     });
-  }, [timelineClips, clipSource, settings.proxyMode]);
+  }, [timelineClips, clipSource, clipDuration, settings.proxyMode]);
 
   const productSeek = useCallback((t: number) => {
     setPlayhead(t);
@@ -549,21 +544,16 @@ export default function WorkbenchPage({
     setSeekReq({ t, nonce: seekNonce.current });
   }, []);
 
-  // 快捷键（M4-3，成品模式）：空格 播放/暂停 · ←/→ ±1s · Shift+←/→ 细步 · Delete 删选中片段
+  // 快捷键（M4-3，成品模式）：走带共用块见 usePlaybackHotkeys；页面专属：Delete 删选中片段
+  usePlaybackHotkeys({
+    enabled: mode.type === "product",
+    currentTime: playhead,
+    maxT: totalDuration,
+    onTogglePlay: () => setPlaying((p) => !p),
+    onSeek: productSeek,
+  });
   useHotkeys((e) => {
     if (mode.type !== "product") return;
-    if (e.code === "Space") {
-      if (e.repeat) return;
-      e.preventDefault();
-      setPlaying((p) => !p);
-      return;
-    }
-    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-      e.preventDefault();
-      const delta = (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? 1 / 30 : 1);
-      productSeek(Math.min(Math.max(0, playhead + delta), totalDuration));
-      return;
-    }
     if ((e.key === "Delete" || e.key === "Backspace") && !e.repeat && selectedClipId) {
       removeClip(selectedClipId);
     }

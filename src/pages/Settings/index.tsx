@@ -24,6 +24,7 @@ import type {
   ProxyMode,
   QualityPreset,
 } from "../../types";
+import { QUALITY_LABELS } from "../../utils/quality";
 import { formatBytes } from "../../utils/time";
 
 const ENCODER_LABELS: Record<EncoderChoice, string> = {
@@ -33,12 +34,6 @@ const ENCODER_LABELS: Record<EncoderChoice, string> = {
   h264_amf: "h264_amf（AMD）",
   libx264: "libx264（软件）",
   libx265: "libx265（软件，10bit 用）",
-};
-
-const QUALITY_LABELS: Record<QualityPreset, string> = {
-  high: "高质量",
-  balanced: "平衡",
-  small: "小体积",
 };
 
 const PROXY_LABELS: Record<ProxyMode, string> = {

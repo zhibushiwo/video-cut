@@ -1,15 +1,15 @@
 import { ArrowLeft, Film } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { SegmentList, TimeField } from "../../components/CutEditor";
+import { SegmentList } from "../../components/CutEditor";
+import { TimeField } from "../../components/TimeField";
 import Timeline, { type Selection } from "../../components/Timeline";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
+import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useHotkeys } from "../../hooks/useHotkeys";
-import { useTauriEvent } from "../../hooks/useTauriEvent";
+import { useProxyPreview } from "../../hooks/useProxyPreview";
 import {
   fileSrc,
-  generateProxy,
   listKeyframes,
-  onTaskStatus,
   pickDirectory,
   pickVideo,
   probeMedia,
@@ -17,8 +17,8 @@ import {
 } from "../../services/tauri";
 import type { AppSettings, CutMode, MediaInfo, Segment } from "../../types";
 import { audioSummary, needsProxy, videoSummary, wantsProxy } from "../../utils/media";
+import { basename, resolveOutputDir } from "../../utils/paths";
 import { formatBitrate, formatBytes, formatTime, realCutStart, realStartDiffers } from "../../utils/time";
-import { resolveOutputDir } from "../../utils/paths";
 
 export default function CutPage({
   settings,
@@ -41,25 +41,21 @@ export default function CutPage({
   const [outputDir, setOutputDir] = useState(settings.defaultOutputDir);
   const [snap, setSnap] = useState(settings.keyframeSnap);
   const [cutMode, setCutMode] = useState<CutMode>(settings.defaultCutMode);
-  const [proxyPath, setProxyPath] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
 
   const playerRef = useRef<VideoPlayerHandle>(null);
-  const proxyTaskIdRef = useRef<string | null>(null);
   // 设置在页面生命周期内不变，loadFile 闭包经 ref 读取
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
-  // 代理任务完成 → 切换到代理画面（R1-2：订阅退订走 useTauriEvent）
-  useTauriEvent(() =>
-    onTaskStatus((p) => {
-      const tid = proxyTaskIdRef.current;
-      if (tid && p.taskId === tid && p.status === "completed" && p.outputs[0]) {
-        setProxyPath(p.outputs[0]);
-      }
-    }),
+  // 代理预览（R2-2 收敛走 hooks/useProxyPreview）：探测成功且需要代理时请求；
+  // 播放失败兜底的门槛 = proxyMode !== "off"（源文件本可播却播不了时也兜底一次）
+  const { proxyPath, onError } = useProxyPreview(
+    inputPath ?? "",
+    !!info && wantsProxy(info, settings.proxyMode),
+    !!info && settings.proxyMode !== "off",
   );
 
   const loadFile = useCallback(async (path: string) => {
@@ -69,8 +65,6 @@ export default function CutPage({
     setInfo(null);
     setKeyframes([]);
     setSegments([]);
-    setProxyPath(null);
-    proxyTaskIdRef.current = null;
     setCurrentTime(0);
     setDuration(0);
 
@@ -81,15 +75,6 @@ export default function CutPage({
       setSelection({ start: 0, end: mi.durationSec });
       // 输出位置：默认输出目录优先，否则跟随源文件目录（DESIGN §12）
       setOutputDir(resolveOutputDir(path, settingsRef.current.defaultOutputDir));
-      // 代理三态：auto 按需 / always 强制 / off 不生成（DESIGN §3.7/§10/§12）
-      if (wantsProxy(mi, settingsRef.current.proxyMode)) {
-        const started = await generateProxy(path);
-        if (started.taskId) {
-          proxyTaskIdRef.current = started.taskId;
-        } else {
-          setProxyPath(started.proxyPath);
-        }
-      }
     } catch (err) {
       setProbeError(String(err));
       setInputPath(null);
@@ -122,26 +107,24 @@ export default function CutPage({
     setCurrentTime(t);
   }, []);
 
-  // ---------- 快捷键（M4-3 / §9.4）：空格 播放/暂停 · ←/→ ±1s · Shift+←/→ 逐帧 ·
-  // I/O 设入/出点 · Delete 删最近添加的片段 ----------
+  // ---------- 快捷键（M4-3 / §9.4）：走带共用块见 usePlaybackHotkeys；
+  // 页面专属：I/O 设入/出点 · Delete 删最近添加的片段 ----------
   const frameStep =
     info?.video.frameRate && info.video.frameRate > 0 ? 1 / info.video.frameRate : 1 / 30;
-  useHotkeys((e) => {
-    if (e.code === "Space") {
-      if (e.repeat) return;
-      e.preventDefault();
+  usePlaybackHotkeys({
+    currentTime,
+    maxT: duration || currentTime,
+    frameStep,
+    onTogglePlay: () => {
       if (playing) playerRef.current?.pause();
       else playerRef.current?.play();
-      return;
-    }
-    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-      e.preventDefault();
-      const delta = (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? frameStep : 1);
-      const t = Math.min(Math.max(0, currentTime + delta), duration || currentTime);
+    },
+    onSeek: (t) => {
       playerRef.current?.seek(t);
       setCurrentTime(t);
-      return;
-    }
+    },
+  });
+  useHotkeys((e) => {
     if (e.code === "KeyI" && !e.repeat) {
       setSelection((s) => ({
         start: Math.min(Math.max(0, currentTime), s.end - 0.1),
@@ -255,7 +238,7 @@ export default function CutPage({
         </button>
         <h1 className="text-sm font-semibold tracking-tight">剪切</h1>
         <span className="min-w-0 flex-1 truncate text-right text-xs text-mute" title={inputPath}>
-          {inputPath.split(/[\\/]/).pop()}
+          {basename(inputPath)}
         </span>
       </header>
 
@@ -275,20 +258,7 @@ export default function CutPage({
                   setSelection((s) => (s.end <= 0 ? { start: 0, end: d } : s));
                 }
               }}
-              onError={() => {
-                // 原始文件播不了且代理还没生成 → 兜底请求代理（设置关闭时不兜底）
-                if (
-                  settings.proxyMode !== "off" &&
-                  !proxyPath &&
-                  !proxyTaskIdRef.current &&
-                  info
-                ) {
-                  void generateProxy(inputPath).then((s) => {
-                    if (s.taskId) proxyTaskIdRef.current = s.taskId;
-                    else setProxyPath(s.proxyPath);
-                  });
-                }
-              }}
+              onError={onError}
               banner={
                 proxyPath
                   ? "当前为代理预览画面，导出使用原始文件"

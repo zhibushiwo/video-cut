@@ -18,6 +18,7 @@ import {
   buildTrim,
   commandFromJSON,
   DEFAULT_FPS,
+  productDurationOf,
 } from "./commands";
 import { createUndoStack } from "./store";
 import type { BuildCtx, CommandBuilder, EditorDoc } from "./types";
@@ -354,5 +355,26 @@ describe("栈规则（plans/M11.md §18.1）", () => {
     expect(mixed!.label).toBe("混合");
     expect(mixed!.after.clips[0].seg).toEqual({ start: 2, end: DUR });
     expect(mixed!.before).toEqual(d0);
+  });
+});
+
+// ---------------------------------------------------------------- 成品时长（R2-2 收敛）
+
+describe("productDurationOf（片段成品时长的唯一实现）", () => {
+  it("区间片段 = 源内区间长度", () => {
+    expect(productDurationOf({ start: 2, end: 5 }, DUR)).toBe(3);
+  });
+
+  it("全段（seg: null）= 源时长", () => {
+    expect(productDurationOf(null, DUR)).toBe(DUR);
+  });
+
+  it("源未探测（null）= 0（与片段卡 / 导出映射 / buildSplit 前缀求和同口径）", () => {
+    expect(productDurationOf({ start: 2, end: 5 }, null)).toBe(0);
+    expect(productDurationOf(null, null)).toBe(0);
+  });
+
+  it("退化输入（负跨度）钳为 0", () => {
+    expect(productDurationOf({ start: 5, end: 2 }, DUR)).toBe(0);
   });
 });

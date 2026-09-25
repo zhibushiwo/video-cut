@@ -1,16 +1,17 @@
-/** ① 片段加工模式：旋转 / 显示空间放大（裁剪叠加层贴显示空间外层盒，坐标即所见即所得）。R2-1 原样自 index.tsx 迁出。 */
+/** ① 片段加工模式（预览区三态）：旋转 / 显示空间放大（裁剪叠加层贴显示空间外层盒，坐标即所见即所得）。
+ *  R2-1 自 index.tsx 迁出；R2-2 走带键收敛进 hooks/usePlaybackHotkeys、代理预览收敛进 hooks/useProxyPreview。 */
 import { useRef, useState, type CSSProperties } from "react";
 import { RotateCw, ZoomIn } from "lucide-react";
 import { CropBox, CropFields, useCropSelect } from "../../components/CropOverlay";
 import { RotateControls } from "../../components/RotateControls";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
-import { useHotkeys } from "../../hooks/useHotkeys";
+import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
+import { useProxyPreview } from "../../hooks/useProxyPreview";
 import { fileSrc } from "../../services/tauri";
 import type { Clip } from "../../types";
 import { cropSizeText, cropToPx } from "../../utils/crop";
 import { formatTime } from "../../utils/time";
 import { displayedDims, fieldBtn, type ClipEdit, type EditorTab, type SourceFile } from "./shared";
-import { useProxyPreview } from "./useProxyPreview";
 
 export function EditModeView({
   clip,
@@ -46,22 +47,32 @@ export function EditModeView({
     }
   };
 
-  // 快捷键（M4-3，片段加工）：空格 播放/暂停 · ←/→ ±1s · Shift+←/→ 逐帧
-  const frameStep = info.video.frameRate > 0 ? 1 / info.video.frameRate : 1 / 30;
-  useHotkeys((e) => {
-    if (e.code === "Space") {
-      if (e.repeat) return;
-      e.preventDefault();
-      togglePlay();
-      return;
+  const togglePlay = () => {
+    if (playing) {
+      playerRef.current?.pause();
+      setPlaying(false);
+    } else {
+      // 区间内预览：起播点在区间外（含播完暂停在出点）时先回到入点
+      if (seg && (current < seg.start - 0.02 || current >= seg.end - 0.02)) {
+        playerRef.current?.seek(seg.start);
+        setCurrent(seg.start);
+      }
+      playerRef.current?.play();
+      setPlaying(true);
     }
-    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-      e.preventDefault();
-      const delta = (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? frameStep : 1);
-      const t = Math.min(Math.max(0, current + delta), info.durationSec);
+  };
+
+  // 快捷键（M4-3，片段加工）：走带共用块见 usePlaybackHotkeys（无页面专属键）
+  const frameStep = info.video.frameRate > 0 ? 1 / info.video.frameRate : 1 / 30;
+  usePlaybackHotkeys({
+    currentTime: current,
+    maxT: info.durationSec,
+    frameStep,
+    onTogglePlay: togglePlay,
+    onSeek: (t) => {
       playerRef.current?.seek(t);
       setCurrent(t);
-    }
+    },
   });
 
   const dims = displayedDims(info, clip.rot);
@@ -86,21 +97,6 @@ export function EditModeView({
   });
 
   const px = clip.crop ? cropToPx(clip.crop, dims) : null;
-
-  const togglePlay = () => {
-    if (playing) {
-      playerRef.current?.pause();
-      setPlaying(false);
-    } else {
-      // 区间内预览：起播点在区间外（含播完暂停在出点）时先回到入点
-      if (seg && (current < seg.start - 0.02 || current >= seg.end - 0.02)) {
-        playerRef.current?.seek(seg.start);
-        setCurrent(seg.start);
-      }
-      playerRef.current?.play();
-      setPlaying(true);
-    }
-  };
 
   const tabBtn = (t: EditorTab) =>
     `flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-signal ${

@@ -3,12 +3,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { CropFields, CropOverlay } from "../../components/CropOverlay";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
 import { NO_ROTATE, RotateControls, type RotateState } from "../../components/RotateControls";
-import { useTauriEvent } from "../../hooks/useTauriEvent";
+import { useProxyPreview } from "../../hooks/useProxyPreview";
 import {
   fileExists,
   fileSrc,
-  generateProxy,
-  onTaskStatus,
   pickVideo,
   probeMedia,
   submitTask,
@@ -16,16 +14,10 @@ import {
 import type { AppSettings, MediaInfo, QualityPreset } from "../../types";
 import { cropSizeText, cropToPx, type CropRect } from "../../utils/crop";
 import { needsProxy, wantsProxy } from "../../utils/media";
-import { resolveOutputDir } from "../../utils/paths";
-import { withFileTimestamp } from "../../utils/time";
+import { basename, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
+import { QUALITY_LABELS } from "../../utils/quality";
 
 export type EditorTool = "rotate" | "crop";
-
-const QUALITY_LABELS: Record<QualityPreset, string> = {
-  high: "高质量",
-  balanced: "平衡",
-  small: "小体积",
-};
 
 export default function EditorPage({
   tool,
@@ -41,8 +33,6 @@ export default function EditorPage({
   const [inputPath, setInputPath] = useState<string | null>(null);
   const [info, setInfo] = useState<MediaInfo | null>(null);
   const [probeError, setProbeError] = useState<string | null>(null);
-  const [proxyPath, setProxyPath] = useState<string | null>(null);
-  const proxyTaskIdRef = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -62,14 +52,12 @@ export default function EditorPage({
 
   const playerRef = useRef<VideoPlayerHandle>(null);
 
-  // 代理任务完成 → 切换画面（R1-2：订阅退订走 useTauriEvent）
-  useTauriEvent(() =>
-    onTaskStatus((p) => {
-      const tid = proxyTaskIdRef.current;
-      if (tid && p.taskId === tid && p.status === "completed" && p.outputs[0]) {
-        setProxyPath(p.outputs[0]);
-      }
-    }),
+  // 代理预览（R2-2 收敛走 hooks/useProxyPreview）：探测成功且需要代理时请求；
+  // 播放失败兜底的门槛 = proxyMode !== "off"（源文件本可播却播不了时也兜底一次）
+  const { proxyPath, onError } = useProxyPreview(
+    inputPath ?? "",
+    !!info && wantsProxy(info, settings.proxyMode),
+    !!info && settings.proxyMode !== "off",
   );
 
   const loadFile = useCallback(async (path: string) => {
@@ -79,17 +67,9 @@ export default function EditorPage({
     setInfo(null);
     setRot(NO_ROTATE);
     setRect(null);
-    setProxyPath(null);
-    proxyTaskIdRef.current = null;
     try {
       const mi = await probeMedia(path);
       setInfo(mi);
-      // 代理三态：auto 按需 / always 强制 / off 不生成（DESIGN §3.7/§10/§12）
-      if (wantsProxy(mi, settingsRef.current.proxyMode)) {
-        const started = await generateProxy(path);
-        if (started.taskId) proxyTaskIdRef.current = started.taskId;
-        else setProxyPath(started.proxyPath);
-      }
     } catch (err) {
       setProbeError(String(err));
       setInputPath(null);
@@ -115,7 +95,7 @@ export default function EditorPage({
   const startEdit = async () => {
     if (!inputPath || !info) return;
     const src = inputPath;
-    const name = src.split(/[\\/]/).pop() ?? "output";
+    const name = basename(src);
     const dot = name.lastIndexOf(".");
     const stem = dot > 0 ? name.slice(0, dot) : name;
     // ADR-033：容器由命令决定、名字必须与之一致——元数据旋转是 copy（跟随源容器），
@@ -126,8 +106,7 @@ export default function EditorPage({
     const dir = resolveOutputDir(src, settings.defaultOutputDir);
     // 同名才追加时间戳（DESIGN 决策 #19）：上次导出还在时不静默覆盖
     const baseName = `${stem}_${tool === "rotate" ? "rotated" : "zoomed"}.${ext}`;
-    const base = `${dir}\\${baseName}`;
-    const target = (await fileExists(base)) ? `${dir}\\${withFileTimestamp(baseName)}` : base;
+    const target = await resolveUniqueTarget(dir, baseName, fileExists);
     setSubmitting(true);
     setError(null);
     try {
@@ -243,20 +222,7 @@ export default function EditorPage({
                         ? "代理预览已关闭，此格式无法预览；导出不受影响，可在设置中开启代理预览"
                         : null
                   }
-                  onError={() => {
-                    // 原始文件播不了且代理还没生成 → 兜底请求代理（设置关闭时不兜底）
-                    if (
-                      settings.proxyMode !== "off" &&
-                      !proxyPath &&
-                      !proxyTaskIdRef.current &&
-                      info
-                    ) {
-                      void generateProxy(inputPath).then((s) => {
-                        if (s.taskId) proxyTaskIdRef.current = s.taskId;
-                        else setProxyPath(s.proxyPath);
-                      });
-                    }
-                  }}
+                  onError={onError}
                   overlay={
                     tool === "crop" && (
                       <CropOverlay
@@ -381,7 +347,7 @@ function EditorHeader({
       </h1>
       {filePath && (
         <span className="ml-auto min-w-0 truncate text-xs text-mute" title={filePath}>
-          {filePath.split(/[\\/]/).pop()}
+          {basename(filePath)}
         </span>
       )}
     </header>

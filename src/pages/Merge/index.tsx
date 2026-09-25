@@ -10,9 +10,10 @@ import {
 } from "../../services/tauri";
 import type { AppSettings, MergeComparison } from "../../types";
 import { useDragSort } from "../../hooks/useDragSort";
+import { moveAt } from "../../utils/array";
 import { audioSummary, videoSummary } from "../../utils/media";
-import { formatBytes, withFileTimestamp } from "../../utils/time";
-import { resolveOutputDir } from "../../utils/paths";
+import { basename, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
+import { formatBytes } from "../../utils/time";
 
 export default function MergePage({
   settings,
@@ -118,12 +119,7 @@ export default function MergePage({
 
   const reorder = (from: number, to: number) => {
     if (from === to) return;
-    setFiles((prev) => {
-      const next = [...prev];
-      const [moved] = next.splice(from, 1);
-      next.splice(to, 0, moved);
-      return next;
-    });
+    setFiles((prev) => moveAt(prev, from, to));
   };
 
   const { listRef, beginDrag, rowCls } = useDragSort(reorder);
@@ -136,8 +132,7 @@ export default function MergePage({
       const dir = outputDir.replace(/[\\/]+$/, "");
       const name = outputName.trim();
       // 同名才追加时间戳（DESIGN 决策 #19）：目标已存在时自动改名防覆盖
-      const base = `${dir}\\${name}`;
-      const target = (await fileExists(base)) ? `${dir}\\${withFileTimestamp(name)}` : base;
+      const target = await resolveUniqueTarget(dir, name, fileExists);
       await submitTask({
         type: "merge",
         inputs: files,
@@ -199,7 +194,7 @@ export default function MergePage({
           <>
             <div ref={listRef} className="divide-y divide-hairline rounded-md border border-hairline">
               {files.map((path, i) => {
-                const name = path.split(/[\\/]/).pop() ?? path;
+                const name = basename(path);
                 const summary = summaryOf(path);
                 return (
                   <div

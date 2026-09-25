@@ -1,6 +1,6 @@
 /** 工作台页脚：检测汇总 + 输出目录/质量/文件名 + 错误 + 合成导出。R2-1 自 index.tsx 拆出。 */
 import type { QualityPreset } from "../../types";
-import { QUALITY_LABELS } from "./shared";
+import { QUALITY_LABELS } from "../../utils/quality";
 
 export function WorkbenchFooter({
   checkSummary,

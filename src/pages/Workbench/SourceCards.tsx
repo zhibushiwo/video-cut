@@ -2,8 +2,9 @@
 import { Film, GripVertical, Plus, X } from "lucide-react";
 import { useDragSort } from "../../hooks/useDragSort";
 import { fileSrc } from "../../services/tauri";
+import { basename } from "../../utils/paths";
 import { formatTime } from "../../utils/time";
-import { basename, type SourceFile } from "./shared";
+import type { SourceFile } from "./shared";
 
 export function SourceCards({
   files,

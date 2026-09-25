@@ -75,17 +75,23 @@ function clipRange(clip: Clip, durationSec: number): { start: number; end: numbe
 }
 
 /**
- * 片段在成品里的时长 = 源内区间长度。
- * **源未探测（`ctx.source` 为 null）返回 0**——与工作台的 `clipDuration`、导出映射口径一致
- * （那边也是"探测不到就当 0"）；若这里改成返回 `seg` 长度，`buildSplit` 的前缀求和会与实际
- * 成品时长对不上。本函数是命令层对"成品时长"的**唯一**实现（不能 import 页面里的回调）。
+ * 片段在成品里的时长（秒）= 源内区间长度，全段（`seg: null`）= 源时长。
+ * **源未探测（`sourceDurationSec` 为 null）返回 0**——与工作台片段卡、导出映射、成品连播
+ * 口径一致（那边也是"探测不到就当 0"）；若改为返回 `seg` 长度，`buildSplit` 的前缀求和会
+ * 与实际成品时长对不上。
+ *
+ * 这是"片段成品时长"的**唯一实现**（R2-2 收敛，原为命令层私有）：页面侧的 `clipDuration`
+ * 也走它，两侧口径不可能再漂移；负跨度按 0 处理（正常数据不会出现，取命令层原口径兜底）。
  */
+export function productDurationOf(seg: Clip["seg"], sourceDurationSec: number | null): number {
+  if (sourceDurationSec === null) return 0;
+  return seg ? Math.max(0, seg.end - seg.start) : sourceDurationSec;
+}
+
 function productDuration(doc: EditorDoc, ctx: BuildCtx, clipId: string): number {
   const clip = doc.clips.find((c) => c.id === clipId);
-  const info = clip ? ctx.source(clipId) : null;
-  if (!clip || !info) return 0;
-  const r = clipRange(clip, info.durationSec);
-  return Math.max(0, r.end - r.start);
+  if (!clip) return 0;
+  return productDurationOf(clip.seg, ctx.source(clipId)?.durationSec ?? null);
 }
 
 // ---------------------------------------------------------------- builders

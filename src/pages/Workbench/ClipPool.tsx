@@ -5,8 +5,9 @@
 import { Film, GripVertical, Plus, X } from "lucide-react";
 import { fileSrc } from "../../services/tauri";
 import type { Clip, PipelineItemCheck } from "../../types";
+import { basename } from "../../utils/paths";
 import { formatTime } from "../../utils/time";
-import { basename, type SourceFile } from "./shared";
+import type { SourceFile } from "./shared";
 
 export function ClipPool({
   clips,

@@ -1,13 +1,15 @@
-/** ① 源剪切模式：选区间 → 添加为片段（一个素材可反复剪出多个片段）。R2-1 原样自 index.tsx 迁出。 */
+/** ① 源剪切模式（预览区三态）：选区间 → 添加为片段（一个素材可反复剪出多个片段）。
+ *  R2-1 自 index.tsx 迁出；R2-2 走带键收敛进 hooks/usePlaybackHotkeys、代理预览收敛进 hooks/useProxyPreview。 */
 import { useEffect, useRef, useState } from "react";
 import Timeline, { type Selection } from "../../components/Timeline";
+import { TimeField } from "../../components/TimeField";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
+import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useHotkeys } from "../../hooks/useHotkeys";
+import { useProxyPreview } from "../../hooks/useProxyPreview";
 import { fileSrc, listKeyframes } from "../../services/tauri";
 import { formatTime } from "../../utils/time";
-import { TimeField } from "./TimeField";
-import { fieldBtn, type SourceFile } from "./shared";
-import { useProxyPreview } from "./useProxyPreview";
+import { fieldBtn, MIN_SEG_DURATION_SEC, type SourceFile } from "./shared";
 
 export function CutModeView({
   source,
@@ -54,31 +56,31 @@ export function CutModeView({
     setSel((s) => ({ start: Math.min(s.start, Math.max(0, end - 0.1)), end }));
   };
 
-  // 快捷键（M4-3，源剪切）：空格 播放/暂停 · ←/→ ±1s · Shift+←/→ 逐帧 · I/O 设入/出点
+  // 快捷键（M4-3，源剪切）：走带共用块见 usePlaybackHotkeys；页面专属：I/O 设入/出点
   const frameStep = info.video.frameRate > 0 ? 1 / info.video.frameRate : 1 / 30;
-  useHotkeys((e) => {
-    if (e.code === "Space") {
-      if (e.repeat) return;
-      e.preventDefault();
+  usePlaybackHotkeys({
+    currentTime: current,
+    maxT: info.durationSec,
+    frameStep,
+    onTogglePlay: () => {
       if (playing) playerRef.current?.pause();
       else playerRef.current?.play();
-      return;
-    }
-    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-      e.preventDefault();
-      const delta = (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? frameStep : 1);
-      const t = Math.min(Math.max(0, current + delta), info.durationSec);
+    },
+    onSeek: (t) => {
       playerRef.current?.seek(t);
       setCurrent(t);
-      return;
-    }
+    },
+  });
+  useHotkeys((e) => {
     if (e.code === "KeyI" && !e.repeat) commitStart(current);
     if (e.code === "KeyO" && !e.repeat) commitEnd(current);
   });
 
   const addNow = () => {
     const whole = sel.start <= 0.001 && sel.end >= info.durationSec - 0.001;
-    const seg = whole || sel.end <= sel.start + 0.05 ? null : { start: sel.start, end: sel.end };
+    const seg = whole || sel.end <= sel.start + MIN_SEG_DURATION_SEC
+      ? null
+      : { start: sel.start, end: sel.end };
     onAdd(seg);
     setAddedMsg(
       seg

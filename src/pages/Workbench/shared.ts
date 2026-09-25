@@ -4,9 +4,15 @@
  */
 import { Layers, RotateCw, Scissors, ZoomIn } from "lucide-react";
 import { NO_ROTATE, type RotateState } from "../../components/RotateControls";
-import type { Clip, MediaInfo, PageName, QualityPreset } from "../../types";
+import type { Clip, MediaInfo, PageName } from "../../types";
 
 export type EditorTab = "rotate" | "crop";
+
+/**
+ * 片段"全段 vs 区间"的判定阈值（秒）：区间时长 ≤ 此值视为全段（`seg: null`）。
+ * 「添加为片段」（CutModeView）与导出映射（index.tsx）两处共用，口径不能再漂移。
+ */
+export const MIN_SEG_DURATION_SEC = 0.05;
 
 /** 素材：导入的源文件（§3.8 三层数据模型之一） */
 export interface SourceFile {
@@ -27,12 +33,6 @@ export type PreviewMode =
  * （plans/M11.md §18.1 的三类边界表）；收窄类型是为了让"绕过撤销栈改区间"在编译期就不可能。
  */
 export type ClipEdit = Partial<Pick<Clip, "rot" | "crop" | "lockRatio">>;
-
-export const QUALITY_LABELS: Record<QualityPreset, string> = {
-  high: "高质量",
-  balanced: "平衡",
-  small: "小体积",
-};
 
 /** 右上角功能导航（DESIGN §9.2：工作台为落地页，其余功能经此跳转） */
 export const NAV_ITEMS: { page: PageName; label: string; icon: typeof Scissors }[] = [
@@ -64,8 +64,4 @@ export function displayedDims(info: MediaInfo, rot: RotateState) {
   return quarter
     ? { w: info.video.height, h: info.video.width }
     : { w: info.video.width, h: info.video.height };
-}
-
-export function basename(p: string) {
-  return p.split(/[\\/]/).pop() ?? p;
 }
