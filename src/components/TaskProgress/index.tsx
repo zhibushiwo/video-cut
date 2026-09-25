@@ -246,7 +246,10 @@ export default function TaskProgress({ autoCloseSec = 0 }: { autoCloseSec?: numb
               {snap.status === "completed" && snap.outputs[0] ? (
                 <button
                   type="button"
-                  onClick={() => void revealInFolder(snap.outputs[0])}
+                  onClick={() => {
+                    const out = snap.outputs[0];
+                    if (out) void revealInFolder(out);
+                  }}
                   className="text-[11px] text-signal transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
                 >
                   打开位置

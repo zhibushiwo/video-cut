@@ -353,7 +353,7 @@ describe("栈规则（plans/M11.md §18.1）", () => {
     expect(mixed).not.toBeNull();
     expect(mixed!.after.timeline).toEqual(["a", "b"]);
     expect(mixed!.label).toBe("混合");
-    expect(mixed!.after.clips[0].seg).toEqual({ start: 2, end: DUR });
+    expect(mixed!.after.clips[0]?.seg).toEqual({ start: 2, end: DUR });
     expect(mixed!.before).toEqual(d0);
   });
 });

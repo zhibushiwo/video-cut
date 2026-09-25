@@ -190,7 +190,7 @@ export function buildSplit(clipId: string, productTime: number): CommandBuilder 
 
     // 片段在成品内的起点 = 前面各片段的成品时长之和（顺序即位置的直接推论，无空隙模型）
     let offset = 0;
-    for (let i = 0; i < idx; i++) offset += productDuration(doc, ctx, doc.timeline[i]);
+    for (const id of doc.timeline.slice(0, idx)) offset += productDuration(doc, ctx, id);
     const local = productTime - offset;
     const len = outPoint - inPoint;
     if (local < frame || len - local < frame) return null; // 落在片段外或距边缘 <1 帧

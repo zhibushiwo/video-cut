@@ -79,8 +79,8 @@ export function videoSummary(info: MediaInfo): string {
 
 /** 音频摘要行：AAC 48kHz 立体声（多轨显示数量） */
 export function audioSummary(info: MediaInfo): string | null {
-  if (info.audio.length === 0) return null;
   const first = info.audio[0];
+  if (!first) return null;
   const layout = first.channels >= 6 ? "5.1" : first.channels === 2 ? "立体声" : first.channels === 1 ? "单声道" : `${first.channels}声道`;
   const base = `${first.codec.toUpperCase()} ${Math.round(first.sampleRate / 100) / 10}kHz ${layout}`;
   return info.audio.length > 1 ? `${base} +${info.audio.length - 1}` : base;

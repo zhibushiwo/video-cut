@@ -225,7 +225,13 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             />
             <button
               type="button"
-              onClick={() => setRate((r) => RATES[(RATES.indexOf(r) + 1) % RATES.length])}
+              onClick={() =>
+                setRate((r) => {
+                  // r 恒来自 RATES（setRate 的唯一写入源），越界回退 r 仅为类型兜底
+                  const i = RATES.indexOf(r);
+                  return RATES[(i + 1) % RATES.length] ?? r;
+                })
+              }
               aria-label="播放速度"
               title="播放速度"
               className="shrink-0 font-mono text-[11px] text-paper/80 transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"

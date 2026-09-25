@@ -30,6 +30,7 @@ export function SourceCards({
     <div ref={listRef} className="flex gap-2.5 overflow-x-auto pb-1">
       {files.map((f, i) => {
         const isSelected = selectedIds.has(f.id);
+        const thumb = thumbs[f.path];
         return (
         <div
           key={f.id}
@@ -44,8 +45,8 @@ export function SourceCards({
             className="block w-full text-left focus:outline-none"
           >
             <div className="relative h-20 w-full bg-black">
-              {thumbs[f.path] ? (
-                <img src={fileSrc(thumbs[f.path])} alt="" className="h-full w-full object-cover" />
+              {thumb ? (
+                <img src={fileSrc(thumb)} alt="" className="h-full w-full object-cover" />
               ) : (
                 <span className="flex h-full w-full items-center justify-center">
                   <Film className="h-6 w-6 text-mute/50" />

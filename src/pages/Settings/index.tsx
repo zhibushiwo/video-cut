@@ -15,7 +15,6 @@ import {
 import { DEFAULT_SETTINGS } from "../../services/settings";
 import { ACCENTS } from "../../theme";
 import type {
-  AccentChoice,
   AppSettings,
   CacheUsage,
   CutMode,
@@ -278,7 +277,7 @@ export default function SettingsPage({
               <button
                 key={a.value}
                 type="button"
-                onClick={() => onUpdate({ accent: a.value as AccentChoice })}
+                onClick={() => onUpdate({ accent: a.value })}
                 aria-label={`主题色 ${a.label}`}
                 aria-pressed={settings.accent === a.value}
                 title={a.label}

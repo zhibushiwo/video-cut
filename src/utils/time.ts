@@ -87,7 +87,9 @@ export function realCutStart(start: number, keyframes: number[]): number {
   let best = -1;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
-    if (keyframes[mid] <= start) {
+    const kf = keyframes[mid];
+    if (kf === undefined) break;
+    if (kf <= start) {
       best = mid;
       lo = mid + 1;
     } else {
@@ -95,7 +97,8 @@ export function realCutStart(start: number, keyframes: number[]): number {
     }
   }
   // 入点早于首个关键帧时，ffmpeg 从文件开头取（首帧必是关键帧）
-  return best >= 0 ? keyframes[best] : 0;
+  if (best < 0) return 0;
+  return keyframes[best] ?? 0; // best 由上循环已判空的 kf 赋值，?? 0 仅类型兜底
 }
 
 /**

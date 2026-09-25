@@ -50,10 +50,12 @@ export function createUndoStack(limit: number = UNDO_LIMIT): UndoCore {
       return future.length > 0;
     },
     get undoLabel() {
-      return past.length > 0 ? past[past.length - 1].label : null;
+      const last = past[past.length - 1];
+      return last ? last.label : null;
     },
     get redoLabel() {
-      return future.length > 0 ? future[future.length - 1].label : null;
+      const next = future[future.length - 1];
+      return next ? next.label : null;
     },
     get depth() {
       return past.length;

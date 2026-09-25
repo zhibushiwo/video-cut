@@ -39,7 +39,9 @@ function snapToKeyframe(t: number, kfs: number[], snap: boolean): number {
   let hi = kfs.length - 1;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
-    if (kfs[mid] < t) lo = mid + 1;
+    const kf = kfs[mid];
+    if (kf === undefined) break; // mid 恒在 [0, len) 界内，防御
+    if (kf < t) lo = mid + 1;
     else hi = mid;
   }
   const candidates = [kfs[lo], kfs[lo - 1]].filter(
@@ -190,7 +192,7 @@ export default function Timeline({
         {showRealStart && (
           <span
             className="pointer-events-none absolute bottom-0 top-0 border-l border-dashed border-paper/60"
-            style={{ left: pct(realStart as number) }}
+            style={{ left: pct(realStart) }}
           />
         )}
         {/* 双手柄 */}
@@ -204,7 +206,7 @@ export default function Timeline({
           onPointerDown={beginDrag("start")}
           title={
             showRealStart
-              ? `入点 ${selection.start.toFixed(3)}s · 实际落点 ${(realStart as number).toFixed(3)}s（无损对齐关键帧）`
+              ? `入点 ${selection.start.toFixed(3)}s · 实际落点 ${realStart.toFixed(3)}s（无损对齐关键帧）`
               : `入点 ${selection.start.toFixed(3)}s`
           }
         />

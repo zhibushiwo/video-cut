@@ -14,6 +14,7 @@ export const ACCENTS: { value: AccentChoice; label: string; hex: string }[] = [
 
 /** 应用主题色到文档根（启动加载与设置变更时调用） */
 export function applyAccent(choice: AccentChoice) {
-  const hex = ACCENTS.find((a) => a.value === choice)?.hex ?? ACCENTS[0].hex;
+  const hex = ACCENTS.find((a) => a.value === choice)?.hex ?? ACCENTS[0]?.hex;
+  if (!hex) return; // ACCENTS 为静态非空表，此分支仅类型层兜底
   document.documentElement.style.setProperty("--color-signal", hex);
 }

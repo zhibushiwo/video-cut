@@ -104,8 +104,9 @@ export default function ProductPreview({
   useTauriEvent(() =>
     onTaskStatus((p) => {
       const path = taskPathRef.current.get(p.taskId);
-      if (path && p.status === "completed" && p.outputs[0]) {
-        setProxyMap((m) => ({ ...m, [path]: p.outputs[0] }));
+      const out = p.outputs[0];
+      if (path && p.status === "completed" && out) {
+        setProxyMap((m) => ({ ...m, [path]: out }));
         taskPathRef.current.delete(p.taskId);
       }
     }),
@@ -154,6 +155,7 @@ export default function ProductPreview({
       );
       if (idx < 0) idx = es.length - 1;
       const e = es[idx];
+      if (!e) return; // idx 已钳到有效界，防御
       const offset = Math.min(Math.max(0, t - e.productStart), e.srcEnd - e.srcStart);
       if (idx === segIdxRef.current) {
         const v = slotRef.current === "a" ? videoA.current : videoB.current;
@@ -194,8 +196,9 @@ export default function ProductPreview({
       if (e && v && !v.paused) {
         if (v.currentTime >= e.srcEnd - 0.03 || v.ended) {
           const next = segIdxRef.current + 1;
-          if (next < es.length) {
-            switchTo(next, es[next].srcStart);
+          const ne = es[next];
+          if (next < es.length && ne) {
+            switchTo(next, ne.srcStart);
           } else {
             cbsRef.current.onPlayingChange(false);
             cbsRef.current.onPlayhead(e.productStart + (e.srcEnd - e.srcStart));
@@ -220,16 +223,18 @@ export default function ProductPreview({
   useEffect(() => {
     const es = entriesRef.current;
     const next = segIdxRef.current + 1;
-    if (next >= es.length) return;
+    const ne = es[next];
+    if (next >= es.length || !ne) return;
     const other: Slot = slotRef.current === "a" ? "b" : "a";
     if (slotContentRef.current[other] === next) return;
-    pendingSeekRef.current[other] = es[next].srcStart;
+    pendingSeekRef.current[other] = ne.srcStart;
     setSlotContent((s) => ({ ...s, [other]: next }));
   }, [segIdx, entries]);
 
   // 时间轴变化：当前段越界则整体复位（其余情况沿用现有槽，视觉属性经 props 实时更新）
   useEffect(() => {
-    if (entries.length === 0) return;
+    const first = entries[0];
+    if (!first) return;
     if (segIdxRef.current < entries.length && (slotContentRef.current.a ?? 0) < entries.length) {
       return;
     }
@@ -239,7 +244,7 @@ export default function ProductPreview({
     setSlot("a");
     slotContentRef.current = { a: 0, b: null };
     setSlotContent({ a: 0, b: null });
-    pendingSeekRef.current = { a: entries[0].srcStart, b: null };
+    pendingSeekRef.current = { a: first.srcStart, b: null };
     cbsRef.current.onPlayingChange(false);
     cbsRef.current.onPlayhead(0);
   }, [entries]);
@@ -295,7 +300,8 @@ export default function ProductPreview({
               if (name !== slot) return;
               const next = segIdxRef.current + 1;
               const es = entriesRef.current;
-              if (next < es.length) switchTo(next, es[next].srcStart);
+              const ne = es[next];
+              if (next < es.length && ne) switchTo(next, ne.srcStart);
               else {
                 cbsRef.current.onPlayingChange(false);
               }

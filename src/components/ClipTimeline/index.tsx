@@ -109,19 +109,23 @@ export default function ClipTimeline({
     return { rects, starts };
   }, [clips, total, trackW]);
 
-  const trackRight =
-    rects.length > 0 ? rects[rects.length - 1].left + rects[rects.length - 1].width : 0;
+  const lastRect = rects[rects.length - 1];
+  const trackRight = lastRect ? lastRect.left + lastRect.width : 0;
 
   /** 成品时间 → 轨道 x（与渲染同一套换算） */
   const timeToX = (t: number): number => {
-    if (rects.length === 0 || total <= 0) return 0;
-    if (t <= 0) return rects[0].left;
+    const firstRect = rects[0];
+    if (!firstRect || total <= 0) return 0;
+    if (t <= 0) return firstRect.left;
     let acc = 0;
     for (let i = 0; i < clips.length; i++) {
-      const d = clips[i].duration;
+      const c = clips[i];
+      const r = rects[i];
+      if (!c || !r) return trackRight; // clips 与 rects 同长同序（useMemo 内同步派生），防御
+      const d = c.duration;
       if (t < acc + d || i === clips.length - 1) {
         const local = d > 0 ? Math.min(1, Math.max(0, (t - acc) / d)) : 0;
-        return rects[i].left + local * rects[i].width;
+        return r.left + local * r.width;
       }
       acc += d;
     }
@@ -135,9 +139,12 @@ export default function ClipTimeline({
     const x = clientX - track.getBoundingClientRect().left;
     for (let i = 0; i < rects.length; i++) {
       const r = rects[i];
+      const start = starts[i];
+      const c = clips[i];
+      if (!r || start === undefined || !c) break; // 同长不变量，防御
       if (x <= r.left + r.width || i === rects.length - 1) {
         const local = r.width > 0 ? Math.min(1, Math.max(0, (x - r.left) / r.width)) : 0;
-        return starts[i] + local * clips[i].duration;
+        return start + local * c.duration;
       }
     }
     return total;
@@ -235,6 +242,7 @@ export default function ClipTimeline({
           {/* 片段块：整块可拖（M9-4），点击选中 */}
           {clips.map((c, i) => {
             const r = rects[i];
+            if (!r) return null; // rects 与 clips 同长同序（useMemo 内同步派生），防御
             return (
               <div
                 key={c.id}
@@ -292,7 +300,7 @@ export default function ClipTimeline({
             <span
               className="pointer-events-none absolute bottom-0 top-0 z-10 w-0.5 bg-signal"
               style={{
-                left: extIndex >= clips.length ? trackRight : rects[extIndex].left,
+                left: rects[extIndex]?.left ?? trackRight,
               }}
             />
           )}

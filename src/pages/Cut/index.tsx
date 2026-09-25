@@ -101,6 +101,11 @@ export default function CutPage({
     if (path) void loadFile(path);
   }, [loadFile]);
 
+  const changeDir = useCallback(async () => {
+    const dir = await pickDirectory();
+    if (dir) setOutputDir(dir);
+  }, []);
+
   const handleTime = useCallback((t: number) => setCurrentTime(t), []);
   const handleSeek = useCallback((t: number) => {
     playerRef.current?.seek(t);
@@ -391,10 +396,7 @@ export default function CutPage({
         </span>
         <button
           type="button"
-          onClick={async () => {
-            const dir = await pickDirectory();
-            if (dir) setOutputDir(dir);
-          }}
+          onClick={() => void changeDir()}
           className="rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
         >
           更改目录

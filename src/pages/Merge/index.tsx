@@ -37,8 +37,9 @@ export default function MergePage({
   const consumedInitialRef = useRef<string[] | null>(null);
 
   // 输出位置：默认输出目录优先，否则跟随首个源文件目录（DESIGN §12）
-  const outputDir =
-    files.length > 0 ? resolveOutputDir(files[0], settings.defaultOutputDir) : "";
+  const outputDir = files[0]
+    ? resolveOutputDir(files[0], settings.defaultOutputDir)
+    : "";
 
   useEffect(() => {
     if (!initialFiles || initialFiles === consumedInitialRef.current) return;
