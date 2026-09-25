@@ -362,6 +362,37 @@ describe("栈规则（plans/M11.md §18.1）", () => {
     expect(mixed!.after.clips[0]?.seg).toEqual({ start: 2, end: DUR });
     expect(mixed!.before).toEqual(d0);
   });
+
+  it("clear 清空双向历史（FR-1737 外部删除清洗的原语）", () => {
+    const stack = createUndoStack();
+    const c = ctx();
+    let d: EditorDoc = docOf([clip("a", 0, DUR)]);
+    d = stack.execute(d, c, buildTrim("a", "in", 2))!.apply(d);
+    expect(stack.canUndo).toBe(true);
+    stack.clear();
+    expect(stack.canUndo).toBe(false);
+    expect(stack.canRedo).toBe(false);
+    expect(stack.undo()).toBeNull();
+    expect(stack.redo()).toBeNull();
+    expect(stack.undoLabel).toBeNull();
+  });
+
+  it("旁路编辑（applyRaw）会被撤销/重做回退到快照时刻（快照语义，§17.5 披露）", () => {
+    const stack = createUndoStack();
+    const c = ctx();
+    const d0 = docOf([]);
+    let d = stack
+      .execute(d0, c, buildCreateClip({ sourceId: "src-1", seg: null, rot: NO_ROT, crop: null, lockRatio: true }))!
+      .apply(d0);
+    const cid = d.clips[0]!.id;
+    // 模拟一次不入栈的加工编辑（rot 90°）
+    d = { ...d, clips: d.clips.map((x) => (x.id === cid ? { ...x, rot: { deg: 90, hflip: false, vflip: false } } : x)) };
+    // 撤销创建 → 片段消失；重做恢复的是**快照时刻**的加工状态（rot 编辑一并回退）
+    const undone = stack.undo()!.invert(d);
+    expect(undone.clips).toEqual([]);
+    const redone = stack.redo()!.apply(undone);
+    expect(redone.clips[0]!.rot.deg).toBe(0);
+  });
 });
 
 // ---------------------------------------------------------------- 成品时长（R2-2 收敛）

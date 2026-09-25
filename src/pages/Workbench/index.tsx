@@ -251,12 +251,13 @@ export default function WorkbenchPage({
   /**
    * 撤销栈基座（TIMELINE.md §17.5）：片段 / 时间轴的结构操作全部经 `execute(builder)` 提交，
    * 一次手势 = 一条撤销记录；加工编辑（rot/crop）与素材增删走 `applyRaw`（旁路状态，不入栈）。
-   * Ctrl+Z / Ctrl+Shift+Z 的按键接线归 M11-7（本次只落基座，现有行为不变）。
+   * Ctrl+Z / Ctrl+Shift+Z 已接线（M11-7，见下方 useHotkeys）。
    */
-  const { execute: executeRaw, applyRaw } = useUndoStack({ doc, setDoc, ctx: buildCtx });
+  const { execute: executeRaw, applyRaw, undo: undoRaw, redo: redoRaw, clear: clearUndoStack } =
+    useUndoStack({ doc, setDoc, ctx: buildCtx });
 
   // 帧时间埋点（plans/M11.md §18.6 undo 场景）：结构操作经 performance.now span 采样，
-  // 5s 窗口汇总落 logger debug（M11-9 验收取数）；undo/redo 按键归 M11-7 接线，届时同包 span。
+  // 5s 窗口汇总落 logger debug（M11-9 验收取数）；undo/redo 按键调用同包 span（M11-7）。
   const undoPerf = useMemo(
     () =>
       createSpanRecorder("undo", (scene, s) =>
@@ -268,6 +269,24 @@ export default function WorkbenchPage({
     (builder: CommandBuilder) => undoPerf.span(() => executeRaw(builder)),
     [executeRaw, undoPerf],
   );
+
+  /**
+   * 撤销/重做（M11-7，§17.5/§17.8）：按键与 M11-8 右键菜单的撤销/重做项共用这对 handler。
+   * 按键调用同包 §18.6 的 undo 场景埋点；**入栈成功才清检测缓存**（栈空 no-op 时 payload
+   * 未变，清了没人重算，页脚会永远停在"正在检测"）；选中片段离开时间轴由既有 effect
+   * 清理；加工视图引用的片段被撤销掉时由"死引用"effect 退回成品模式。
+   */
+  const undo = useCallback(() => {
+    undoPerf.span(() => {
+      if (undoRaw()) setCheck(null);
+    });
+  }, [undoRaw, undoPerf]);
+
+  const redo = useCallback(() => {
+    undoPerf.span(() => {
+      if (redoRaw()) setCheck(null);
+    });
+  }, [redoRaw, undoPerf]);
 
   const addFiles = useCallback(async (paths: string[]) => {
     setFiles((prev) => {
@@ -342,12 +361,18 @@ export default function WorkbenchPage({
         if (!ok) return;
       }
       setFiles((prev) => prev.filter((f) => f.id !== file.id));
-      // 素材增删本身不可撤销（plans/M11.md §18.1 旁路状态），它联动删掉的片段也只能直接改文档：
-      // 否则会留下"片段还在、素材没了"的文档 → 导出映射出空 input。
-      applyRaw((d) => ({
-        clips: d.clips.filter((c) => c.sourceId !== file.id),
-        timeline: d.timeline.filter((id) => !ownedIds.has(id)),
-      }));
+      if (ownedIds.size > 0) {
+        // 素材增删本身不可撤销（plans/M11.md §18.1 旁路状态），它联动删掉的片段也只能直接改文档：
+        // 否则会留下"片段还在、素材没了"的文档 → 导出映射出空 input。
+        applyRaw((d) => ({
+          clips: d.clips.filter((c) => c.sourceId !== file.id),
+          timeline: d.timeline.filter((id) => !ownedIds.has(id)),
+        }));
+        // 外部删除毒化撤销历史（§18.9 / FR-1737）：快照对携带全量 clips，不清栈的话
+        // undo 会把被删片段"复活"。仅真删了片段才清栈——无片段素材的删除不触碰文档
+        // 快照（files 不在其中），清了纯属误杀其他片段的撤销历史。
+        clearUndoStack();
+      }
       setMode((m) =>
         (m.type === "cut" && m.sourceId === file.id) ||
         (m.type === "edit" && ownedIds.has(m.clipId))
@@ -356,7 +381,7 @@ export default function WorkbenchPage({
       );
       setCheck(null);
     },
-    [clips, applyRaw],
+    [clips, applyRaw, clearUndoStack],
   );
 
   // 片段起点帧缩略图（M6-8）：对有入点的片段取其入点帧，全段片段取 0s
@@ -402,7 +427,8 @@ export default function WorkbenchPage({
     [execute],
   );
 
-  /** 加工编辑（旋转/裁剪/锁比例）：旁路状态，直接改文档、不入撤销栈（plans/M11.md §18.1） */
+  /** 加工编辑（旋转/裁剪/锁比例）：旁路状态，直接改文档、不入撤销栈（plans/M11.md §18.1）。
+   *  只改旁路字段、不删实体 → 无需清撤销栈（FR-1737；被撤销回退到快照值属已披露语义） */
   const updateClip = useCallback(
     (id: string, patch: ClipEdit) => {
       applyRaw((d) => ({
@@ -421,7 +447,7 @@ export default function WorkbenchPage({
    */
   const removeFromTimeline = useCallback(
     (id: string) => {
-      execute(buildRemoveFromTimeline(id));
+      if (!execute(buildRemoveFromTimeline(id))) return;
       // 同步清选（与 deleteFromPool 一致）：片段仍在池里，但轴上高亮必须立即消失
       setSelectedClipId((s) => (s === id ? null : s));
       setCheck(null);
@@ -433,6 +459,7 @@ export default function WorkbenchPage({
    * 池卡 ✕ = 真删（M11-4）：直接改文档不经栈、不可逆——直接依据是 §18.5 正文
    * 「池卡 ✕ 才是真删」，联动清轴上残留项（否则导出映射出空 input，同素材删除口径）。
    * 可撤销的删除用右键「移除并删除池片段」（复合命令，M11-8 接菜单）。
+   * 外部删除毒化撤销历史（§18.9 / FR-1737，同 removeSource）：清栈防"复活"。
    */
   const deleteFromPool = useCallback(
     (id: string) => {
@@ -440,18 +467,18 @@ export default function WorkbenchPage({
         clips: doc.clips.filter((c) => c.id !== id),
         timeline: doc.timeline.filter((cid) => cid !== id),
       }));
+      clearUndoStack();
       setMode((m) => (m.type === "edit" && m.clipId === id ? { type: "product" } : m));
       setSelectedClipId((s) => (s === id ? null : s));
       setCheck(null);
     },
-    [applyRaw],
+    [applyRaw, clearUndoStack],
   );
 
   const reorderTimeline = useCallback(
     (from: number, to: number) => {
-      execute(buildReorder(from, to));
-      // 与其余结构操作同口径：旧 check.items 按下标映射，重排后立即失效
-      setCheck(null);
+      // 与其余结构操作同口径：旧 check.items 按下标映射，重排后立即失效（no-op 不清）
+      if (execute(buildReorder(from, to))) setCheck(null);
     },
     [execute],
   );
@@ -484,8 +511,8 @@ export default function WorkbenchPage({
   const splitAtPlayhead = useCallback(() => {
     const hit = locateProduct(playheadRef.current);
     if (!hit) return; // 播放头不在任何片段上（含恰好压边）→ 不动（builder 亦会判 no-op）
-    execute(buildSplit(hit.clip.id, playheadRef.current));
-    setCheck(null);
+    // 入栈成功才清检测缓存（no-op 时 payload 未变，清了没人重算，页脚会永远停在"正在检测"）
+    if (execute(buildSplit(hit.clip.id, playheadRef.current))) setCheck(null);
   }, [locateProduct, execute]);
 
   /**
@@ -494,8 +521,7 @@ export default function WorkbenchPage({
    */
   const onTrimCommit = useCallback(
     (clipId: string, edge: TrimEdge, srcTime: number) => {
-      execute(buildTrim(clipId, edge, srcTime));
-      setCheck(null);
+      if (execute(buildTrim(clipId, edge, srcTime))) setCheck(null);
     },
     [execute],
   );
@@ -506,8 +532,8 @@ export default function WorkbenchPage({
       const t = playheadRef.current;
       const hit = locateProduct(t);
       if (!hit || hit.clip.id !== clipId) return;
-      execute(buildTrim(clipId, edge, (hit.clip.seg?.start ?? 0) + (t - hit.offset)));
-      setCheck(null);
+      if (execute(buildTrim(clipId, edge, (hit.clip.seg?.start ?? 0) + (t - hit.offset))))
+        setCheck(null);
     },
     [locateProduct, execute],
   );
@@ -561,7 +587,7 @@ export default function WorkbenchPage({
       window.setTimeout(() => setBatchMsg(null), 2500);
       return;
     }
-    // 加工编辑是旁路状态：不入撤销栈
+    // 加工编辑是旁路状态：不入撤销栈；只改 rot 字段、不删实体 → 无需清撤销栈（FR-1737）
     applyRaw((d) => ({
       ...d,
       clips: d.clips.map((c) =>
@@ -732,6 +758,11 @@ export default function WorkbenchPage({
   useEffect(() => {
     if (selectedClipId && !timeline.includes(selectedClipId)) setSelectedClipId(null);
   }, [timeline, selectedClipId]);
+  // 加工视图死引用兜底：撤销/重做/池真删后 mode 引用的片段可能已不存在 → 退回成品模式
+  //（防编辑区渲染空壳；deleteFromPool 自身的 mode 重置由此统一覆盖）
+  useEffect(() => {
+    if (mode.type === "edit" && !clipById(mode.clipId)) setMode({ type: "product" });
+  }, [mode, clipById]);
   const proxyEnabled = (info: MediaInfo | null) =>
     !!info && wantsProxy(info, settings.proxyMode);
 
@@ -820,6 +851,20 @@ export default function WorkbenchPage({
       }
     },
     mode.type === "product",
+  );
+
+  // Ctrl+Z / Ctrl+Shift+Z 撤销/重做（M11-7，§17.5/§17.8）：全模式可用（时间轴常驻可见，
+  // 与 Delete 同口径），栈空时 handler 内自然 no-op；输入焦点忽略由 useHotkeys 内建
+  //（输入框里 Ctrl+Z = 原生文本撤销，不拦截）。M11-8 右键菜单的撤销/重做项复用 undo/redo。
+  useHotkeys(
+    (e) => {
+      // e.code 判定（布局无关——非拉丁键盘布局下 e.key 不是 "z"；同剪切页 I/O 键先例）
+      if (e.repeat || e.code !== "KeyZ") return;
+      if ((!e.ctrlKey && !e.metaKey) || e.altKey) return;
+      e.preventDefault();
+      if (e.shiftKey) redo();
+      else undo();
+    },
   );
 
   // 切走预览模式时暂停连播；切回成品模式时把播放头同步给播放器。

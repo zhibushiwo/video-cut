@@ -92,7 +92,10 @@ export interface UndoStack extends Omit<UndoCore, "execute" | "undo" | "redo" | 
   execute(builder: CommandBuilder): boolean;
   undo(): boolean;
   redo(): boolean;
-  /** 不经栈直接改文档：旁路状态（片段 rot/crop 加工、素材删除的联动清理） */
+  /** 不经栈直接改文档：旁路状态（片段 rot/crop 加工、素材删除的联动清理）。
+   *  ⛔ **删除 clips 的 update 必须同步 `clear()`**（TIMELINE.md §17.5 / `FR-1737`）：
+   *  快照对携带全量 clips，不清栈的话 undo 会把被删片段"复活"；只改旁路字段（rot/crop/
+   *  lockRatio）的 update 不需要清栈（不产生复活，只会按快照语义被回退）。 */
   applyRaw(update: (doc: EditorDoc) => EditorDoc): void;
 }
 
