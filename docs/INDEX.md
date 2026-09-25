@@ -150,7 +150,7 @@
 | **NFR-011** 打包与分发 | DESIGN.md §11 | tauri.conf / NSIS 脚本 | M4-5 | TC-016 | ⏳ 待用户手测（干净 Win11） |
 | **NFR-012** 配置与错误处理 | DESIGN.md §12 · §13 | `history.rs`/`logger.rs` | M4-1 · M4-7 · M4-8 | TC-014 · TC-004 | ✅ |
 | **FR-9xx** 保活 / 深浅主题（待发号） | UI.md §9.1 · §9.2 · 决策 #24/#25 | `pages`/`utils`/`types` | M10-1 · M10-2 | TC-014（AC 随 M10 发号） | ⏸ 暂缓（决策 #32） |
-| **FR-17xx** 单轨时间线（§17.3 坐标与精度已随 `M11-1` 发号：`FR-1730`~`FR-1735`，见 [TIMELINE.md](./TIMELINE.md) §17.3；其余 §17.x 随后续批次发号） | TIMELINE.md §17 | `ClipTimeline`/`CropOverlay` · `ProductPreview`/`TaskProgress`/`hooks` | M11-0 ✅ … M11-4 ✅ · M11-5 … M11-9 · M12 · M13 | TIMELINE.md §17.9 ①~⑥ · **TC-040**（撤销基线，`M11-0`）· 其余 TC 待建 | 🔄 进行中（`M11-0`–`M11-4` 已实施） |
+| **FR-17xx** 单轨时间线（§17.3 坐标与精度已随 `M11-1` 发号：`FR-1730`~`FR-1735`，见 [TIMELINE.md](./TIMELINE.md) §17.3；其余 §17.x 随后续批次发号） | TIMELINE.md §17 | `ClipTimeline`/`CropOverlay` · `ProductPreview`/`TaskProgress`/`hooks` | M11-0 ✅ … M11-5 ✅ · M11-6 … M11-9 · M12 · M13 | TIMELINE.md §17.9 ①~⑥ · **TC-040**（撤销基线，`M11-0`）· 其余 TC 待建 | 🔄 进行中（`M11-0`–`M11-5` 已实施） |
 | —（工程批次，无 FR） | PLAN「评审修复批次」「技术任务」· M7 | 多模块 | R1-1 … R1-5 ✅ · **R2-1 … R2-5 ✅** · R3-1 … R3-7（`R3-7` ✅ 提前实施）· **R4-1 … R4-9 ✅**（缺陷修复，见 [BUGS.md](./BUGS.md)；其中 `R4-8`/`R4-9` 收真机首跑与同族复查缺陷）· T-001 … T-006（`T-005`/`T-006` 为 2026-09-25 第三轮过度工程审查立项） | TC-005 · TC-001 – TC-004（回归）· **TC-019 – TC-029**（R4 配套回归）· TC-039/TC-040 | R1 ✅ / R4 ✅（9 条已实施，手工/真机半待跑）/ R3 🔜 部分（`R3-7` 已实施）/ **R2 ✅** / T 待 |
 
 

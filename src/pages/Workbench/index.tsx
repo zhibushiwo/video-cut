@@ -50,6 +50,7 @@ import {
   buildInsert,
   buildReorder,
   buildRemoveFromTimeline,
+  buildSplit,
   DEFAULT_FPS,
   productDurationOf,
 } from "../../utils/undo/commands";
@@ -393,6 +394,29 @@ export default function WorkbenchPage({
     [execute],
   );
 
+  /**
+   * C 键切割（M11-5，§17.2/§18.5）：播放头处一刀两段。命中检测用 timeline 前缀和
+   * （与 buildSplit 内部的 offset 求和同式同源），命中后把**成品时间**交给 builder——
+   * 源内换算（`srcSplit = in + local`）与"距边缘 <1 帧 / 不在片段上判 no-op"都在
+   * builder 内；右键菜单入口归 M11-8。
+   */
+  const splitAtPlayhead = useCallback(() => {
+    const t = playheadRef.current;
+    let acc = 0;
+    for (const id of timeline) {
+      const clip = clips.find((c) => c.id === id);
+      if (!clip) continue;
+      const dur = clipDuration(clip);
+      if (t < acc + dur) {
+        execute(buildSplit(id, t));
+        setCheck(null);
+        return;
+      }
+      acc += dur;
+    }
+    // 播放头不在任何片段上（含恰好压边）→ 不动（builder 亦会判 no-op）
+  }, [timeline, clips, clipDuration, execute]);
+
   /** 池「+」加入时间轴末尾（已在轴上 = 无操作，保持既有语义） */
   const appendToTimeline = useCallback(
     (clipId: string) => {
@@ -658,6 +682,23 @@ export default function WorkbenchPage({
       }
     },
     !!selectedClipId,
+  );
+  // C 键切割（M11-5，§17.4 / 决策 #30）：播放头处一刀两段；右键菜单入口归 M11-8。
+  // 播放头不在片段上 / 距边缘 <1 帧时 builder 判 no-op 不入栈；带修饰键的 C（Ctrl+C 等）
+  // 不触发（切割是入栈操作，M11-7 前无键盘撤销出口，防误触）
+  useHotkeys(
+    (e) => {
+      if (
+        (e.key === "c" || e.key === "C") &&
+        !e.repeat &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey
+      ) {
+        splitAtPlayhead();
+      }
+    },
+    mode.type === "product" && timeline.length > 0,
   );
 
   // 切走预览模式时暂停连播；切回成品模式时把播放头同步给播放器。
