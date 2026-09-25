@@ -10,6 +10,9 @@
  * - 整块拖拽排序（M9-4）：块本体进拖拽（指针事件 + 4px 死区），点击仍选中。
  * - 池→轴跨容器拖入（M6-3）。
  * - 帧时间埋点（plans/M11.md §18.6 drag 场景）挂在拖拽激活/收尾上。
+ * - 播放头（M11-3 §18.4）：DOM 注册进 playheadElRef，位置由 ProductPreview 的 rAF tick
+ *   与 Workbench 的离散同步 effect 直写 transform——本组件渲染不定位播放头；标尺 seek
+ *   带片段边缘吸附（8px 窗，Alt 旁路）。
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
@@ -19,7 +22,7 @@ import { appendFrontendLog } from "../../services/tauri";
 import { beginPointerDrag } from "../../utils/pointerDrag";
 import { beginFrameSampling, formatPerfLine, type PerfScene, type PerfSummary } from "../../utils/perf";
 import { formatTimecode } from "../../utils/time";
-import { buildGeometry, clampPps, fitPps, tickStep } from "./geometry";
+import { buildGeometry, clampPps, fitPps, snapToEdge, tickStep } from "./geometry";
 
 export interface TimelineClip {
   id: string;
@@ -48,13 +51,15 @@ interface ClipTimelineProps {
   onRemove(id: string): void;
   /** 点击空白处按渲染位置 seek（成品内时间，秒） */
   onSeek(t: number): void;
-  /** 播放头（成品内时间，秒） */
-  currentTime: number;
   /** 时间码帧率（刻度标签，§17.3 总帧数时间码）：轴上首个片段的源帧率，Workbench 缺省 30 */
   fps: number;
   /** PPS（§18.3 页面级 state，Workbench 持有）：本组件经 onChangePps 写回 */
   pps: number;
   onChangePps(next: number): void;
+  /** 播放头 DOM 注册（M11-3 §18.4）：ProductPreview 的 rAF tick 经它直写 transform */
+  playheadElRef: { current: HTMLElement | null };
+  /** 滚动容器注册（M11-3）：ProductPreview 的 rAF tick 做播放头跟随滚动用 */
+  scrollElRef: { current: HTMLElement | null };
 }
 
 /** 刻度目标间距（px，§18.2：刻度间距 ≥60px） */
@@ -62,6 +67,9 @@ const TICK_MIN_PX = 60;
 
 /** 键控缩放步进因子（+/− 键；规格只给了滚轮系数，此为实现自定——一次按键 ≈ 一档明显缩放） */
 const KEY_ZOOM_FACTOR = 1.2;
+
+/** 播放头吸附窗（px，§17.3：threshold = 8px / PPS 秒） */
+const SNAP_PX = 8;
 
 export default function ClipTimeline({
   clips,
@@ -73,10 +81,11 @@ export default function ClipTimeline({
   onExternalDragEnd,
   onRemove,
   onSeek,
-  currentTime,
   fps,
   pps,
   onChangePps,
+  playheadElRef,
+  scrollElRef,
 }: ClipTimelineProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   // 帧时间埋点（§18.6 drag 场景）：拖拽激活时开采样、收尾时停（stop 冲掉不足一窗的余量）
@@ -125,6 +134,15 @@ export default function ClipTimeline({
       ),
     [clips],
   );
+  // 向父层桥接滚动容器（ProductPreview 的 rAF tick 做播放头跟随滚动用，§18.4）；
+  // viewportRef 在空/非空时间轴间会换元素，故每次渲染后同步
+  useEffect(() => {
+    scrollElRef.current = viewportRef.current;
+    return () => {
+      scrollElRef.current = null;
+    };
+  });
+
   const geo = useMemo(() => buildGeometry(clips.map((c) => c.duration), pps), [clips, pps]);
 
   // PPS 来自页面级 state（§18.3）；ref 镜像供滚轮/按键的连续事件读最新值——连续两次
@@ -223,16 +241,20 @@ export default function ClipTimeline({
   );
 
   /** 点击空白/标尺 → seek：世界 x = 视口本地 x + scrollLeft（§18.3 滚动容器），线性换算；
+   *  播放头吸附片段边缘（§17.3 吸附窗 8px/pps 秒，按住 Alt 临时关闭，§17.8）；
    *  x 钳进内容宽、时间钳进 [0, total]（round 舍入可能让 contentWidth 折算出半像素超尾，
    *  右端死区语义 = seek 到末尾） */
-  const seekAt = (clientX: number) => {
+  const seekAt = (clientX: number, altKey: boolean) => {
     const el = viewportRef.current;
     if (!el || geo.total <= 0) return;
     const x = Math.min(
       geo.contentWidth,
       Math.max(0, clientX - el.getBoundingClientRect().left + el.scrollLeft),
     );
-    onSeek(Math.min(geo.total, geo.xToTime(x)));
+    const raw = Math.min(geo.total, geo.xToTime(x));
+    onSeek(
+      altKey ? raw : snapToEdge(raw, [...geo.starts, geo.total], SNAP_PX / pps),
+    );
   };
 
   /** 指针所在块：与渲染块矩形做最近中线命中 */
@@ -305,7 +327,7 @@ export default function ClipTimeline({
           ref={viewportRef}
           className="relative h-full w-full cursor-crosshair overflow-x-auto overflow-y-hidden"
           onPointerDown={(e) => {
-            if (geo.total > 0) seekAt(e.clientX);
+            if (geo.total > 0) seekAt(e.clientX, e.altKey);
           }}
         >
           {/* 世界坐标层：宽 = contentWidth，超出视口即横向滚动（§18.3）；播放头/块/刻度
@@ -391,12 +413,13 @@ export default function ClipTimeline({
               />
             )}
 
-            {/* 播放头（世界坐标，钳进内容宽） */}
+            {/* 播放头（M11-3 §18.4 脱离 React）：位置由 rAF tick / 离散同步 effect 直写
+                transform，本组件渲染不再管它——注册 DOM 供 ProductPreview 直写 */}
             <span
-              className="pointer-events-none absolute bottom-0 top-0 z-10 w-px bg-paper/80"
-              style={{
-                left: Math.min(geo.contentWidth, Math.max(0, geo.timeToX(currentTime))),
+              ref={(el) => {
+                playheadElRef.current = el;
               }}
+              className="pointer-events-none absolute bottom-0 left-0 top-0 z-10 w-px bg-paper/80"
             >
               <span className="absolute -top-px left-1/2 h-0 w-0 -translate-x-1/2 border-x-4 border-t-4 border-x-transparent border-t-paper/80" />
             </span>

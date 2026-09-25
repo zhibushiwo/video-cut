@@ -12,6 +12,9 @@ export function usePlaybackHotkeys(opts: {
   enabled?: boolean;
   /** 当前播放位置（秒），←/→ 以它为基准 seek */
   currentTime: number;
+  /** 实时位置读取器（给了就优先于 currentTime）：播放头降频镜像（M11-3）下 state 在播放中
+   *  不更新，←/→ 必须以播放中的实时位置为基准；未给的调用方（剪切页等）行为不变 */
+  getCurrentTime?: () => number;
   /** seek 上界（秒）；下界恒为 0 */
   maxT: number;
   /** Shift+方向键的步长（秒），默认 1/30 */
@@ -19,7 +22,7 @@ export function usePlaybackHotkeys(opts: {
   onTogglePlay(): void;
   onSeek(t: number): void;
 }) {
-  const { enabled = true, currentTime, maxT, frameStep = 1 / 30, onTogglePlay, onSeek } = opts;
+  const { enabled = true, currentTime, getCurrentTime, maxT, frameStep = 1 / 30, onTogglePlay, onSeek } = opts;
   useHotkeys((e) => {
     if (e.code === "Space") {
       if (e.repeat) return;
@@ -29,8 +32,9 @@ export function usePlaybackHotkeys(opts: {
     }
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       e.preventDefault();
+      const base = getCurrentTime ? getCurrentTime() : currentTime;
       const delta = (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? frameStep : 1);
-      onSeek(Math.min(Math.max(0, currentTime + delta), maxT));
+      onSeek(Math.min(Math.max(0, base + delta), maxT));
     }
   }, enabled);
 }

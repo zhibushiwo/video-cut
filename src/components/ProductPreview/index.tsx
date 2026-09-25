@@ -4,6 +4,9 @@
  * - 播放列表：父层派生成品内↔源内时间对（entries）
  * - 双 <video> 轮换：活动槽播放，另一槽预加载下一段的源，切换零等待（近似）
  * - 越界自动切下一段；seek（时间轴点击/进度条）映射到对应片段对应源位置
+ * - 播放头渲染路径（M11-3，§18.4）：rAF tick 把权威时间写进 playheadRef 并直写时间轴
+ *   播放头 transform 与进度条 .value（0 setState）；onPlayhead 降频为离散汇
+ *   （seek/段切换/暂停/结束），供 React 侧时间读数与进度条离散同步
  * - 代理沿用：需要代理的源按路径生成/缓存，播放用代理
  * - 已知限制（UI 明示）：片段边界 ±1 帧级误差与切换停顿，导出以 FFmpeg 输出为准
  */
@@ -33,11 +36,20 @@ export interface ProductEntry {
 interface ProductPreviewProps {
   entries: ProductEntry[];
   playhead: number;
+  /** 离散播放头镜像（§18.4）：仅在 seek/段切换/结束/复位时到达——同步 ref 与 React state */
   onPlayhead(t: number): void;
   /** 时间轴点击等外部 seek 请求（nonce 触发） */
   seekRequest: { t: number; nonce: number } | null;
   playing: boolean;
   onPlayingChange(p: boolean): void;
+  /** 权威播放头（秒）——rAF tick 每帧直写，React 不经它渲染（§18.4） */
+  playheadRef: { current: number };
+  /** 时间轴播放头 DOM（ClipTimeline 注册）：tick 内直写 transform，免 React */
+  playheadElRef: { current: HTMLElement | null };
+  /** 时间轴滚动容器（ClipTimeline 注册）：播放中跟随滚动用 */
+  scrollElRef: { current: HTMLElement | null };
+  /** 页面级 PPS 的 ref 镜像（§18.3）：tick 连续帧之间不重渲染，必须读 ref */
+  ppsRef: { current: number };
 }
 
 type Slot = "a" | "b";
@@ -49,6 +61,10 @@ export default function ProductPreview({
   seekRequest,
   playing,
   onPlayingChange,
+  playheadRef,
+  playheadElRef,
+  scrollElRef,
+  ppsRef,
 }: ProductPreviewProps) {
   const [segIdx, setSegIdx] = useState(0);
   const [slot, setSlot] = useState<Slot>("a");
@@ -59,6 +75,10 @@ export default function ProductPreview({
   });
   const videoA = useRef<HTMLVideoElement>(null);
   const videoB = useRef<HTMLVideoElement>(null);
+  /** 进度条（非受控，§18.4）：rAF tick 每帧直写 .value，拖动经 seekInternal 通路 */
+  const progressRef = useRef<HTMLInputElement>(null);
+  /** 进度条拖动中：tick 暂停直写 .value，避免视频滞后位置回弹覆盖用户拖动值 */
+  const draggingRef = useRef(false);
   /** 槽就绪后待应用的源内绝对时间（metadata 前设 currentTime 不可靠） */
   const pendingSeekRef = useRef<{ a: number | null; b: number | null }>({ a: 0, b: null });
 
@@ -122,6 +142,16 @@ export default function ProductPreview({
     [],
   );
 
+  /** 把活动槽视频的实时位置落进离散镜像（§18.4：暂停/外部暂停的同步点） */
+  const syncDiscreteFromVideo = useCallback(() => {
+    const e = entriesRef.current[segIdxRef.current];
+    const v = slotRef.current === "a" ? videoA.current : videoB.current;
+    if (!e || !v) return;
+    cbsRef.current.onPlayhead(
+      e.productStart + Math.min(Math.max(0, v.currentTime - e.srcStart), e.srcEnd - e.srcStart),
+    );
+  }, []);
+
   // ---------- 槽切换：写另一槽（或复用已预载的）并激活 ----------
   const switchTo = useCallback((idx: number, srcPos: number) => {
     const es = entriesRef.current;
@@ -143,6 +173,10 @@ export default function ProductPreview({
     setSegIdx(idx);
     // 离场槽位停住（已切到其出点附近，正常即将 ended；防其继续出声）
     (prev === "a" ? videoA.current : videoB.current)?.pause();
+    // 段切换是离散镜像的同步点（§18.4）：时间读数/进度条跳到新段起点（seekInternal 随后
+    // 的离散汇是同值，React bail）
+    const target = es[idx];
+    if (target) cbsRef.current.onPlayhead(target.productStart + (srcPos - target.srcStart));
   }, []);
 
   /** 成品时间 → 片段内 seek（同段直接定位，跨段切换槽） */
@@ -175,13 +209,19 @@ export default function ProductPreview({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seekRequest?.nonce]);
 
-  // 播放/暂停跟随活动槽
+  // 播放/暂停跟随活动槽；播放→暂停的沿把实时位置落进离散镜像（§18.4：暂停时读数与
+  // 进度条要对齐实际位置）。用沿触发避免"暂停中切槽"（跨段 seek 的 switchTo）误报位置。
+  const prevPlayingRef = useRef(false);
   useEffect(() => {
     const v = slot === "a" ? videoA.current : videoB.current;
     if (!v) return;
     if (playing) void v.play();
-    else v.pause();
-  }, [playing, slot]);
+    else {
+      v.pause();
+      if (prevPlayingRef.current) syncDiscreteFromVideo();
+    }
+    prevPlayingRef.current = playing;
+  }, [playing, slot, syncDiscreteFromVideo]);
 
   // rAF 驱动播放头；越界切下一段 / 结尾停止
   useEffect(() => {
@@ -205,9 +245,24 @@ export default function ProductPreview({
             return;
           }
         } else if (v.currentTime >= e.srcStart) {
-          cbsRef.current.onPlayhead(
-            e.productStart + Math.min(v.currentTime - e.srcStart, e.srcEnd - e.srcStart),
-          );
+          // 播放头渲染路径（§18.4）：ref + DOM 直写，整条路径 0 个 setState——
+          // React 侧 playhead 是离散镜像，播放中不更新（时间读数随之降频）
+          const t = e.productStart + Math.min(v.currentTime - e.srcStart, e.srcEnd - e.srcStart);
+          playheadRef.current = t;
+          const ph = playheadElRef.current;
+          if (ph) ph.style.transform = `translateX(${t * ppsRef.current}px)`;
+          // 进度条每帧直写（拖动中挂起，防视频滞后位置回弹覆盖用户拖动值）
+          if (!draggingRef.current && progressRef.current) {
+            progressRef.current.value = String(t);
+          }
+          // 跟随滚动：越过视口右缘 90% → 贴回 10%（条件式边缘触发，不逐帧强推）
+          const sc = scrollElRef.current;
+          if (sc) {
+            const x = t * ppsRef.current;
+            if (x > sc.scrollLeft + 0.9 * sc.clientWidth) {
+              sc.scrollLeft = x - 0.1 * sc.clientWidth;
+            }
+          }
         }
       }
       raf = requestAnimationFrame(tick);
@@ -217,7 +272,7 @@ export default function ProductPreview({
       alive = false;
       cancelAnimationFrame(raf);
     };
-  }, [playing, switchTo]);
+  }, [playing, switchTo, playheadRef, playheadElRef, scrollElRef, ppsRef]);
 
   // 预加载下一段到另一槽（停在其起点）
   useEffect(() => {
@@ -252,6 +307,13 @@ export default function ProductPreview({
   const totalDuration = entries.reduce((s, e) => s + (e.srcEnd - e.srcStart), 0);
   const entry = entries[segIdx];
 
+  // 进度条离散同步（tick 管播放中的每帧；seek/段切换/结束/暂停走这里）
+  useEffect(() => {
+    if (progressRef.current) {
+      progressRef.current.value = String(Math.min(playhead, totalDuration));
+    }
+  }, [playhead, totalDuration]);
+
   if (entries.length === 0 || !entry) {
     return (
       <div className="flex h-full w-full items-center justify-center text-sm text-mute">
@@ -284,8 +346,11 @@ export default function ProductPreview({
             playsInline
             className="h-full w-full bg-black"
             onPause={() => {
-              // 外部暂停（如页面隐藏保活）同步回播放状态（M10-1）
-              if (name === slot) cbsRef.current.onPlayingChange(false);
+              // 外部暂停（如页面隐藏保活）同步回播放状态（M10-1）；位置也落进离散镜像
+              if (name === slot) {
+                cbsRef.current.onPlayingChange(false);
+                syncDiscreteFromVideo();
+              }
             }}
             onLoadedMetadata={() => {
               const v = name === "a" ? videoA.current : videoB.current;
@@ -347,11 +412,21 @@ export default function ProductPreview({
           {playing ? "暂停" : "播放"}
         </button>
         <input
+          ref={progressRef}
           type="range"
           min={0}
           max={totalDuration || 0}
           step={0.05}
-          value={Math.min(playhead, totalDuration)}
+          defaultValue={0}
+          onPointerDown={() => {
+            draggingRef.current = true;
+          }}
+          onPointerUp={() => {
+            draggingRef.current = false;
+          }}
+          onPointerCancel={() => {
+            draggingRef.current = false;
+          }}
           onChange={(e) => seekInternal(Number(e.target.value))}
           aria-label="成品播放进度"
           className="h-1 min-w-0 flex-1 cursor-pointer accent-signal"

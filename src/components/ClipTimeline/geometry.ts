@@ -56,6 +56,24 @@ export function tickStep(minSec: number): number {
   return 3600;
 }
 
+/**
+ * 播放头吸附（TIMELINE.md §17.3 吸附窗）：距最近边缘 ≤ `thresholdSec` 秒 → 吸附到该边缘，
+ * 否则原样返回。边缘序列由调用方给（时间轴 = 各块起点 + 总时长；块连续故首尾即全部边缘）；
+ * 距离并列时取**后扫描**者（升序边缘 = 更靠右的边），确定性行为。
+ */
+export function snapToEdge(t: number, edges: number[], thresholdSec: number): number {
+  let best = t;
+  let bestDist = thresholdSec;
+  for (const edge of edges) {
+    const d = Math.abs(t - edge);
+    if (d <= bestDist) {
+      bestDist = d;
+      best = edge;
+    }
+  }
+  return best;
+}
+
 export interface Geometry {
   /** 生效 PPS */
   readonly pps: number;

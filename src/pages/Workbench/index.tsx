@@ -111,6 +111,37 @@ export default function WorkbenchPage({
   // 用户手动缩放（滚轮/+/−/\）前自动跟随适应窗口（M11-1 行为延续）；M11-3 播放头路径
   // 需要在此读 pps 的 ref 镜像。
   const [pps, setPps] = useState(PPS_MIN);
+  const ppsRef = useRef(pps);
+  ppsRef.current = pps;
+
+  // 播放头渲染路径（M11-3，plans/M11.md §18.4）：权威播放头是 ref——ProductPreview 的
+  // rAF tick 每帧直写它与时间轴播放头 DOM 的 transform（整条路径 0 个 setState）；
+  // React 的 playhead state 降频为离散镜像（pause/seek/段切换/结束），供时间读数与导出逻辑。
+  const playheadRef = useRef(0);
+  const playheadElRef = useRef<HTMLElement | null>(null);
+  const timelineScrollRef = useRef<HTMLElement | null>(null);
+  /** 播放头 transform 直写（§18.4）：ref → DOM。离散汇与 seek 在事件内直接调（state 同值
+   *  bail-out 时不靠 effect），effect 只兜 pps 变化与离散 state 变化（span 重挂载等） */
+  const writePlayheadTransform = useCallback(() => {
+    const el = playheadElRef.current;
+    if (el) el.style.transform = `translateX(${playheadRef.current * ppsRef.current}px)`;
+  }, [playheadElRef, ppsRef]);
+  /** 离散播放头汇（ProductPreview 回调）：同步 ref 与 state，随后由下方 effect 重写 transform */
+  const onPlayheadDiscrete = useCallback(
+    (t: number) => {
+      playheadRef.current = t;
+      setPlayhead(t);
+      writePlayheadTransform();
+    },
+    [writePlayheadTransform],
+  );
+  // 离散 state 变化（seek/暂停/段切换/结束/复位）与 pps 变化时重写一次 transform；
+  // 播放中的每帧由 tick 直写——两路写同一属性，互不冲突。事件路径已在离散汇/seek 内
+  // 直写（防 state 同值 bail-out 漏写）；本 effect 兜 pps 变化（span 裸重挂载不经 effect，
+  // 由 auto-fit 改 pps / 离散汇连带覆盖）
+  useEffect(() => {
+    writePlayheadTransform();
+  }, [playhead, pps, writePlayheadTransform]);
   // 批量能力（M6-8 = 原 M4-4）：素材多选 → 一键建片段 / 批量应用旋转
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
   const [batchRot, setBatchRot] = useState<RotateState>(NO_ROTATE);
@@ -569,17 +600,23 @@ export default function WorkbenchPage({
     });
   }, [timelineClips, clipSource, clipDuration, settings.proxyMode]);
 
-  const productSeek = useCallback((t: number) => {
-    setPlayhead(t);
-    seekNonce.current += 1;
-    setSeekReq({ t, nonce: seekNonce.current });
-  }, []);
+  const productSeek = useCallback(
+    (t: number) => {
+      playheadRef.current = t;
+      setPlayhead(t);
+      writePlayheadTransform();
+      seekNonce.current += 1;
+      setSeekReq({ t, nonce: seekNonce.current });
+    },
+    [playheadRef, writePlayheadTransform],
+  );
 
   // 快捷键（M4-3，成品模式）：走带共用块见 usePlaybackHotkeys；页面专属：Delete 删选中片段。
   // Delete 只在成品模式挂监听（enabled 参，激活门控见 useHotkeys）——勿复制此调用漏传 enabled
   usePlaybackHotkeys({
     enabled: mode.type === "product",
     currentTime: playhead,
+    getCurrentTime: () => playheadRef.current,
     maxT: totalDuration,
     onTogglePlay: () => setPlaying((p) => !p),
     onSeek: productSeek,
@@ -593,15 +630,16 @@ export default function WorkbenchPage({
     mode.type === "product",
   );
 
-  // 切走预览模式时暂停连播；切回成品模式时把播放头同步给播放器
+  // 切走预览模式时暂停连播；切回成品模式时把播放头同步给播放器。
+  // 读 playheadRef（权威值）而非离散镜像 state——播放中 state 冻结在离散点，用它会丢位置
   const prevModeRef = useRef<PreviewMode>(mode);
   useEffect(() => {
     if (prevModeRef.current.type !== mode.type) {
       if (mode.type !== "product" && playing) setPlaying(false);
-      if (mode.type === "product") productSeek(playhead);
+      if (mode.type === "product") productSeek(playheadRef.current);
       prevModeRef.current = mode;
     }
-  }, [mode, playing, playhead, productSeek]);
+  }, [mode, playing, productSeek]);
 
   return (
     <div className="flex h-full flex-col">
@@ -676,10 +714,14 @@ export default function WorkbenchPage({
                     <ProductPreview
                       entries={productEntries}
                       playhead={playhead}
-                      onPlayhead={setPlayhead}
+                      onPlayhead={onPlayheadDiscrete}
                       seekRequest={seekReq}
                       playing={playing}
                       onPlayingChange={setPlaying}
+                      playheadRef={playheadRef}
+                      playheadElRef={playheadElRef}
+                      scrollElRef={timelineScrollRef}
+                      ppsRef={ppsRef}
                     />
                   ))}
                 {mode.type === "cut" &&
@@ -725,10 +767,11 @@ export default function WorkbenchPage({
               onExternalDragEnd={() => setExtDrag(null)}
               onRemove={removeClip}
               onSeek={productSeek}
-              currentTime={playhead}
               fps={timelineFps}
               pps={pps}
               onChangePps={setPps}
+              playheadElRef={playheadElRef}
+              scrollElRef={timelineScrollRef}
             />
 
             {/* ③ 片段池 */}

@@ -6,6 +6,7 @@ import {
   buildGeometry,
   clampPps,
   fitPps,
+  snapToEdge,
   tickStep,
 } from "./geometry";
 
@@ -67,6 +68,26 @@ describe("tickStep（≥ 目标的最小整刻度，§18.2）", () => {
 
   it("超过最大档回落 3600", () => {
     expect(tickStep(4000)).toBe(3600);
+  });
+});
+
+describe("snapToEdge（播放头吸附窗，§17.3）", () => {
+  const edges = [0, 5, 9.5, 13.4];
+
+  it("窗内吸附到最近边缘；窗外原样返回", () => {
+    expect(snapToEdge(4.9, edges, 0.2)).toBe(5);
+    expect(snapToEdge(9.6, edges, 0.2)).toBe(9.5);
+    expect(snapToEdge(7, edges, 0.2)).toBe(7); // 两边缘都够不着
+  });
+
+  it("恰在阈值上吸附（≤ 语义）；超过一分就不吸", () => {
+    // 全用整数/半值避浮点坑（5 − 4.8 在浮点下是 0.2000000000000002）
+    expect(snapToEdge(4.5, [5], 0.5)).toBe(5);
+    expect(snapToEdge(4.4, [5], 0.5)).toBe(4.4);
+  });
+
+  it("距离并列取后扫描者（升序边缘 = 更靠右的边）", () => {
+    expect(snapToEdge(7, [5, 9], 2)).toBe(9);
   });
 });
 
