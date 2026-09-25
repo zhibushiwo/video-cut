@@ -39,8 +39,9 @@ const NATIVE_CONTAINERS = new Set([
  * 依次是 `mov`/`mov`/`mov`/`matroska`/`matroska`/`avi`/`flv`/`mpegts`/`asf`，与扩展名一一对应）。
  * 判不出来的一律 false —— 空串、`unknown`、首位不在白名单（含理论上跨族同现的列表）：宁可多生成
  * 一次代理，也不让用户面对黑屏。
+ * 导出仅为 TC-024 测试矩阵提供用例入口（`T-004`），生产路径经 `needsProxy` 使用。
  */
-function containerPlayable(container: string): boolean {
+export function containerPlayable(container: string): boolean {
   const [primary = ""] = container.toLowerCase().split(",");
   return NATIVE_CONTAINERS.has(primary.trim());
 }

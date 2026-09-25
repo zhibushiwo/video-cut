@@ -5,7 +5,7 @@
 > **读时机**：写/改测试前；跑一次完整验证前；需要给出"这条验收过了吗"的结论时。
 > **写规则**：新增测试或验收组时追加 TC 行并写明 `引用 AC`（缺陷驱动的写在 §3.4，标注 `关联 BUG-0NN`）；TC 号不复用；只记**验收/回归级**用例——单元测试留在代码里（`cargo test` 即执行记录），不抄进本文。
 > **关联**：[INDEX.md](./INDEX.md)（ID 与地图） · 上位 [DESIGN.md](./DESIGN.md) · 进度 [PLAN.md](./PLAN.md) · 缺陷 [BUGS.md](./BUGS.md) · 夹具规范 [FFMPEG.md](./FFMPEG.md) §6.6
-> **最后更新**：2026-09-24（`M11-0`：新增 §1 的 `pnpm test` 行与 `TC-040` 撤销基线——Vitest 5.0.1 就位、`vitest.config.ts` 独立于 `vite.config.ts`；同日单测数 77→81：`R3-7` 的同一性比较四条用例（`..` 绕行 / 大小写 / 末尾点空格 / 不同文件不 panic）；此前 2026-09-23：新增 `TC-029`（`ADR-033` 容器/扩展名口径）、`TC-028`（`BUG-010`）与 `TC-024` 容器矩阵（`BUG-006`））
+> **最后更新**：2026-09-25（`T-004`：TC-022/028 边界矩阵固化进 [../src/utils/crop.test.ts](../src/utils/crop.test.ts)、TC-024 容器矩阵固化进 [../src/utils/media.test.ts](../src/utils/media.test.ts)，`containerPlayable` 随之导出作用例入口；顺带修正 `TC-040` 计数 19→23——`R2-2` 并入 `productDurationOf` 时漏改；此前 2026-09-24：`M11-0` 新增 §1 的 `pnpm test` 行与 `TC-040` 撤销基线——Vitest 5.0.1 就位、`vitest.config.ts` 独立于 `vite.config.ts`、单测数 77→81；此前 2026-09-23：新增 `TC-029`（`ADR-033` 容器/扩展名口径）、`TC-028`（`BUG-010`）与 `TC-024` 容器矩阵（`BUG-006`））
 
 ---
 
@@ -15,7 +15,7 @@
 | --- | --- | --- |
 | 类型检查 | `node_modules/.bin/tsc --noEmit`（或 `pnpm build`） | 前端类型与未使用变量（`noUnusedLocals`/`noUnusedParameters`） |
 | 静态检查 | `pnpm lint`（`eslint .`） | react-hooks 依赖、`@tauri-apps/*` 只允许 `services/` 内导入 |
-| 前端单测 | `pnpm test`（`vitest run`） | 命令层与工具层的**纯函数**单测（当前 `src/utils/undo/commands.test.ts`）；受限环境用 `node node_modules/vitest/vitest.mjs run`；配置在 `vitest.config.ts`（node 环境，不含 DOM） |
+| 前端单测 | `pnpm test`（`vitest run`） | 命令层与工具层的**纯函数**单测（用例在 `src/**/*.test.ts`：`undo/commands` · `utils/array` · `utils/paths` · `utils/crop`（TC-022/028 矩阵） · `utils/media`（TC-024 矩阵））；受限环境用 `node node_modules/vitest/vitest.mjs run`；配置在 `vitest.config.ts`（node 环境，不含 DOM） |
 | 后端全量 | `cd src-tauri && cargo test` | **81 个单测 + 5 条 e2e**（Windows 计数：含 2 条 `#[cfg(windows)]` 同一性用例）；需要 sidecar 的用例（e2e 与 `commands::media` 的缩略图回归）在 sidecar 缺失时打印 skip 并通过 |
 | 真实素材冒烟（可选，默认不跑） | `cd src-tauri && cargo test --test real_media_smoke -- --ignored --nocapture --test-threads=1` | `tests/real_media_smoke.rs` 8 条用例全部 `#[ignore]`（默认只编译）；按 `command.rs` 真实参数构建器打真实素材，约 3.5 分钟，缺 `video/` 素材自动跳过 |
 | 端到端应用 | `pnpm tauri dev` | 手测与 UI 验收 |
@@ -49,7 +49,7 @@
 | TC-003 | cargo e2e `pipeline_full_chain` | 工作台 pipeline 全链（含 timescale 归一化） | AC-380-1（组级） |
 | TC-004 | `cargo test` 单元测试（81 条，代码内） | 命令构建器参数序列、probe 缓存、进度解析、任务状态机与清理钩子、输出原子替换、输出容器/扩展名命名、**输出路径同一性比较（归一化）**、缩略图批处理容错 | NFR-001（无损优先）· NFR-006–009（并发/半成品/预检/节流） |
 | TC-005 | `tsc --noEmit` + `pnpm lint` | 类型与前端约束 | NFR-012（配置与错误处理） |
-| TC-040 | `pnpm test`（Vitest）`src/utils/undo/commands.test.ts`（**19 条用例 = 撤销语义 6 + 钳制域 9 + 栈规则 4**） | 撤销基线（TIMELINE.md §17.5 六条：undo/redo 逐字节一致、序列化 round-trip、no-op 不入栈、取消不入栈、撤销顺序、重做复现同一 id）+ 钳制域（trim 源边界 / 1 帧最小 / split 边缘判非法 / split 源内换算带前缀时长 / 波纹删除池保留 / fps 缺省 / 源未探测判非法 / 池「+」只追加不重排 / insert 兜底钳制）+ 栈规则（批量合成一条、新命令清空重做链、上限丢最旧） | AC 待发号（TIMELINE.md §17.9 ①） |
+| TC-040 | `pnpm test`（Vitest）`src/utils/undo/commands.test.ts`（**23 条用例 = 撤销语义 6 + 钳制域 9 + 栈规则 4 + `productDurationOf` 4（`R2-2` 并入）**） | 撤销基线（TIMELINE.md §17.5 六条：undo/redo 逐字节一致、序列化 round-trip、no-op 不入栈、取消不入栈、撤销顺序、重做复现同一 id）+ 钳制域（trim 源边界 / 1 帧最小 / split 边缘判非法 / split 源内换算带前缀时长 / 波纹删除池保留 / fps 缺省 / 源未探测判非法 / 池「+」只追加不重排 / insert 兜底钳制）+ 栈规则（批量合成一条、新命令清空重做链、上限丢最旧、空输入/全 no-op 的 buildComposite 判 null） | AC 待发号（TIMELINE.md §17.9 ①） |
 
 > 新增命令/参数改动时：**先补 `ffmpeg/command.rs` 的参数序列断言**，再靠 TC-001~003 兜回归（DESIGN 决策 #23）。
 
@@ -89,17 +89,17 @@
 | TC-019 | BUG-001 | 作业体 panic 后：任务进 Failed、并发槽归还，连续两次 panic 不冻结队列 | `cargo test` 单测 | ✅ 通过（2026-09-21，`panicking_job_fails_task_and_returns_slot`：并发位=1 下连续两次 panic 后第三个任务仍完成，清理钩子照跑一次；两次 panic 分别走 `&str` 与 `String` 载荷，文案都能取到） |
 | TC-020 | BUG-002 | 输出替换原子性：目标被占用时旧文件不丢、错误信息含 `.part` 完整路径 | `cargo test` 单测（`fs::atomic_replace` 三分支）+ e2e（`output_replace_over_existing_file`） | ✅ 通过（2026-09-21：3 条单测 + 1 条 e2e；目标不可替换时旧文件与 `.part` 均在、错误含完整路径） |
 | TC-021 | BUG-003 | 四处指针拖拽：窗口外松手后监听器不残留、无拖拽态卡死、无意外重排 | 手工（合并页列表 / 工作台素材卡 / 剪切页 Timeline 双手柄 / 工作台 ClipTimeline 与裁剪框选） | ⏳ 待跑（实现已统一到 `utils/pointerDrag` 的 `beginPointerDrag`，四处共用同一收尾兜底） |
-| TC-022 | BUG-004 | `pxToCrop` 边界：x 在界内 / 恰好压界 / 远超界，w 最小 / 恰好 / 超界 | 命令级脚本（矩阵，见下方注）+ 手工（数值微调）；**转 Vitest 见 PLAN `T-004`**（载体已由 `M11-0` 就位） | ⏳ 矩阵已用命令级脚本验证通过（2026-09-23）：**14 组期望值 + 4000 组随机扫描，12730 断言 0 失败**；同一矩阵在**修复前**实现上 1554 个非 null 结果里越界 **993** 个（CR 复现值精确复现）。真机手工（数值微调）待跑 |
+| TC-022 | BUG-004 | `pxToCrop` 边界：x 在界内 / 恰好压界 / 远超界，w 最小 / 恰好 / 超界 | Vitest（[../src/utils/crop.test.ts](../src/utils/crop.test.ts)，矩阵见下方注）+ 手工（数值微调） | ⏳ 矩阵已固化进 Vitest（2026-09-25 `T-004`，`pnpm test` 常驻）；命令级脚本先已验证通过（2026-09-23）：**14 组期望值 + 4000 组随机扫描，12730 断言 0 失败**，同一矩阵在**修复前**实现上 1554 个非 null 结果里越界 **993** 个（CR 复现值精确复现）。真机手工（数值微调）待跑 |
 | TC-023 | BUG-005 | 合并页选 N 个文件、其中一个无法抽帧 → 其余缩略图仍显示 | `cargo test` 单测（真实 sidecar + lavfi 自建夹具，sidecar 缺失时跳过）+ 手工（合并页 UI） | ⏳ 命令级半已过（2026-09-23，`thumbnail_batch_skips_unreadable_file`：坏文件被跳过、其余两张返回且真的落盘；**把 `continue` 换回 `return Err` 该用例立即失败**，证明有灵敏度）；合并页 UI 半待跑 |
-| TC-024 | BUG-006 | 容器不被 WebView2 支持（如 `avi` / `flv` / `ts` / `wmv`，编码为 H.264/AAC 的"原生可播"组合）的素材 → `needsProxy` 为真、生成代理；`VIDEO_EXTENSIONS` 九种容器每种都有明确结论 | 命令级脚本（矩阵，见下方注）+ `cargo test`（`container` 原样透传）+ 手工（实际预览，复用 §3.2 的 `TC-018`） | ⏳ 命令级矩阵已通过（2026-09-23）：**27 条断言 0 失败**（9+7+7+4，分项见下方注），九种容器逐一断言，容器维度修复使 `avi/flv/ts/wmv` 四处判定翻转；`cargo test` 锁定 `container` 为原始 `format_name`（2 条）。**真机预览半待跑**（复用 `TC-018`，本轮已在该行写明 `BUG-006` 的回归素材口径） |
+| TC-024 | BUG-006 | 容器不被 WebView2 支持（如 `avi` / `flv` / `ts` / `wmv`，编码为 H.264/AAC 的"原生可播"组合）的素材 → `needsProxy` 为真、生成代理；`VIDEO_EXTENSIONS` 九种容器每种都有明确结论 | Vitest（[../src/utils/media.test.ts](../src/utils/media.test.ts)，矩阵见下方注）+ `cargo test`（`container` 原样透传）+ 手工（实际预览，复用 §3.2 的 `TC-018`） | ⏳ 矩阵已固化进 Vitest（2026-09-25 `T-004`，27 断言一比一转写）；命令级矩阵先已通过（2026-09-23）：**27 条断言 0 失败**（9+7+7+4，分项见下方注），九种容器逐一断言，容器维度修复使 `avi/flv/ts/wmv` 四处判定翻转；`cargo test` 锁定 `container` 为原始 `format_name`（2 条）。**真机预览半待跑**（复用 `TC-018`，本轮已在该行写明 `BUG-006` 的回归素材口径） |
 | TC-025 | BUG-007 | 关键帧吸附后**产物时长与首帧落点**等于界面承诺（界面 2.7s 而产物 4.036s 即为不过） | 真机 GUI（步骤见 [gui-e2e/cases-import-cut.md](./gui-e2e/cases-import-cut.md) TC-031） | ✅ 通过（2026-09-21 真机复验：产物 2.756s、首帧 pts 0.039333、h264+aac 原样 copy；修复前为 4.036s / 0.052667） |
 | TC-026 | BUG-008 | 关键帧列表**条数 == ffprobe 原始行数**、首项为 `0.0` 且严格升序 | 真机 GUI / `cargo test` 解析单测（步骤见 [gui-e2e/cases-import-cut.md](./gui-e2e/cases-import-cut.md) TC-030） | ⏳ 解析单测已通过（2 条，锁住"带额外空字段的行"不再被丢）；真机复跑待发起 |
 | TC-027 | BUG-009 | 非吸附入点下 UI **展示实际落点**（而非选区值） | 真机 GUI（步骤见 [gui-e2e/cases-import-cut.md](./gui-e2e/cases-import-cut.md) TC-031） | ✅ 通过（2026-09-21 真机复验：界面出现「实际入点 00:00:01.319」+ 落点虚线） |
-| TC-028 | BUG-010 | `cropToPx`（归一化→像素，拖拽框选路径）不得产出越界裁剪：`x + w ≤ dims`、偶数、含贴边与奇数尺寸 | 命令级脚本（同 TC-022）；**转 Vitest 见 PLAN `T-004`**；真机手工（拖到贴右边界后导出） | ⏳ 命令级扫描通过（2026-09-23）：3 组尺寸 × 3688320 组交互选区**越界 0**（修复前 1920×1080 为 792、101×57 为 19000 右 / 1844160 下）；真机待跑 |
+| TC-028 | BUG-010 | `cropToPx`（归一化→像素，拖拽框选路径）不得产出越界裁剪：`x + w ≤ dims`、偶数、含贴边与奇数尺寸 | Vitest（[../src/utils/crop.test.ts](../src/utils/crop.test.ts)，同 TC-022 一份文件）；真机手工（拖到贴右边界后导出） | ⏳ 矩阵已固化进 Vitest（2026-09-25 `T-004`：3 组复现值静态用例 + 3 尺寸 × 2000 组扫描，样本量自 3688320/组缩减、域与种子不变——见下方注）；命令级扫描先已通过（2026-09-23）：3 组尺寸 × 3688320 组交互选区**越界 0**（修复前 1920×1080 为 792、101×57 为 19000 右 / 1844160 下）；真机待跑 |
 | TC-029 | `ADR-033`（输出容器/扩展名口径） | 容器由命令决定、名字与之一致：copy 类跟随源容器、重编码类固定 mp4、用户给错扩展名时以封装为准校正；`.part` 与成品同扩展名；**校正撞名不静默覆盖**、**校正后撞上输入文件要报错** | `cargo test` 单测（`fs::with_container_ext` / `source_container_ext` / `output_path_for` / `reject_if_input_equals`）+ e2e（`output_container_follows_adr_033`，真实 ffmpeg + matroska 源） | ✅ 通过（2026-09-23）：单测 4 条 + e2e 1 条；e2e 用 matroska 源验证"copy 产物仍是 matroska、把名字写成 `.mkv` 的重编码产物被校正为 `.mp4` 且容器确为 mp4"。**覆盖边界**：`merge`/`pipeline` 的容器决策与 `add_output` 在作业体内（需 AppHandle），命令级无自动化回归，靠走查 + 上面的原语测试兜底 |
 | TC-039 | BUG-011 | 输出=输入的同一性守卫**不可被写法差异绕过**：大小写、末尾点/空格、`..` 绕行都判为同一文件；退化输入（空路径、只有文件名、父目录不存在）不 panic 且放行；两处守卫共用同一实现 | `cargo test` 单测（`fs::same_path` 4 条 + `reject_if_input_equals` 经守卫路径；2 条为 `#[cfg(windows)]`） | ✅ 通过（2026-09-24）：81 单测全绿。**灵敏度已验证**：把 `same_path` 临时改成 `a == b`（模拟改动前的逐字符比较）后，`same_path_normalizes_dotdot_detour` 与 `same_path_ignores_case_on_windows` 立即失败。**实测澄清**：`/` 与 `\` 混用、`./` 前缀在 Rust `Path` 里本来就相等（按组件比较），**不是**绕过途径；真正能绕过的是大小写、末尾点/空格、`..` 绕行 |
 
-> **TC-022 / TC-028 边界矩阵**（**转写为 Vitest 用例的工作登记为 PLAN `T-004`**——载体已在 `M11-0` 就位（2026-09-24），但这两组矩阵本身尚未进 `src/utils/` 的测试文件）：
+> **TC-022 / TC-028 边界矩阵**（2026-09-25 `T-004` 已固化为 [../src/utils/crop.test.ts](../src/utils/crop.test.ts)——下列静态期望值一比一转写，随机扫描同域同种子；固化口径见本节末）：
 >
 > **A. `pxToCrop`（数值输入 → 归一化选区，TC-022）**——`dims=200×200`、`w=h=16`，除非另注：
 > 1. `x` 界内 `0`/`8` → 原样；**恰好压界** `184` → 原样；超界 `190`/`300` → 锚点回钳到 `184`；负值 `-5` → 贴 `0`（同上，`y` 对称）
@@ -114,9 +114,9 @@
 > 3. 退化输入（单击 → `nw=nh=0`）：`dims=101×57`、`nx=ny=1` → `x=100, w=0`（修复前 `x=102 > 101`）
 > 4. 不变量（3 组尺寸 × 3688320 组交互选区）：`x ≤ dims.w`、`y ≤ dims.h`、`x + w ≤ dims.w`、`y + h ≤ dims.h`、宽高为偶数
 >
-> 以上命令级验证用**一次性脚本**（`node --experimental-strip-types` 直跑 TS，脚本不入库）：随机扫描域 = `dims` 各维 `16..415`、`x/y/w/h ∈ [−50, 550]`，固定种子 `20260923`；**Vitest 载体已就位（`M11-0`）**，按同域同种子固化为用例的工作见 PLAN `T-004`（固化时按 T-004 的说明缩减随机样本量并写明）。
+> 以上矩阵 2026-09-23 用**一次性脚本**（`node --experimental-strip-types` 直跑 TS，脚本不入库）验证；2026-09-25 `T-004` 固化为 `src/utils/crop.test.ts` 常驻用例，口径：**域不变**（TC-022 = `dims` 各维 `16..415`、`x/y/w/h ∈ [−50, 550]`；TC-028 = 交互选区以整数像素对采样近似——生产路径 `CropOverlay` 产出连续浮点、浮点侧由钳制不变量覆盖；尺寸组第三组原记录未留名，取最小合法画面 16×16）、**种子不变**（`20260923`）、TC-022 样本量保持 4000、TC-028 由 3688320/组缩到 2000/组（边界由静态复现值兜住，扫描只兜不变量回归）。原脚本的 PRNG 算法未随矩阵入库、无法逐位复现，固化时在用例内固定 mulberry32 实现——从此同种子必然同序列。TC-022 的 `nx + nw ≤ 1` 在浮点下可能超 1 一个 ulp（`x + w = dims` 时），用例带 `1e-9` 容差并以像素侧回投影断言兜底。
 
-> **TC-024 容器矩阵**（同样是一次性命令级脚本，**转写为 Vitest 用例的工作见 PLAN `T-004`**；`utils/media.ts` 的 `containerPlayable` 目前是私有函数，固化时需一并决定导出或用例入口）——容器取值 = **真实 ffprobe 9.0.1 实测的 `format_name`**（lavfi 夹具，`-c:v libx264 -pix_fmt yuv420p -c:a aac`；九种容器的编码**全是**原生可播组合，正是 `BUG-006` 的陷阱）。**断言数 27 = 9（A 段）+ 7（B 段）+ 7（C 段）+ 4（D 段）**：
+> **TC-024 容器矩阵**（2026-09-23 一次性命令级脚本验证；2026-09-25 `T-004` 固化为 [../src/utils/media.test.ts](../src/utils/media.test.ts)，27 断言一比一转写；`utils/media.ts` 的 `containerPlayable` 已随之导出作用例入口）——容器取值 = **真实 ffprobe 9.0.1 实测的 `format_name`**（lavfi 夹具，`-c:v libx264 -pix_fmt yuv420p -c:a aac`；九种容器的编码**全是**原生可播组合，正是 `BUG-006` 的陷阱）。**断言数 27 = 9（A 段）+ 7（B 段）+ 7（C 段）+ 4（D 段）**：
 > 1. **A. 九种容器 → 判定**：`mp4`/`mov`/`m4v` = `mov,mp4,m4a,3gp,3g2,mj2`（首位 `mov`）→ **不代理**；`mkv`/`webm` = `matroska,webm`（首位 `matroska`）→ **不代理**；`avi` = `avi`、`flv` = `flv`、`ts` = `mpegts`、`wmv` = `asf` → **代理**（修复前这四处均为"不代理"，即本缺陷）
 > 2. **B. 其余三维回归**：`h265` → 代理；`yuv420p10le` → 代理；`ac3` / 多音轨 `aac+eac3` → 代理；无音轨 → 不代理；`vp9+opus`、`vorbis` → 不代理
 > 3. **C. 容器串健壮性**：全大写 `MOV,MP4,…`、带空格 `" matroska , webm "` → 不代理（小写 + trim）；空串 / `unknown` → **代理**；**跨族列表取首位**——`mpegts,matroska` 与 `avi,mp4` → **代理**（首位不可播，保守方向），`matroska,mpegts` → 不代理（首位可播）
