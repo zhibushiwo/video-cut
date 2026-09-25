@@ -8,12 +8,6 @@ import type { Clip, MediaInfo, PageName } from "../../types";
 
 export type EditorTab = "rotate" | "crop";
 
-/**
- * 片段"全段 vs 区间"的判定阈值（秒）：区间时长 ≤ 此值视为全段（`seg: null`）。
- * 「添加为片段」（CutModeView）与导出映射（index.tsx）两处共用，口径不能再漂移。
- */
-export const MIN_SEG_DURATION_SEC = 0.05;
-
 /** 素材：导入的源文件（§3.8 三层数据模型之一） */
 export interface SourceFile {
   id: string;

@@ -1,5 +1,13 @@
 /** 时间格式化与解析。全程 f64 秒流转，仅展示层格式化（DESIGN §5.2/§15-12）。 */
 
+/**
+ * 最短有效片段时长（秒，M6-8「空段」口径）：区间 ≤ 此值视为空段，导出映射规范为整段
+ * （`seg: null`）。`BUG-012` 裁决（2026-09-25）后它同时是**命令层切割/修剪的钳制下限**
+ * （`utils/undo/commands.ts::minSegSec`）——"建得出来的片段一定可导出"。原在工作台
+ * `shared.ts`，因命令层需要而上提为跨层共享（剪切页 CutModeView / 导出映射 / builder 三处同源）。
+ */
+export const MIN_SEG_DURATION_SEC = 0.05;
+
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }

@@ -17,7 +17,8 @@ import {
   buildSplit,
   buildTrim,
   commandFromJSON,
-  DEFAULT_FPS,
+  exportSegmentOf,
+  minSegSec,
   productDurationOf,
 } from "./commands";
 import { createUndoStack } from "./store";
@@ -203,35 +204,40 @@ describe("钳制域（plans/M11.md §18.1）", () => {
     expect(buildTrim("a", "in", 0)(full, c)).toBeNull();
   });
 
-  it("trim 至少保留 1 帧（入点不得超过出点、出点不得低于入点）", () => {
+  it("trim 至少保留最短时长（max(1帧, 0.05s)，BUG-012 裁决）", () => {
     const d0 = docOf([clip("a", 0, DUR)]);
     const c = ctx();
+    // FPS=25 → 1 帧 0.04s < 0.05s → 下限取 0.05s（与导出映射阈值对齐，建得出即可导出）
     expect(segOf({ after: buildTrim("a", "in", 99)(d0, c)!.after }, "a")).toEqual({
-      start: DUR - 1 / FPS,
+      start: DUR - 0.05,
       end: DUR,
     });
     expect(segOf({ after: buildTrim("a", "out", -3)(d0, c)!.after }, "a")).toEqual({
       start: 0,
-      end: 1 / FPS,
+      end: 0.05,
     });
   });
 
-  it("fps 未知时按 DEFAULT_FPS 钳制", () => {
+  it("fps 未知时按 DEFAULT_FPS 钳制（仍不低于 0.05s）", () => {
     const d0 = docOf([clip("a", 0, DUR)]);
     const c: BuildCtx = { source: () => ({ fps: 0, durationSec: DUR }), newId: () => "x" };
     expect(segOf({ after: buildTrim("a", "in", 99)(d0, c)!.after }, "a")).toEqual({
-      start: DUR - 1 / DEFAULT_FPS,
+      start: DUR - 0.05,
       end: DUR,
     });
   });
 
-  it("split 距边缘 <1 帧判非法（两侧都算）", () => {
+  it("split 距边缘不足最短时长判非法（两侧都算）", () => {
     // 注意 productTime 是**成品**坐标：片段 a 的成品区间是 [0, 4)（源内 [2, 6)）
     const d0 = docOf([clip("a", 2, 6)]);
     const c = ctx();
     expect(buildSplit("a", 1 / FPS / 2)(d0, c)).toBeNull(); // 贴入点半帧
     expect(buildSplit("a", 4 - 1 / FPS / 2)(d0, c)).toBeNull(); // 贴出点半帧
-    expect(buildSplit("a", 1 / FPS)(d0, c)).not.toBeNull(); // 恰好 1 帧 → 合法
+    // BUG-012 回归：[1 帧, 0.05s) 的短半段此前合法可建、导出却被规范成整段——
+    // 裁决（2026-09-25）= 命令层下限抬到 max(1帧, 0.05s)，短半段直接 no-op
+    expect(buildSplit("a", 0.045)(d0, c)).toBeNull(); // 0.045s ≥ 1 帧(0.04) 但 < 0.05s
+    expect(buildSplit("a", 4 - 0.045)(d0, c)).toBeNull();
+    expect(buildSplit("a", 0.05)(d0, c)).not.toBeNull(); // 恰好下限 → 合法且可导出
     expect(buildSplit("a", 4 + 1 / FPS)(d0, c)).toBeNull(); // 完全在片段之外
   });
 
@@ -376,5 +382,28 @@ describe("productDurationOf（片段成品时长的唯一实现）", () => {
 
   it("退化输入（负跨度）钳为 0", () => {
     expect(productDurationOf({ start: 5, end: 2 }, DUR)).toBe(0);
+  });
+});
+
+// ------------------------------------------------- 最短片段下限（M11-6 / BUG-012 裁决）
+
+describe("minSegSec / exportSegmentOf（BUG-012 裁决：建得出来的一定可导出）", () => {
+  it("minSegSec = max(1 帧, 0.05s)：普通/高帧率取 0.05，低帧率取 1 帧", () => {
+    expect(minSegSec(25)).toBe(0.05); // 1 帧 0.04 < 0.05
+    expect(minSegSec(120)).toBe(0.05);
+    expect(minSegSec(10)).toBe(0.1); // 1 帧 0.1 ≥ 0.05 → 取帧
+    expect(minSegSec(0)).toBe(0.05); // 未知按 DEFAULT_FPS(30) → 0.033 < 0.05
+  });
+
+  it("exportSegmentOf：整段→null；正常区间原样；空段吞掉；下限边界 1µs 容差内保留", () => {
+    expect(exportSegmentOf(null)).toBeNull();
+    expect(exportSegmentOf({ start: 2, end: 6 })).toEqual({ startSec: 2, endSec: 6 });
+    expect(exportSegmentOf({ start: 1, end: 1.04 })).toBeNull(); // 0.04s 空段
+    // builder 恰好钳到 0.05s 下限时，浮点减法可能差 1ulp——不得被吞成整段（BUG-012 闭合点）
+    expect(exportSegmentOf({ start: 1, end: 1.05 })).toEqual({ startSec: 1, endSec: 1.05 });
+    expect(exportSegmentOf({ start: 1, end: 1.05 - 1e-9 })).toEqual({
+      startSec: 1,
+      endSec: 1.05 - 1e-9,
+    });
   });
 });

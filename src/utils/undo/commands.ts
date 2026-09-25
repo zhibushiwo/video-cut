@@ -9,6 +9,7 @@
  * - 一次用户手势 = 一条命令：批量手势用 [`buildComposite`] 合成。
  */
 import type { Clip } from "../../types";
+import { MIN_SEG_DURATION_SEC } from "../time";
 import type {
   BuildCtx,
   CommandBuilder,
@@ -20,7 +21,12 @@ import type {
 
 /** fps 未知时的钳制粒度（plans/M11.md §18.1：钳制按帧，fps 缺失按 30） */
 export const DEFAULT_FPS = 30;
-/** 端点比较精度（秒）：低于它视为同一个点，避免浮点末位差生成空命令 */
+/**
+ * 浮点容差（秒，1µs），两个用途刻意共用同一量级、避免"同值不同名"各自漂移：
+ * ① 端点同一判定（[`sameNum`] / [`computeTrim`] 的整段规范化）；
+ * ② 导出映射空段阈值的边界容差（[`exportSegmentOf`]，`BUG-012`——钳到下限的
+ *    1ulp 差不得把段吞成整段）。
+ */
 const EPS = 1e-6;
 
 /** 修剪的哪一端 */
@@ -63,10 +69,16 @@ function sameOrder(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((x, i) => x === b[i]);
 }
 
-/** 钳制粒度：1 帧（fps 未知按 [`DEFAULT_FPS`]） */
-function frameSec(ctx: BuildCtx, clipId: string): number {
-  const fps = ctx.source(clipId)?.fps ?? 0;
-  return 1 / (fps > 0 ? fps : DEFAULT_FPS);
+/**
+ * 切割/修剪共用的最短保留时长（秒）：`max(1 帧, MIN_SEG_DURATION_SEC)`。
+ *
+ * `BUG-012` 裁决（2026-09-25）：命令层下限从"1 帧"抬到与导出映射的空段阈值
+ * （`MIN_SEG_DURATION_SEC`，M6-8 口径）**对齐**——否则 [1帧, 0.05s) 的短片段建得出来、
+ * 导出却被规范成整段（违反 §17.9⑤"任意时间线状态导出正确"）。fps ≤ 20 的源 1 帧比
+ * 0.05s 更长，仍按 1 帧。
+ */
+export function minSegSec(fps: number): number {
+  return Math.max(1 / (fps > 0 ? fps : DEFAULT_FPS), MIN_SEG_DURATION_SEC);
 }
 
 /** 片段在源内的有效区间（`seg: null` = 整段） */
@@ -175,7 +187,8 @@ export function buildRemoveAndDelete(clipId: string): CommandBuilder {
  * 切割（C / 右键）：`productTime` 是**成品时间轴**上的秒数。
  *
  * 源内换算：`sourceSplit = clip.in + (productTime − 片段在成品内的起点)`（TIMELINE.md §17.2）。
- * 距任一端点 <1 帧判非法；两半各继承原片段的加工状态（rot/crop/lockRatio）；新片段入池末尾。
+ * 落在片段外或任一半不足 [`minSegSec`] 判非法；两半各继承原片段的加工状态（rot/crop/lockRatio）；
+ * 新片段入池末尾。
  */
 export function buildSplit(clipId: string, productTime: number): CommandBuilder {
   return (doc, ctx) => {
@@ -185,7 +198,7 @@ export function buildSplit(clipId: string, productTime: number): CommandBuilder 
     if (!clip || idx < 0) return null;
     const durationSec = ctx.source(clipId)?.durationSec ?? 0;
     if (durationSec <= 0) return null; // 源未探测：无从换算
-    const frame = frameSec(ctx, clipId);
+    const minSeg = minSegSec(ctx.source(clipId)?.fps ?? 0);
     const { start: inPoint, end: outPoint } = clipRange(clip, durationSec);
 
     // 片段在成品内的起点 = 前面各片段的成品时长之和（顺序即位置的直接推论，无空隙模型）
@@ -193,7 +206,8 @@ export function buildSplit(clipId: string, productTime: number): CommandBuilder 
     for (const id of doc.timeline.slice(0, idx)) offset += productDuration(doc, ctx, id);
     const local = productTime - offset;
     const len = outPoint - inPoint;
-    if (local < frame || len - local < frame) return null; // 落在片段外或距边缘 <1 帧
+    // 落在片段外，或任一半不足最短保留时长（BUG-012：max(1帧, 0.05s)——半段建出来也导不出）
+    if (local < minSeg || len - local < minSeg) return null;
 
     const srcSplit = inPoint + local;
     const left: Clip = { ...clip, id: ctx.newId(), seg: { start: inPoint, end: srcSplit } };
@@ -210,39 +224,71 @@ export function buildSplit(clipId: string, productTime: number): CommandBuilder 
 }
 
 /**
- * 边缘修剪：新端点按**源内时间**给（`srcTime`），钳制到 `[0, 源时长]` 且区间 ≥1 帧
- * （入边 ≤ 出边 − 1 帧，出边 ≥ 入边 + 1 帧）。
+ * 修剪钳制核心：预览（ClipTimeline 拖动中的 tooltip/块形）与提交（[`buildTrim`]）**共用**
+ * 同一实现，保证"看到的就是松手后会得到的"。新端点钳到 `[0, 源时长]` 且有效区间 ≥
+ * [`minSegSec`]（`BUG-012`：与导出映射阈值对齐）。
  *
- * 钳到整段时回写 `seg: null`（规范形态——导出映射与 no-op 判定都靠它）。
+ * 返回 `null` = 输入非法（非有限数 / 源时长非正）；`seg` 已做规范形态
+ * （钳到整段 → `null`，导出映射与 no-op 判定都依赖它）。
+ */
+export function computeTrim(
+  cur: { start: number; end: number },
+  durationSec: number,
+  fps: number,
+  edge: TrimEdge,
+  srcTime: number,
+): { seg: Clip["seg"]; start: number; end: number } | null {
+  if (!Number.isFinite(srcTime) || durationSec <= 0) return null;
+  const minSeg = minSegSec(fps);
+  let { start, end } = cur;
+  if (edge === "in") {
+    start = clamp(srcTime, 0, Math.max(0, end - minSeg));
+  } else {
+    end = clamp(srcTime, Math.min(durationSec, start + minSeg), durationSec);
+  }
+  const seg = start <= EPS && end >= durationSec - EPS ? null : { start, end };
+  return { seg, start, end };
+}
+
+/**
+ * 边缘修剪：新端点按**源内时间**给（`srcTime`），钳制与规范形态见 [`computeTrim`]。
  */
 export function buildTrim(clipId: string, edge: TrimEdge, srcTime: number): CommandBuilder {
   return (doc, ctx) => {
-    if (!Number.isFinite(srcTime)) return null;
     const clip = doc.clips.find((c) => c.id === clipId);
     if (!clip) return null;
-    const durationSec = ctx.source(clipId)?.durationSec ?? 0;
-    if (durationSec <= 0) return null; // 源未探测：无从钳制
-    const frame = frameSec(ctx, clipId);
+    const src = ctx.source(clipId);
+    const durationSec = src?.durationSec ?? 0;
     const cur = clipRange(clip, durationSec);
-
-    let { start, end } = cur;
-    if (edge === "in") {
-      start = clamp(srcTime, 0, Math.max(0, end - frame));
-    } else {
-      end = clamp(srcTime, Math.min(durationSec, start + frame), durationSec);
-    }
+    const next = computeTrim(cur, durationSec, src?.fps ?? 0, edge, srcTime);
+    if (!next) return null; // 源未探测：无从钳制
 
     // no-op 判定比的是**有效区间**（而不是表示形态）：`seg: null` 与 `{0, 源时长}` 内容相同，
     // 只因为写法不同就入栈会留下"撤销了但看不出变化"的脏历史。
-    if (sameNum(start, cur.start) && sameNum(end, cur.end)) return null;
+    if (sameNum(next.start, cur.start) && sameNum(next.end, cur.end)) return null;
 
-    // 钳到整段时回写规范形态 null（导出映射与 no-op 判定都依赖它）
-    const seg = start <= EPS && end >= durationSec - EPS ? null : { start, end };
     return command(edge === "in" ? "修剪入点" : "修剪出点", slices(doc), {
-      clips: doc.clips.map((c) => (c.id === clipId ? { ...c, seg } : c)),
+      clips: doc.clips.map((c) => (c.id === clipId ? { ...c, seg: next.seg } : c)),
       timeline: doc.timeline,
     });
   };
+}
+
+/**
+ * 文档片段 → 导出映射的 `segment` 字段（Workbench payload 的**唯一实现**，R2-2 同款收敛思路）：
+ * 区间时长 > `MIN_SEG_DURATION_SEC − 容差` 才作为有效段下发，否则规范为 `null`（整段）。
+ *
+ * M6-8 空段口径；`BUG-012` 裁决后命令层下限与该阈值对齐（[`minSegSec`]），判定留 1µs 容差
+ * （[`EPS`]）吸收"恰好钳到下限"的浮点末位差——builder 建出的任何片段都不会在这里被吞成
+ * 整段。后端提交期校验是同式同源的 `commands::valid_segment_span`（src-tauri），改动必须两侧同批。
+ */
+export function exportSegmentOf(
+  seg: Clip["seg"],
+): { startSec: number; endSec: number } | null {
+  if (!seg) return null;
+  return seg.end - seg.start > MIN_SEG_DURATION_SEC - EPS
+    ? { startSec: seg.start, endSec: seg.end }
+    : null;
 }
 
 /**

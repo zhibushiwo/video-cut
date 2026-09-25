@@ -122,3 +122,71 @@ export function buildGeometry(durations: number[], pps: number): Geometry {
     },
   };
 }
+
+// ------------------------------------------------------------ 修剪手势（M11-6，§18.5 状态机）
+
+/** 修剪热区命中结果：块下标 + 修哪条边 */
+export interface TrimHit {
+  index: number;
+  edge: "in" | "out";
+}
+
+/**
+ * 修剪热区（plans/M11.md §18.5 状态机 ①）：扫描全部块的入/出边取**全局最近**者，
+ * 距离 ≤ `hotPx` 才命中。相邻块共享边界（左块出边与右块入边的 px 坐标逐位相等——
+ * 差值法无缝的推论），规格"只归属更近一侧"在等距时无法消歧，细化为**按指针侧归属**：
+ * 指针压在边界左侧 = 左块的出边、右侧（含恰好压线）= 右块的入边——"按在谁家门前就修谁"，
+ * 2n 条边全部可达。
+ */
+export function findTrimEdge(
+  blocks: readonly BlockRect[],
+  worldX: number,
+  hotPx: number,
+): TrimHit | null {
+  let best: (TrimHit & { d: number; x: number }) | null = null;
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    if (!b) continue;
+    for (const [edge, x] of [
+      ["in", b.left],
+      ["out", b.left + b.width],
+    ] as const) {
+      const d = Math.abs(worldX - x);
+      if (d > hotPx) continue;
+      if (!best || d < best.d) {
+        best = { index: i, edge, d, x };
+      } else if (d === best.d && x === best.x) {
+        // 共享边界的双侧候选（x 逐位相等）：按指针侧归属
+        best =
+          worldX < x
+            ? { index: Math.max(0, i - 1), edge: "out", d, x }
+            : { index: i, edge: "in", d, x };
+      }
+    }
+  }
+  return best ? { index: best.index, edge: best.edge } : null;
+}
+
+/**
+ * 关键帧吸附（§17.4 修剪边缘；S 开关 / Alt 旁路由调用方管）：距最近关键帧
+ * ≤ `thresholdSec` 秒 → 吸附到该关键帧，否则原样返回。`keyframes` 未加载（undefined）/
+ * 为空、阈值非正 → 原值（未加载时静默不吸附，手势不被取数延迟拖住）。距离并列取
+ * 后扫描者（与 [`snapToEdge`] 同约定）。
+ */
+export function snapToKeyframe(
+  t: number,
+  keyframes: readonly number[] | undefined,
+  thresholdSec: number,
+): number {
+  if (!keyframes || keyframes.length === 0 || !(thresholdSec > 0)) return t;
+  let best = t;
+  let bestDist = thresholdSec;
+  for (const kf of keyframes) {
+    const d = Math.abs(kf - t);
+    if (d <= bestDist) {
+      bestDist = d;
+      best = kf;
+    }
+  }
+  return best;
+}

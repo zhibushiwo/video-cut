@@ -111,6 +111,7 @@ export default function App() {
           env={env}
           onNavigate={navigate}
           initialFiles={pending}
+          onUpdateSettings={updateSettings}
         />
       )}
       <TaskProgress autoCloseSec={settings.toastAutoCloseSec} />

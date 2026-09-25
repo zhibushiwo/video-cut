@@ -5,8 +5,10 @@ import {
   PPS_MIN,
   buildGeometry,
   clampPps,
+  findTrimEdge,
   fitPps,
   snapToEdge,
+  snapToKeyframe,
   tickStep,
 } from "./geometry";
 
@@ -148,5 +150,58 @@ describe("buildGeometry（世界坐标 + 差值法，§17.3）", () => {
       const t = rand() * geo.total;
       expect(Math.abs(geo.xToTime(geo.timeToX(t)) - t)).toBeLessThanOrEqual(0.5 / pps);
     }
+  });
+});
+
+// ------------------------------------------------- 修剪热区 / 关键帧吸附（M11-6，§18.5）
+
+describe("findTrimEdge（修剪热区：全局最近边缘，≤8px）", () => {
+  const HOT = 8;
+  // 三块：[0,100) [100,300) [300,360)——共享边界 100 与 300
+  const blocks = [
+    { left: 0, width: 100 },
+    { left: 100, width: 200 },
+    { left: 300, width: 60 },
+  ];
+
+  it("块中部不命中；首块入边 / 末块出边可达", () => {
+    expect(findTrimEdge(blocks, 50, HOT)).toBeNull();
+    expect(findTrimEdge(blocks, 3, HOT)).toEqual({ index: 0, edge: "in" });
+    expect(findTrimEdge(blocks, 358, HOT)).toEqual({ index: 2, edge: "out" });
+  });
+
+  it("共享边界按指针侧归属：压线左侧 = 左块出边，右侧（含恰好压线）= 右块入边", () => {
+    expect(findTrimEdge(blocks, 97, HOT)).toEqual({ index: 0, edge: "out" });
+    expect(findTrimEdge(blocks, 100, HOT)).toEqual({ index: 1, edge: "in" });
+    expect(findTrimEdge(blocks, 103, HOT)).toEqual({ index: 1, edge: "in" });
+    expect(findTrimEdge(blocks, 295, HOT)).toEqual({ index: 1, edge: "out" });
+    expect(findTrimEdge(blocks, 306, HOT)).toEqual({ index: 2, edge: "in" });
+  });
+
+  it("热区外（>8px）不命中；恰 8px 含边界命中；末块右缘外的空白尾区仍可命中出边", () => {
+    expect(findTrimEdge(blocks, 91, HOT)).toBeNull();
+    expect(findTrimEdge(blocks, 109, HOT)).toBeNull();
+    expect(findTrimEdge(blocks, 108, HOT)).toEqual({ index: 1, edge: "in" }); // 恰 8px 含边界
+    expect(findTrimEdge(blocks, 366, HOT)).toEqual({ index: 2, edge: "out" });
+    expect(findTrimEdge(blocks, 400, HOT)).toBeNull();
+  });
+});
+
+describe("snapToKeyframe（修剪边缘关键帧吸附）", () => {
+  const kfs = [1, 2.5, 5];
+
+  it("阈值内吸到最近关键帧；阈值外原样返回", () => {
+    expect(snapToKeyframe(2.2, kfs, 0.4)).toBe(2.5); // |2.2−2.5| = 0.3 ≤ 0.4
+    expect(snapToKeyframe(2.2, kfs, 0.2)).toBe(2.2); // 0.3 > 0.2 不吸
+  });
+
+  it("keyframes 未加载 / 为空 / 阈值非正 → 原样返回（静默降级）", () => {
+    expect(snapToKeyframe(2.2, undefined, 0.4)).toBe(2.2);
+    expect(snapToKeyframe(2.2, [], 0.4)).toBe(2.2);
+    expect(snapToKeyframe(2.2, kfs, 0)).toBe(2.2);
+  });
+
+  it("距离并列取后扫描者（升序关键帧 = 更靠右者，与 snapToEdge 同约定）", () => {
+    expect(snapToKeyframe(1.75, kfs, 0.75)).toBe(2.5); // 到 1 与 2.5 等距
   });
 });

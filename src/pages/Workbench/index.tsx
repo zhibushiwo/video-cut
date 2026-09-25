@@ -23,6 +23,7 @@ import {
   fileExists,
   generateClipThumbnails,
   generateThumbnails,
+  listKeyframes,
   pickVideos,
   probeMedia,
   submitTask,
@@ -51,8 +52,11 @@ import {
   buildReorder,
   buildRemoveFromTimeline,
   buildSplit,
+  buildTrim,
   DEFAULT_FPS,
+  exportSegmentOf,
   productDurationOf,
+  type TrimEdge,
 } from "../../utils/undo/commands";
 import { useUndoStack } from "../../utils/undo/store";
 import type { BuildCtx, CommandBuilder, EditorDoc } from "../../utils/undo/types";
@@ -65,7 +69,6 @@ import { WorkbenchHeader } from "./Header";
 import {
   displayedDims,
   freshId,
-  MIN_SEG_DURATION_SEC,
   newClipOf,
   type ClipEdit,
   type PreviewMode,
@@ -78,12 +81,15 @@ export default function WorkbenchPage({
   env,
   onNavigate,
   initialFiles,
+  onUpdateSettings,
 }: {
   settings: AppSettings;
   /** FFmpeg 环境状态（App 启动检测；落地页头部展示） */
   env: EnvironmentInfo | null;
   onNavigate: (page: PageName) => void;
   initialFiles?: string[] | null;
+  /** 设置项写回（M11-6：S 键切换关键帧吸附 write-through，决策 #30 同源切换） */
+  onUpdateSettings: (patch: Partial<AppSettings>) => void;
 }) {
   const [files, setFiles] = useState<SourceFile[]>([]);
   /**
@@ -118,6 +124,44 @@ export default function WorkbenchPage({
   // 时间轴块选中（M11-4，§17.4 选择）：独立 UI state，不入撤销栈。块点击 = 选中 + 进加工
   // 视图（加工的直达入口；M11-8 右键「加工」菜单落地后点击是否仍切模式再裁）；点空白取消。
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null);
+
+  // 修剪预览融合（M11-6 §18.5 状态机 ③）：手势逐 move 只进 ref（不逐帧重渲染页面），
+  // 300ms 尾随防抖后进 state → payload 融合 → check_pipeline（徽标实时）；null = 手势结束
+  const [trimPreviewSeg, setTrimPreviewSeg] = useState<{
+    clipId: string;
+    seg: { start: number; end: number } | null;
+  } | null>(null);
+  const trimPreviewRef = useRef(trimPreviewSeg);
+  const trimPreviewTimer = useRef<number | null>(null);
+  const onTrimPreview = useCallback(
+    (p: { clipId: string; seg: { start: number; end: number } | null } | null) => {
+      trimPreviewRef.current = p;
+      if (trimPreviewTimer.current !== null) {
+        window.clearTimeout(trimPreviewTimer.current);
+        trimPreviewTimer.current = null;
+      }
+      if (p === null) {
+        setTrimPreviewSeg(null); // 提交 / Esc / pointercancel：立即清除融合
+        return;
+      }
+      trimPreviewTimer.current = window.setTimeout(() => {
+        trimPreviewTimer.current = null;
+        setTrimPreviewSeg(trimPreviewRef.current);
+      }, 300);
+    },
+    [],
+  );
+  useEffect(
+    () => () => {
+      if (trimPreviewTimer.current !== null) window.clearTimeout(trimPreviewTimer.current);
+    },
+    [],
+  );
+
+  // 源关键帧懒加载（M11-6 §18.5 状态机 ④）：修剪手势起手时按源拉取一次（后端 B1 缓存）；
+  // 失败记为空数组防反复请求（吸附静默降级为不吸附）
+  const [keyframesBySource, setKeyframesBySource] = useState<Record<string, number[]>>({});
+  const keyframesLoadingRef = useRef<Set<string>>(new Set());
 
   // 播放头渲染路径（M11-3，plans/M11.md §18.4）：权威播放头是 ref——ProductPreview 的
   // rAF tick 每帧直写它与时间轴播放头 DOM 的 transform（整条路径 0 个 setState）；
@@ -171,6 +215,24 @@ export default function WorkbenchPage({
       return src ? `${src.path}@${t.toFixed(2)}` : "";
     },
     [clipSource],
+  );
+
+  /** 修剪手势起手（M11-6 §18.5 状态机 ④）：按片段的源懒加载关键帧（B1 缓存兜底） */
+  const onTrimStart = useCallback(
+    (clipId: string) => {
+      const clip = clips.find((c) => c.id === clipId);
+      const src = clip ? fileById(clip.sourceId) : null;
+      if (!src || !src.info) return;
+      if (keyframesBySource[src.id] || keyframesLoadingRef.current.has(src.id)) return;
+      keyframesLoadingRef.current.add(src.id);
+      listKeyframes(src.path)
+        .then((list) => setKeyframesBySource((prev) => ({ ...prev, [src.id]: list })))
+        .catch(() => setKeyframesBySource((prev) => ({ ...prev, [src.id]: [] })))
+        .finally(() => {
+          keyframesLoadingRef.current.delete(src.id);
+        });
+    },
+    [clips, fileById, keyframesBySource],
   );
 
   /** 命令层上下文（plans/M11.md §18.1）：钳制用的源参数 + id 分配 */
@@ -395,27 +457,60 @@ export default function WorkbenchPage({
   );
 
   /**
-   * C 键切割（M11-5，§17.2/§18.5）：播放头处一刀两段。命中检测用 timeline 前缀和
-   * （与 buildSplit 内部的 offset 求和同式同源），命中后把**成品时间**交给 builder——
-   * 源内换算（`srcSplit = in + local`）与"距边缘 <1 帧 / 不在片段上判 no-op"都在
-   * builder 内；右键菜单入口归 M11-8。
+   * 成品时间 → 命中片段与前缀偏移（M11-5 前缀和命中的共用形态：切割 / 修剪到播放头
+   * 同源；与 buildSplit 内部的 offset 求和同式同源——同用 `productDurationOf` 同序累加，
+   * 浮点逐位一致）。
+   */
+  const locateProduct = useCallback(
+    (t: number): { clip: Clip; offset: number } | null => {
+      let acc = 0;
+      for (const id of timeline) {
+        const clip = clips.find((c) => c.id === id);
+        if (!clip) continue;
+        const dur = clipDuration(clip);
+        if (t < acc + dur) return { clip, offset: acc };
+        acc += dur;
+      }
+      return null;
+    },
+    [timeline, clips, clipDuration],
+  );
+
+  /**
+   * C 键切割（M11-5，§17.2/§18.5）：播放头处一刀两段，**成品时间**直接交给 builder——
+   * 源内换算与"距边缘不足最短时长 / 不在片段上判 no-op"都在 builder 内；
+   * 右键菜单入口归 M11-8（届时命中检测抽 geometry 勿复制）。
    */
   const splitAtPlayhead = useCallback(() => {
-    const t = playheadRef.current;
-    let acc = 0;
-    for (const id of timeline) {
-      const clip = clips.find((c) => c.id === id);
-      if (!clip) continue;
-      const dur = clipDuration(clip);
-      if (t < acc + dur) {
-        execute(buildSplit(id, t));
-        setCheck(null);
-        return;
-      }
-      acc += dur;
-    }
-    // 播放头不在任何片段上（含恰好压边）→ 不动（builder 亦会判 no-op）
-  }, [timeline, clips, clipDuration, execute]);
+    const hit = locateProduct(playheadRef.current);
+    if (!hit) return; // 播放头不在任何片段上（含恰好压边）→ 不动（builder 亦会判 no-op）
+    execute(buildSplit(hit.clip.id, playheadRef.current));
+    setCheck(null);
+  }, [locateProduct, execute]);
+
+  /**
+   * 修剪提交（M11-6 §18.5 状态机 ⑤）：源内时间已由手势预钳制（computeTrim 同实现），
+   * builder 再钳一次（幂等）并入栈一条；检测缓存立即失效。
+   */
+  const onTrimCommit = useCallback(
+    (clipId: string, edge: TrimEdge, srcTime: number) => {
+      execute(buildTrim(clipId, edge, srcTime));
+      setCheck(null);
+    },
+    [execute],
+  );
+
+  /** 双击边缘 = 修剪到播放头（§17.4）：播放头在该片段内才生效，源内换算同 §17.2 */
+  const onTrimToPlayhead = useCallback(
+    (clipId: string, edge: TrimEdge) => {
+      const t = playheadRef.current;
+      const hit = locateProduct(t);
+      if (!hit || hit.clip.id !== clipId) return;
+      execute(buildTrim(clipId, edge, (hit.clip.seg?.start ?? 0) + (t - hit.offset)));
+      setCheck(null);
+    },
+    [locateProduct, execute],
+  );
 
   /** 池「+」加入时间轴末尾（已在轴上 = 无操作，保持既有语义） */
   const appendToTimeline = useCallback(
@@ -492,12 +587,13 @@ export default function WorkbenchPage({
         const info = clipSource(c)?.info ?? null;
         const dims = info ? displayedDims(info, c.rot) : { w: 0, h: 0 };
         const px = c.crop ? cropToPx(c.crop, dims) : null;
+        // 修剪预览融合（M11-6 §18.5 状态机 ③）：拖动中的片段用预览区间出检测
+        //（提交前徽标实时反映 copy/transcode）
+        const seg =
+          trimPreviewSeg && trimPreviewSeg.clipId === c.id ? trimPreviewSeg.seg : c.seg;
         return {
           input: clipSource(c)?.path ?? "",
-          segment:
-            c.seg && c.seg.end > c.seg.start + MIN_SEG_DURATION_SEC
-              ? { startSec: c.seg.start, endSec: c.seg.end }
-              : null,
+          segment: exportSegmentOf(seg),
           rotateDeg: c.rot.deg,
           hflip: c.rot.hflip,
           vflip: c.rot.vflip,
@@ -509,7 +605,7 @@ export default function WorkbenchPage({
           outHeight: null,
         };
       }),
-    [timelineClips, clipSource],
+    [timelineClips, clipSource, trimPreviewSeg],
   );
 
   const allProbed =
@@ -534,12 +630,12 @@ export default function WorkbenchPage({
         .catch((err: unknown) => {
           if (alive) setCheckError(String(err));
         });
-    }, 500);
+    }, trimPreviewSeg !== null ? 0 : 500); // 修剪预览的融合更新已过 300ms 尾随防抖，不再叠加
     return () => {
       alive = false;
       clearTimeout(timer);
     };
-  }, [payload, allProbed, hasProbeError]);
+  }, [payload, allProbed, hasProbeError, trimPreviewSeg]);
 
   // 输出位置：默认输出目录优先，否则跟随首个源文件目录（DESIGN §12）
   const firstSourcePath = timelineClips[0]
@@ -604,6 +700,7 @@ export default function WorkbenchPage({
   const tlClips: TimelineClip[] = timelineClips.map((c) => {
     const src = clipSource(c);
     const chk = clipCheck(c.id);
+    const info = src?.info ?? null;
     return {
       id: c.id,
       label: `${src ? basename(src.path) : "?"} ${
@@ -612,6 +709,13 @@ export default function WorkbenchPage({
       duration: clipDuration(c),
       lossless: chk ? chk.copy : null,
       detail: chk && !chk.copy ? chk.reasons.join("；") : undefined,
+      // 修剪（M11-6）：源内区间/时长/帧率取自文档真实值（预览换算与钳制的基准，
+      // 与 buildTrim 所见逐位一致）；keyframes 按源懒加载
+      srcIn: c.seg?.start ?? 0,
+      srcEnd: c.seg?.end ?? info?.durationSec ?? 0,
+      srcDuration: info?.durationSec ?? 0,
+      srcFps: info?.video.frameRate ?? 0,
+      keyframes: keyframesBySource[c.sourceId],
     };
   });
 
@@ -699,6 +803,23 @@ export default function WorkbenchPage({
       }
     },
     mode.type === "product" && timeline.length > 0,
+  );
+
+  // S 键切换关键帧吸附（M11-6，§17.4 / 决策 #30）：与设置项同源 write-through（App 持久化；
+  // 剪切页 Timeline 读同一设置项）。带修饰键不触发（Ctrl+S 是保存类语义，防误触）
+  useHotkeys(
+    (e) => {
+      if (
+        (e.key === "s" || e.key === "S") &&
+        !e.repeat &&
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey
+      ) {
+        onUpdateSettings({ keyframeSnap: !settings.keyframeSnap });
+      }
+    },
+    mode.type === "product",
   );
 
   // 切走预览模式时暂停连播；切回成品模式时把播放头同步给播放器。
@@ -850,6 +971,11 @@ export default function WorkbenchPage({
               onChangePps={setPps}
               playheadElRef={playheadElRef}
               scrollElRef={timelineScrollRef}
+              snapEnabled={settings.keyframeSnap}
+              onTrimStart={onTrimStart}
+              onTrimPreview={onTrimPreview}
+              onTrimCommit={onTrimCommit}
+              onTrimToPlayhead={onTrimToPlayhead}
             />
 
             {/* ③ 片段池 */}

@@ -19,6 +19,7 @@ use crate::{AppTasks, CropRect, MediaInfo, PipelineItem, QualityPreset};
 use super::crop::align_rect;
 use super::fnv1a;
 use super::merge::diff_pair;
+use super::valid_segment_span;
 
 /// 提交级递增序号：拼进临时文件名，防止同名输出的并发任务互写半成品（DESIGN §8.2）。
 static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -239,7 +240,7 @@ pub fn submit_pipeline(
             return Err(format!("输入文件不存在：{}", it.input));
         }
         if let Some(seg) = &it.segment {
-            if !(seg.start_sec >= 0.0 && seg.end_sec > seg.start_sec + 0.05) {
+            if !valid_segment_span(seg.start_sec, seg.end_sec) {
                 return Err(format!("{} 的剪切区间无效", file_name(&it.input)));
             }
         }

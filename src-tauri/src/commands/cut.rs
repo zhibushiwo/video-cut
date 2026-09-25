@@ -101,7 +101,7 @@ fn submit_cut(
         return Err("请至少添加一个剪切片段".into());
     }
     for s in &segments {
-        if !(s.start_sec >= 0.0 && s.end_sec > s.start_sec + 0.05) {
+        if !super::valid_segment_span(s.start_sec, s.end_sec) {
             return Err(format!("片段区间无效：{} ~ {}", s.start_sec, s.end_sec));
         }
     }

@@ -8,8 +8,8 @@ import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useHotkeys } from "../../hooks/useHotkeys";
 import { useProxyPreview } from "../../hooks/useProxyPreview";
 import { fileSrc, listKeyframes } from "../../services/tauri";
-import { formatTime } from "../../utils/time";
-import { fieldBtn, MIN_SEG_DURATION_SEC, type SourceFile } from "./shared";
+import { MIN_SEG_DURATION_SEC, formatTime } from "../../utils/time";
+import { fieldBtn, type SourceFile } from "./shared";
 
 export function CutModeView({
   source,

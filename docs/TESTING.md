@@ -5,7 +5,7 @@
 > **读时机**：写/改测试前；跑一次完整验证前；需要给出"这条验收过了吗"的结论时。
 > **写规则**：新增测试或验收组时追加 TC 行并写明 `引用 AC`（缺陷驱动的写在 §3.4，标注 `关联 BUG-0NN`）；TC 号不复用；只记**验收/回归级**用例——单元测试留在代码里（`cargo test` 即执行记录），不抄进本文。
 > **关联**：[INDEX.md](./INDEX.md)（ID 与地图） · 上位 [DESIGN.md](./DESIGN.md) · 进度 [PLAN.md](./PLAN.md) · 缺陷 [BUGS.md](./BUGS.md) · 夹具规范 [FFMPEG.md](./FFMPEG.md) §6.6
-> **最后更新**：2026-09-25（`T-004`：TC-022/028 边界矩阵固化进 [../src/utils/crop.test.ts](../src/utils/crop.test.ts)、TC-024 容器矩阵固化进 [../src/utils/media.test.ts](../src/utils/media.test.ts)，`containerPlayable` 随之导出作用例入口；顺带修正 `TC-040` 计数 19→23——`R2-2` 并入 `productDurationOf` 时漏改；此前 2026-09-24：`M11-0` 新增 §1 的 `pnpm test` 行与 `TC-040` 撤销基线——Vitest 5.0.1 就位、`vitest.config.ts` 独立于 `vite.config.ts`、单测数 77→81；此前 2026-09-23：新增 `TC-029`（`ADR-033` 容器/扩展名口径）、`TC-028`（`BUG-010`）与 `TC-024` 容器矩阵（`BUG-006`））
+> **最后更新**：2026-09-25（`M11-6`：新增 `TC-041`（`BUG-012` 回归 + 修剪几何，Vitest），`TC-040` 计数 23→25（`minSegSec`/`exportSegmentOf` 并入）并修正"1 帧最小"为最短时长钳制；此前同日：`T-004` 固化 TC-022/024/028 矩阵、修正 `TC-040` 计数 19→23；此前 2026-09-24：`M11-0` 新增 `TC-040` 撤销基线——Vitest 5.0.1 就位）
 
 ---
 
@@ -49,8 +49,8 @@
 | TC-003 | cargo e2e `pipeline_full_chain` | 工作台 pipeline 全链（含 timescale 归一化） | AC-380-1（组级） |
 | TC-004 | `cargo test` 单元测试（81 条，代码内） | 命令构建器参数序列、probe 缓存、进度解析、任务状态机与清理钩子、输出原子替换、输出容器/扩展名命名、**输出路径同一性比较（归一化）**、缩略图批处理容错 | NFR-001（无损优先）· NFR-006–009（并发/半成品/预检/节流） |
 | TC-005 | `tsc --noEmit` + `pnpm lint` | 类型与前端约束 | NFR-012（配置与错误处理） |
-| TC-040 | `pnpm test`（Vitest）`src/utils/undo/commands.test.ts`（**23 条用例 = 撤销语义 6 + 钳制域 9 + 栈规则 4 + `productDurationOf` 4（`R2-2` 并入）**） | 撤销基线（TIMELINE.md §17.5 六条：undo/redo 逐字节一致、序列化 round-trip、no-op 不入栈、取消不入栈、撤销顺序、重做复现同一 id）+ 钳制域（trim 源边界 / 1 帧最小 / split 边缘判非法 / split 源内换算带前缀时长 / 波纹删除池保留 / fps 缺省 / 源未探测判非法 / 池「+」只追加不重排 / insert 兜底钳制）+ 栈规则（批量合成一条、新命令清空重做链、上限丢最旧、空输入/全 no-op 的 buildComposite 判 null） | AC 待发号（TIMELINE.md §17.9 ①） |
-
+| TC-040 | `pnpm test`（Vitest）`src/utils/undo/commands.test.ts`（**25 条用例 = 撤销语义 6 + 钳制域 9 + 栈规则 4 + `productDurationOf` 4（`R2-2` 并入）+ `minSegSec`/`exportSegmentOf` 2（`M11-6`）**） | 撤销基线（TIMELINE.md §17.5 六条：undo/redo 逐字节一致、序列化 round-trip、no-op 不入栈、取消不入栈、撤销顺序、重做复现同一 id）+ 钳制域（trim 源边界 / 最短时长钳制（`M11-6` 起 = `max(1帧, 0.05s)`）/ split 边缘判非法 / split 源内换算带前缀时长 / 波纹删除池保留 / fps 缺省 / 源未探测判非法 / 池「+」只追加不重排 / insert 兜底钳制）+ 栈规则（批量合成一条、新命令清空重做链、上限丢最旧、空输入/全 no-op 的 buildComposite 判 null） | AC 待发号（TIMELINE.md §17.9 ①） |
+| TC-041 | `pnpm test`（Vitest）`src/utils/undo/commands.test.ts`（`BUG-012` 组）+ `src/components/ClipTimeline/geometry.test.ts`（修剪几何组）+ `cargo test`（`commands/mod.rs::valid_segment_span` 边界组） | **BUG-012 回归**：`minSegSec = max(1帧, 0.05s)`（普通/高帧率 0.05、低帧率 1 帧、fps 未知降级）；短半段切割 [1帧, 0.05s) 判 no-op（两侧）；trim 钳到下限；`exportSegmentOf` 边界（恰好 0.05s 保留为段、1µs 容差内保留、真空段吞掉）；后端 `valid_segment_span` 恰 0.05s 可提交、1ulp 容差、真空段/负起点/NaN 拒绝。**修剪几何**：`findTrimEdge`（全局最近 ≤8px、共享边界按指针侧归属、恰 8px 含边界、首块入边/末块出边可达、热区外不命中）、`snapToKeyframe`（阈值内吸附、未加载/为空静默降级、并列取后扫描者） | FR-1735（修订版）· TIMELINE.md §17.9③⑤ |
 > 新增命令/参数改动时：**先补 `ffmpeg/command.rs` 的参数序列断言**，再靠 TC-001~003 兜回归（DESIGN 决策 #23）。
 
 ### 3.2 手工验收（必须人跑）
