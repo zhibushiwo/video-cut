@@ -5,28 +5,29 @@
 > **读时机**：会话开场第一条；接续他人工作时。
 > **写规则**：只写当前状态与**近期相关**的坑；已定型的长期约定移入 AGENTS.md（本文只留指针）；历史批次要点进 [handoff-archive.md](./archive/handoff-archive.md)，本文不堆积。
 > **关联**：[../README.md](../README.md)（项目简介/技术栈/命令） · [INDEX.md](./INDEX.md)（地图与 ID） · [PLAN.md](./PLAN.md)（进度真源） · [../AGENTS.md](../AGENTS.md)（红线与完事标准）
-> **最后更新**：2026-09-24
+> **最后更新**：2026-09-25
 > **项目速览**（原独立小节，2026-09-19 去重为指针）：简介 / 功能 / 技术栈 / 环境要求 / 构建命令 → [../README.md](../README.md)｜命令 / 红线 / 完事标准 → [../AGENTS.md](../AGENTS.md)｜文档分工与 ID 规范 → [INDEX.md](./INDEX.md) §1–§2。
 
-## 当前状态（2026-09-24）
+## 当前状态（2026-09-25）
 
-> **状态真源是 [PLAN.md](./PLAN.md)**（里程碑总览的状态列）；本表是**快照**，只在状态变化时同步；M0–M9 各批次的提交号与实施要点见 [handoff-archive.md](./archive/handoff-archive.md)。**代码侧现状核对**：`useTauriEvent` / `utils/crop.ts` / `CropOverlay` 已就位；任务系统带终态清理钩子；`pnpm lint` 可用（存量 0 problems）；**`src/utils/undo/` 已就位（M11-0）、Vitest 已引入（`pnpm test`）**；**`R2-1` 已拆分 Workbench（`index.tsx` 1636→780 行，拆出 10 文件）**、`App.css` 与 `less` 依赖仍在（`R2-5` 待清）——即 **R2 进行中（`R2-1` ✅）、M11 已开工（`M11-0` ✅）**。
+> **状态真源是 [PLAN.md](./PLAN.md)**（里程碑总览的状态列）；本表是**快照**，只在状态变化时同步；M0–M9 各批次的提交号与实施要点见 [handoff-archive.md](./archive/handoff-archive.md)。**代码侧现状核对**：`useTauriEvent` / `utils/crop.ts` / `CropOverlay` 已就位；任务系统带终态清理钩子；`pnpm lint` 可用（存量 0 problems）；`src/utils/undo/` 已就位（M11-0）、Vitest 已引入（`pnpm test`，基线 36 条）；`R2-1` 已拆分 Workbench（`index.tsx` 1636→780 行）、`R2-2` 已完成重复收敛（useProxyPreview→`hooks/` 四端共用、TimeField→`components/`、basename/resolveUniqueTarget/moveAt/QUALITY_LABELS→`utils/`、usePlaybackHotkeys 四端共用、`MIN_SEG_DURATION_SEC`+`productDurationOf` 收敛）；`App.css` 与 `less` 依赖仍在（`R2-5` 待清）——即 **R2 进行中（`R2-1`/`R2-2` ✅）、M11 已开工（`M11-0` ✅）**。
 
 | 里程碑 | 状态 |
 | --- | --- |
 | M0–M9 基建 → 工作台 → 修复冲刺 | ✅ 已交付（M4-5 实机冒烟、M6-7/M7/M9 待用户统一手测） |
 | M10 保活 + 深浅主题 | ⏸ 暂缓（决策 #32） |
 | R1 评审修复五项 | ✅ 2026-09-19（`23c3623` `eea9422` `70a991e` + R1-4/R1-5） |
-| R2 重构 · R3 收尾 | 🔄 R2 进行中（**`R2-1` Workbench 拆分 ✅ 2026-09-24**，1636→780 行；`R2-2`–`R2-5` 待做）；R3 在 M12-2 前——例外：**`R3-7` 已提前实施（2026-09-24）** |
+| R2 重构 · R3 收尾 | 🔄 R2 进行中（`R2-1` Workbench 拆分 ✅ 2026-09-24；**`R2-2` 重复收敛 ✅ 2026-09-25**；`R2-3`–`R2-5` 待做）；R3 在 M12-2 前——例外：**`R3-7` 已提前实施（2026-09-24）** |
 | **R4 第二轮审查整改**（7 条，修 `BUG-001`~`006`；另 `R4-8` 修真机首跑缺陷 `BUG-007`~`009`、`R4-9` 修同族 `BUG-010`） | ✅ **9 条全部实施完毕**（2026-09-21 ~ 09-23）；缺陷状态：`BUG-001`/`002`/`007`/`009` = `verified`，`003`~`006`/`008`/`010`/`011` = `fixed`（差的只是各自手工/真机那一半） |
 | M11 单轨时间线核心 | 🔄 **进行中**：`M11-0` 状态层/撤销基座 ✅（2026-09-24，含 Vitest 载体与 `TC-040`），`M11-1`–`M11-9` 待做 |
 | M12 预览强化 → M13 打磨 | ⏳ M11 之后 |
 
 ## 下一步（按序）
 
-**`R2-2`~`R2-5`（重复收敛、`useHotkeys` 页面前置门控、ESLint 基线、死代码清理）→ `M11-1`~`M11-9` → R3 → M12-2 → M12-1/3 → M13**；M10 与时间线核心零耦合，视反馈随时插入。**R4 段 9 条已全部实施完毕**（2026-09-21 ~ 09-23）；**`M11-0` 与 `R2-1` 已实施**（2026-09-24）。
+**`R2-3`~`R2-5`（`useHotkeys` 页面前置门控、ESLint 基线、死代码清理）→ `M11-1`~`M11-9` → R3 → M12-2 → M12-1/3 → M13**；M10 与时间线核心零耦合，视反馈随时插入。**R4 段 9 条已全部实施完毕**（2026-09-21 ~ 09-23）；**`M11-0`、`R2-1`、`R2-2` 已实施**（2026-09-24 ~ 09-25）。
 
 - **已做的最近十二批**：
+  - （2026-09-25）**`R2-2`** 重复收敛（工程批次，**无行为变化**，四处窄边缘微观差见下）——新增 `src/hooks/useProxyPreview.ts`（Cut / Editor / 工作台两视图**四端共用**；第三参 `fallbackOnVideoError` 保住剪切/编辑器页"`proxyMode !== "off"` 即兜底"的兜底口径，默认 = `useProxy` 与工作台同门；ProductPreview 多路径映射形态不同、不经它）、`src/components/TimeField/index.tsx`（**以 CutEditor 版为准**，删 Workbench 本地版）、`src/hooks/usePlaybackHotkeys.ts`（空格+方向键走带块四端共用；页面专属键 I/O、Delete 留在各自 `useHotkeys`，工作台成品模式 gate 走 `enabled` 参）、`src/utils/array.ts`（`moveAt`）、`src/utils/quality.ts`（`QUALITY_LABELS` 三份并一）；`utils/paths.ts` 加 `basename`（收编四处内联 `split(/[\\/]/)`）与 `resolveUniqueTarget`（三处"同名才追加时间戳"共用，`exists` 注入保持 utils 无 IPC）；`shared.ts` 加 `MIN_SEG_DURATION_SEC`、`commands.ts` 导出 `productDurationOf`（M11-0 留下的两处收敛；Workbench `clipDuration`/`productEntries` 委托之）。**CropOverlay 统一判定已被 R1-4 覆盖**（无剩余重复，无代码）。**披露的微观差**（收敛二选一的窄边缘，两轴 CR 复核接受）：(a) 剪切/编辑器页代理**提交失败**不再卸载文件（旧=probeError+卸载；新=静默保留）；(b) `useProxy` 恒 false 时同路径重载不清已解析代理态；(c) 代理生成时机后移到 info 到达后的 effect，**顺带消除快速换文件时旧代理任务串台到新文件的竞态**；(d) Workbench 时间字段提交未被钳制的输入后文本不再立即规范化。**验证**：`tsc`/`eslint` 0 · vitest **36 全绿**（新增 17 条：array 5 / paths 8 / productDurationOf 4）· `vite build` 通过。**手测点**：三处空格/方向键走带与 I/O 设点；代理开启导入 AVI → 自动代理切换；剪切页时间字段非法值回滚。
   - （2026-09-24）**`R2-1`** Workbench 拆分（工程批次，**无行为变化**）——`src/pages/Workbench/index.tsx` 1636 → **780 行**（净减 856），按职责拆出 10 个文件：`shared.ts`（类型/常量/helper：`SourceFile`·`PreviewMode`·`ClipEdit`·`QUALITY_LABELS`·`NAV_ITEMS`·`fieldBtn`·`freshId`·`newClipOf`·`displayedDims`·`basename`）、`useProxyPreview.ts`、`TimeField` / `SourceCards` / `CutModeView` / `EditModeView` / `Header` / `Footer` / `ClipPool` / `BatchBar`；`index.tsx` 只留编排（state/effects/handlers/derived/组装）。四个既有组件（`SourceCards`/`TimeField`/`CutModeView`/`EditModeView`）签名**逐字保留**，新拆组件 props 全部由页面显式传入（不闭包捕获页面 state）。原列的 "`CropFields` 成文件" **已过时**——Workbench 自 R1-4 起即从 `components/CropOverlay` 导入 `CropFields`，本地无此组件。验证：`tsc --noEmit` 0 · `eslint .` 0 · `vite build` 通过 · `vitest` 19 全绿。**真机冒烟已过**（2026-09-24，CDP 驱动 debug 构建）：首屏空态 → 导入 `123.mp4`（探测 H264）→ 进剪切（入点/出点/添加为片段）→ 建片段（片段池「全段·已在轴」+ 时间轴 1 段 13.4s + 页脚「✓ 全程无损」）→ 加工视图（旋转/放大 tabs）→ 批量条（已选 1 个素材）→ 合成导出，产物 `video/workbench.mp4` 无损（47,124,329 B = 源大小）、`format.duration` 13.403334s、h264+aac 1920×1080、全帧可解码。**已提交**（代码 `fb79736`，文档随本次 `docs:` 提交）。
   - （2026-09-24）**`M11-0`** 状态层/撤销基座（`plans/M11.md` §18.1，**无行为变化**）——新增 `utils/undo/{types,commands,store}.ts`：命令 = **冻结快照对**（`before`/`after`，结构共享）、9 个纯函数 builder（剪出片段 / 追加入轴 / 插入 / 重排 / 移出时间轴 / 移除并删除 / 切割 / 修剪 / 批量合成）、`null` = no-op/取消/非法落点**不入栈**、id 在**构建时**分配并冻进 `after`（重做复现同一 id）；`createUndoStack(limit=100)` 纯核心 + `useUndoStack` React 适配（`applyRaw` 给旁路状态用）。工作台 `clips`+`timeline` 收敛为单一 `EditorDoc`，**六处**结构操作（剪出 / 批量剪出 / 追加入轴 / 拖入插入 / 重排 / 删除片段）改走 `execute`——"删除片段"**保持 M11-0 之前的旧语义（同时出池）**，§17.4 的波纹删除归 M11-4；加工编辑（rot/crop）与素材删除走 `applyRaw`。**测试载体**：Vitest 5.0.1 就位（`pnpm test` = `vitest run`，`vitest.config.ts` 与 `vite.config.ts` 分开），基线 **19 条用例**（六条 Clypra 清单 + 钳制域 + 栈规则）→ `TC-040`。**无行为变化有证据**：临时对照（跑完即删）把"改动前的逐字实现"与命令层放在同一序列上跑 **3000 步随机手势（含 467 次 no-op）→ 文档逐步 deep-equal**，且每个 no-op 都对应"旧实现同样没改文档"。**本次不接线**：Ctrl+Z / 右键撤销项归 M11-7；`buildSplit`/`buildTrim`/`buildRemoveFromTimeline` 已实现并有单测，UI 接线归 M11-5 / M11-6 / M11-4。**已提交**（代码 `7c0b969`、文档 `a02f0d9`）。
   - （2026-09-21）**`R4-8`** 真机首跑抓出的三缺陷（`BUG-007` 吸附值取整导致成品比界面长一个 GOP / `BUG-008` 关键帧丢项 / `BUG-009` 不显示实际落点）——`BUG-007`/`BUG-009` 真机复验通过转 `verified`，`BUG-008` 解析单测已锁、**真机复跑 `TC-030` 待发起**。
@@ -42,7 +43,7 @@
 - **提交状态**：`R4-8`/`R4-1`/`R4-2`/`R4-3`/`R4-4`+`R4-9`/`R4-5`/`R4-6`/`R4-7`/`R3-7`/`M11-0` 已入库（共 21 个提交：`fdff11b` `627cbfc` `a783cca` `3137072` `e5a2f43` `5aeffd4`（ADR-034）· `f278214` · `5fcfd04` · `5fa5d2f`（CR 整改）· `a5f71e1` `06d0130`（R4-4/R4-9）· `412e888` `83a91b2`（R4-5）· `e3053a0` `4b3f7f5`（R4-6）· `c1662cd` `e5b061a`（R4-7）· `665bcca` `ffc2bbe`（R3-7）· `7c0b969` `a02f0d9`（M11-0））；**`R2-1` 已入库**（代码 `fb79736` + 本次 `docs:` 提交）。
 - **环境提示**：本机 `pnpm add -D vitest` 落下的包只有空目录（pnpm 建链接失败的既有症状），已用 junction 就地补链（26 处）；用户正常终端跑一次 `pnpm install` 会按官方格式重建 `.bin/vitest`，`pnpm test` 即用。
 - **待用户统一手测**：M4-5 NSIS 干净环境冒烟 · M7-1/2/3 · 工作台 2.0 全流程 · 快捷键 · M4-8 · **M9 五项**（连播可 seek / 切换无残留 / 多短片段不压盖且整块可拖 / 加工视图播完出点即停） · **`TC-030` 复跑**（关键帧刻度条数 == ffprobe 原始行数） · **`TC-021`**（拖拽甩出窗口松手） · **`TC-022`/`TC-028` 手工**（裁剪数值框填越界值 / 框选拖到贴边后导出） · **`TC-023` 手工**（合并页混入读不了帧的文件） · **`TC-024` 真机半**（AVI/FLV/TS/WMV 素材导入 → 自动生成代理并正常预览；复用 §3.2 的 `TC-018`）
-- **遗留小项**：规则 B 下"有片段裁剪 + 其他片段非恒等旋转"时后者也转码；硬编路径未在真 GPU 验证；旋转覆盖源 flip 元数据；代理关闭时不支持格式仅提示条；日志跨天不切文件；README 截图待补
+- **遗留小项**：规则 B 下"有片段裁剪 + 其他片段非恒等旋转"时后者也转码；硬编路径未在真 GPU 验证；旋转覆盖源 flip 元数据；代理关闭时不支持格式仅提示条；日志跨天不切文件；README 截图待补；**成品模式的 Delete 快捷键依赖的"选中片段"当前恒空**（`selectedClipId` 只在编辑模式非空，R2-2 两轴 CR 共同发现、HEAD 既有）——归 M11-4 选择能力落地时一并接线
 - **硬门槛与独立任务**：发布前 asset scope 收窄 + CSP（`CAND-015`）· `T-001` 消除 TIMELINE.md §17.4 ↔ plans/M11.md §18.5 重复 · `T-002` 清理空组件目录 · `T-003` 审查发现的一致性收敛 · `T-004` 把 R4 的命令级矩阵（TC-022/024/028）转成 Vitest 用例
 
 ## 未决问题（评审 / 反馈）——待定性
