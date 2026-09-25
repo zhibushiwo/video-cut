@@ -11,6 +11,7 @@
 import { Film, Scissors, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ClipTimeline, { type TimelineClip } from "../../components/ClipTimeline";
+import { PPS_MIN } from "../../components/ClipTimeline/geometry";
 import ProductPreview, { type ProductEntry } from "../../components/ProductPreview";
 import { NO_ROTATE, type RotateState } from "../../components/RotateControls";
 import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
@@ -106,6 +107,10 @@ export default function WorkbenchPage({
   const [playing, setPlaying] = useState(false);
   const [seekReq, setSeekReq] = useState<{ t: number; nonce: number } | null>(null);
   const seekNonce = useRef(0);
+  // 时间轴 PPS（M11-2，plans/M11.md §18.3 页面级 state）：初始 PPS_MIN，ClipTimeline 在
+  // 用户手动缩放（滚轮/+/−/\）前自动跟随适应窗口（M11-1 行为延续）；M11-3 播放头路径
+  // 需要在此读 pps 的 ref 镜像。
+  const [pps, setPps] = useState(PPS_MIN);
   // 批量能力（M6-8 = 原 M4-4）：素材多选 → 一键建片段 / 批量应用旋转
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
   const [batchRot, setBatchRot] = useState<RotateState>(NO_ROTATE);
@@ -722,6 +727,8 @@ export default function WorkbenchPage({
               onSeek={productSeek}
               currentTime={playhead}
               fps={timelineFps}
+              pps={pps}
+              onChangePps={setPps}
             />
 
             {/* ③ 片段池 */}

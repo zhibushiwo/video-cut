@@ -29,7 +29,8 @@ export interface BlockRect {
  * - `shortestSec <= 0`（片段未探测等病态输入）不动动态下限：0 会除出 Infinity。
  * - 帧级 ≥1 帧的钳制在 undo 命令层（M11-0）。
  * - 高帧率源（>83fps）的 1 帧片段会让动态下限越过 500（120fps → 720）：块可见性优先于
- *   缩放上界，TIMELINE §17.4 的"约 2~500"按软区间理解；M11-2 缩放接线若需硬顶，在交互侧钳。
+ *   缩放上界，TIMELINE §17.4 的"约 2~500"按软区间理解（M11-2 缩放接线沿用本软区间，
+ *   未在交互侧加硬顶）。
  */
 export function clampPps(raw: number, shortestSec: number): number {
   const pps = Math.min(PPS_MAX, Math.max(PPS_MIN, raw));

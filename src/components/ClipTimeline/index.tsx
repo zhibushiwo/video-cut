@@ -2,20 +2,24 @@
  * 工作台合成时间轴（DESIGN §9.8 ②）：
  * - 坐标 = PPS 世界坐标（M11-1，TIMELINE.md §17.3 / plans/M11.md §18.2）：块位置/宽度、
  *   刻度、播放头、seek 换算全走 `geometry.ts` 一套公式——块宽**差值法**（M9-3 重叠的
- *   理论根源在该文件注释），PPS = 适应窗口经钳制（最短块 ≥6px）。缩放/滚动交互与
- *   页面级 PPS 状态归 M11-2（plans/M11.md §18.3），当前 pps 是组件内派生值。
+ *   理论根源在该文件注释）。
+ * - 缩放与滚动（M11-2，plans/M11.md §18.3）：PPS 是页面级 state（Workbench 持有，本组件
+ *   经 props 读、onChangePps 写）；用户手动缩放前自动跟随适应窗口（M11-1 行为延续），
+ *   首次手动缩放/适应后交还控制权。Ctrl+滚轮以鼠标为中心缩放；滚轮 = 横向滚动；
+ *   +/− 键以视口中心为锚、\ 适应窗口。
  * - 整块拖拽排序（M9-4）：块本体进拖拽（指针事件 + 4px 死区），点击仍选中。
  * - 池→轴跨容器拖入（M6-3）。
  * - 帧时间埋点（plans/M11.md §18.6 drag 场景）挂在拖拽激活/收尾上。
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { useDragSort } from "../../hooks/useDragSort";
+import { useHotkeys } from "../../hooks/useHotkeys";
 import { appendFrontendLog } from "../../services/tauri";
 import { beginPointerDrag } from "../../utils/pointerDrag";
 import { beginFrameSampling, formatPerfLine, type PerfScene, type PerfSummary } from "../../utils/perf";
 import { formatTimecode } from "../../utils/time";
-import { buildGeometry, fitPps, tickStep } from "./geometry";
+import { buildGeometry, clampPps, fitPps, tickStep } from "./geometry";
 
 export interface TimelineClip {
   id: string;
@@ -48,10 +52,16 @@ interface ClipTimelineProps {
   currentTime: number;
   /** 时间码帧率（刻度标签，§17.3 总帧数时间码）：轴上首个片段的源帧率，Workbench 缺省 30 */
   fps: number;
+  /** PPS（§18.3 页面级 state，Workbench 持有）：本组件经 onChangePps 写回 */
+  pps: number;
+  onChangePps(next: number): void;
 }
 
 /** 刻度目标间距（px，§18.2：刻度间距 ≥60px） */
 const TICK_MIN_PX = 60;
+
+/** 键控缩放步进因子（+/− 键；规格只给了滚轮系数，此为实现自定——一次按键 ≈ 一档明显缩放） */
+const KEY_ZOOM_FACTOR = 1.2;
 
 export default function ClipTimeline({
   clips,
@@ -65,6 +75,8 @@ export default function ClipTimeline({
   onSeek,
   currentTime,
   fps,
+  pps,
+  onChangePps,
 }: ClipTimelineProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   // 帧时间埋点（§18.6 drag 场景）：拖拽激活时开采样、收尾时停（stop 冲掉不足一窗的余量）
@@ -89,7 +101,6 @@ export default function ClipTimeline({
 
   /** 池拖入时的插入位置指示（目标块 index） */
   const [extIndex, setExtIndex] = useState<number | null>(null);
-  const total = clips.reduce((s, c) => s + c.duration, 0);
 
   // 视口实测宽：适应窗口 fit 的基础（ResizeObserver 保留，§18.2）
   const [viewportW, setViewportW] = useState(0);
@@ -106,8 +117,6 @@ export default function ClipTimeline({
     return () => ro.disconnect();
   }, [clips.length]);
 
-  // PPS（§18.2）：适应窗口 + 钳制（硬区间 [2,500] + 动态下限保证最短块 ≥6px）。
-  // M11-2 提升为页面级 state 并接缩放交互（plans/M11.md §18.3），届时 fit 变成「\」键动作。
   const shortest = useMemo(
     () =>
       clips.reduce(
@@ -116,15 +125,113 @@ export default function ClipTimeline({
       ),
     [clips],
   );
-  const pps = useMemo(() => fitPps(viewportW, total, shortest), [viewportW, total, shortest]);
   const geo = useMemo(() => buildGeometry(clips.map((c) => c.duration), pps), [clips, pps]);
 
-  /** 点击空白/标尺 → seek：世界坐标线性换算，x 钳进内容宽、时间钳进 [0, total]
-   *  （round 舍入可能让 contentWidth 折算出半像素超尾，右端死区语义 = seek 到末尾） */
+  // PPS 来自页面级 state（§18.3）；ref 镜像供滚轮/按键的连续事件读最新值——连续两次
+  // Ctrl+滚轮之间可能不发生渲染，读 props 会拿到陈旧值（与 undo/store 的 docRef 同模式：
+  // 渲染期同步一次，本组件写入时也立即推进）。
+  const ppsRef = useRef(pps);
+  ppsRef.current = pps;
+  /** 用户尚未手动缩放时 pps 跟随适应窗口（M11-1 行为的延续）；手动缩放/适应后交还控制权 */
+  const autoFitRef = useRef(true);
+  /** 待补偿的 scrollLeft（缩放锚点公式）：等 pps commit 后、绘制前写入（useLayoutEffect）——
+   *  「先改 pps 再补偿 scroll」同帧完成、无视觉跳动（§18.3） */
+  const pendingScroll = useRef<number | null>(null);
+
+  // 布局 effect：setState 在绘制前 flush，保持 M11-1"同帧算完"的单帧绘制等价
+  useLayoutEffect(() => {
+    if (!autoFitRef.current) return;
+    const next = fitPps(viewportW, geo.total, shortest);
+    if (next !== ppsRef.current) {
+      ppsRef.current = next; // 与 zoomAt/zoomFit 同口径：写入时立即推进
+      onChangePps(next);
+    }
+  }, [viewportW, geo.total, shortest, onChangePps]);
+
+  /** 缩放（§18.3）：放大/缩小 factor 倍，以视口内 mouseLocalX（px）为锚——
+   *  t_anchor = (scrollLeft + mouseX) / pps；pps' = clamp(pps × factor)；scroll 补偿待 commit */
+  const zoomAt = useCallback(
+    (factor: number, mouseLocalX: number) => {
+      const el = viewportRef.current;
+      if (!el || geo.total <= 0) return;
+      const cur = ppsRef.current;
+      const next = clampPps(cur * factor, shortest);
+      if (next === cur) return; // 已在钳制边界，缩放无操作
+      autoFitRef.current = false;
+      // 连发滚轮同帧时 commit 未发生：pendingScroll 是 cur 档 pps 下的目标 scrollLeft，
+      // 比 el.scrollLeft（上一档的旧值）新鲜——基准取前者，否则触控板连发会锚点漂移
+      const base = pendingScroll.current ?? el.scrollLeft;
+      pendingScroll.current = ((base + mouseLocalX) / cur) * next - mouseLocalX;
+      ppsRef.current = next;
+      onChangePps(next);
+    },
+    [geo.total, shortest, onChangePps],
+  );
+
+  /** \ 适应窗口：pps 取 fit 值并回到起点 */
+  const zoomFit = useCallback(() => {
+    if (geo.total <= 0) return;
+    autoFitRef.current = false;
+    const next = fitPps(viewportW, geo.total, shortest);
+    if (next !== ppsRef.current) {
+      pendingScroll.current = 0;
+      ppsRef.current = next;
+      onChangePps(next);
+    } else {
+      pendingScroll.current = null; // 同帧先 zoomAt 后 fit 的陈旧补偿不反噬
+      const el = viewportRef.current;
+      if (el) el.scrollLeft = 0;
+    }
+  }, [viewportW, geo.total, shortest, onChangePps]);
+
+  // pps commit 后补偿 scrollLeft：布局 effect 在 DOM 按新 pps 更新之后、绘制之前执行
+  useLayoutEffect(() => {
+    const el = viewportRef.current;
+    if (!el || pendingScroll.current === null) return;
+    el.scrollLeft = pendingScroll.current;
+    pendingScroll.current = null;
+  }, [pps]);
+
+  // 滚轮（§18.3）：无 Ctrl = 横向滚动（编辑器惯例，时间轴吃掉滚轮不放行页面纵滚）；
+  // Ctrl+滚轮 = 以鼠标为中心缩放。React 挂在 root 上的 onWheel 是 passive，preventDefault
+  // 无效——必须原生非 passive 监听。
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      if (e.ctrlKey) {
+        const mouseX = e.clientX - el.getBoundingClientRect().left;
+        zoomAt(Math.exp(-e.deltaY * 0.0015), mouseX);
+      } else {
+        el.scrollLeft += e.deltaY + e.deltaX;
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [zoomAt]);
+
+  // +/− 键：以视口中心为锚（mouseX 取半宽）；\：适应窗口（§18.3；M11-8 快捷键全表
+  // 整合时如需归页级再挪）。无 Shift 的 + 是 =，一并接受。
+  useHotkeys(
+    (e) => {
+      if (e.key === "+" || e.key === "=") zoomAt(KEY_ZOOM_FACTOR, viewportW / 2);
+      else if (e.key === "-" || e.key === "_") zoomAt(1 / KEY_ZOOM_FACTOR, viewportW / 2);
+      else if (e.key === "\\") zoomFit();
+    },
+    clips.length > 0 && geo.total > 0,
+  );
+
+  /** 点击空白/标尺 → seek：世界 x = 视口本地 x + scrollLeft（§18.3 滚动容器），线性换算；
+   *  x 钳进内容宽、时间钳进 [0, total]（round 舍入可能让 contentWidth 折算出半像素超尾，
+   *  右端死区语义 = seek 到末尾） */
   const seekAt = (clientX: number) => {
     const el = viewportRef.current;
     if (!el || geo.total <= 0) return;
-    const x = Math.min(geo.contentWidth, Math.max(0, clientX - el.getBoundingClientRect().left));
+    const x = Math.min(
+      geo.contentWidth,
+      Math.max(0, clientX - el.getBoundingClientRect().left + el.scrollLeft),
+    );
     onSeek(Math.min(geo.total, geo.xToTime(x)));
   };
 
@@ -196,13 +303,13 @@ export default function ClipTimeline({
       ) : (
         <div
           ref={viewportRef}
-          className="relative h-full w-full cursor-crosshair"
+          className="relative h-full w-full cursor-crosshair overflow-x-auto overflow-y-hidden"
           onPointerDown={(e) => {
             if (geo.total > 0) seekAt(e.clientX);
           }}
         >
-          {/* 世界坐标层：宽 = contentWidth（M11-2 接 overflow-x 滚动；动态下限撑出视口的
-              极端情况在 M11-1 暂被 overflow-hidden 裁剪，属已知分阶段边界） */}
+          {/* 世界坐标层：宽 = contentWidth，超出视口即横向滚动（§18.3）；播放头/块/刻度
+              全部世界坐标定位，随内容滚动、无补偿计算 */}
           <div className="relative h-full" style={{ width: geo.contentWidth }}>
             {/* 刻度（世界坐标；标签 = 总帧数时间码 §17.3/§18.5） */}
             {ticks.map((t, i) => (
