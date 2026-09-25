@@ -544,7 +544,8 @@ export default function WorkbenchPage({
     setSeekReq({ t, nonce: seekNonce.current });
   }, []);
 
-  // 快捷键（M4-3，成品模式）：走带共用块见 usePlaybackHotkeys；页面专属：Delete 删选中片段
+  // 快捷键（M4-3，成品模式）：走带共用块见 usePlaybackHotkeys；页面专属：Delete 删选中片段。
+  // Delete 只在成品模式挂监听（enabled 参，激活门控见 useHotkeys）——勿复制此调用漏传 enabled
   usePlaybackHotkeys({
     enabled: mode.type === "product",
     currentTime: playhead,
@@ -552,12 +553,14 @@ export default function WorkbenchPage({
     onTogglePlay: () => setPlaying((p) => !p),
     onSeek: productSeek,
   });
-  useHotkeys((e) => {
-    if (mode.type !== "product") return;
-    if ((e.key === "Delete" || e.key === "Backspace") && !e.repeat && selectedClipId) {
-      removeClip(selectedClipId);
-    }
-  });
+  useHotkeys(
+    (e) => {
+      if ((e.key === "Delete" || e.key === "Backspace") && !e.repeat && selectedClipId) {
+        removeClip(selectedClipId);
+      }
+    },
+    mode.type === "product",
+  );
 
   // 切走预览模式时暂停连播；切回成品模式时把播放头同步给播放器
   const prevModeRef = useRef<PreviewMode>(mode);

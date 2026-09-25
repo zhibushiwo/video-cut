@@ -8,7 +8,7 @@
 import { useHotkeys } from "./useHotkeys";
 
 export function usePlaybackHotkeys(opts: {
-  /** false 时整块跳过（工作台只在成品预览模式启用） */
+  /** false 时不挂监听（工作台只在成品预览模式启用；门控语义见 useHotkeys） */
   enabled?: boolean;
   /** 当前播放位置（秒），←/→ 以它为基准 seek */
   currentTime: number;
@@ -21,7 +21,6 @@ export function usePlaybackHotkeys(opts: {
 }) {
   const { enabled = true, currentTime, maxT, frameStep = 1 / 30, onTogglePlay, onSeek } = opts;
   useHotkeys((e) => {
-    if (!enabled) return;
     if (e.code === "Space") {
       if (e.repeat) return;
       e.preventDefault();
@@ -33,5 +32,5 @@ export function usePlaybackHotkeys(opts: {
       const delta = (e.key === "ArrowLeft" ? -1 : 1) * (e.shiftKey ? frameStep : 1);
       onSeek(Math.min(Math.max(0, currentTime + delta), maxT));
     }
-  });
+  }, enabled);
 }
