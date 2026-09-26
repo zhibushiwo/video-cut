@@ -5,7 +5,7 @@
 > **读时机**：写/改测试前；跑一次完整验证前；需要给出"这条验收过了吗"的结论时。
 > **写规则**：新增测试或验收组时追加 TC 行并写明 `引用 AC`（缺陷驱动的写在 §3.4，标注 `关联 BUG-0NN`）；TC 号不复用；只记**验收/回归级**用例——单元测试留在代码里（`cargo test` 即执行记录），不抄进本文。
 > **关联**：[INDEX.md](./INDEX.md)（ID 与地图） · 上位 [DESIGN.md](./DESIGN.md) · 进度 [PLAN.md](./PLAN.md) · 缺陷 [BUGS.md](./BUGS.md) · 夹具规范 [FFMPEG.md](./FFMPEG.md) §6.6
-> **最后更新**：2026-09-25（`M11-8`：新增 `TC-042`（blockAtTime 命中自动化 + 右键菜单/快捷键全链手工）；此前同日：`M11-7` 计数 25→27、`M11-6` 新增 `TC-041`、`T-004` 固化 TC-022/024/028 矩阵；此前 2026-09-24：`M11-0` 新增 `TC-040` 撤销基线）
+> **最后更新**：2026-09-25（`M11-9`：新增 `TC-043`（撤销预算计量自动半已测 + 帧预算真机半 ⏳）；此前同日：`M11-8` 新增 `TC-042`、修复 TC-041/042 熔行；此前同日：`M11-7` 计数 25→27、`M11-6` 新增 `TC-041`、`T-004` 固化 TC-022/024/028 矩阵；此前 2026-09-24：`M11-0` 新增 `TC-040` 撤销基线）
 
 ---
 
@@ -32,7 +32,7 @@
 | --- | --- | --- |
 | `video/merge_test_a.mp4` / `merge_test_b.mp4` | `scripts/gen-fixtures.ps1` 生成，参数一致 | 无损合并、copy 链路、e2e |
 | `video/极乐净土 1080p ultra.mp4` | 手工放入（约 1GB） | 性能基线（极速剪切 ≤10s、关键帧扫描） |
-| 100 片段串联夹具 | `gen-fixtures.ps1`（M11-9 建立） | 时间线性能验收（拖拽/播放头/撤销 P50/P95） |
+| 100 片段串联夹具 | 生成命令见 [gui-e2e/cases-m11-perf.md](./gui-e2e/cases-m11-perf.md) §1（M11-9，testsrc 100×1s） | 时间线性能验收（拖拽/播放头/撤销 P50/P95） |
 | 手机竖拍视频（带 rotation metadata） | 手工 | 元数据旋转无损路径 |
 | 4K HEVC 文件 | 手工 | 合并不一致检测、代理预览 |
 
@@ -52,6 +52,7 @@
 | TC-040 | `pnpm test`（Vitest）`src/utils/undo/commands.test.ts`（**27 条用例 = 撤销语义 6 + 钳制域 9 + 栈规则 6 + `productDurationOf` 4（`R2-2` 并入）+ `minSegSec`/`exportSegmentOf` 2（`M11-6`）**） | 撤销基线（TIMELINE.md §17.5 六条：undo/redo 逐字节一致、序列化 round-trip、no-op 不入栈、取消不入栈、撤销顺序、重做复现同一 id）+ 钳制域（trim 源边界 / 最短时长钳制（`M11-6` 起 = `max(1帧, 0.05s)`）/ split 边缘判非法 / split 源内换算带前缀时长 / 波纹删除池保留 / fps 缺省 / 源未探测判非法 / 池「+」只追加不重排 / insert 兜底钳制）+ 栈规则（批量合成一条、新命令清空重做链、上限丢最旧、空输入/全 no-op 的 buildComposite 判 null、**clear 双向清空（`FR-1737` 外部删除清洗原语，`M11-7`）**、**旁路编辑被撤销回退到快照时刻（快照语义披露，`M11-7`）**） | AC 待发号（TIMELINE.md §17.9 ①） |
 | TC-041 | `pnpm test`（Vitest）`src/utils/undo/commands.test.ts`（`BUG-012` 组）+ `src/components/ClipTimeline/geometry.test.ts`（修剪几何组）+ `cargo test`（`commands/mod.rs::valid_segment_span` 边界组） | **BUG-012 回归**：`minSegSec = max(1帧, 0.05s)`（普通/高帧率 0.05、低帧率 1 帧、fps 未知降级）；短半段切割 [1帧, 0.05s) 判 no-op（两侧）；trim 钳到下限；`exportSegmentOf` 边界（恰好 0.05s 保留为段、1µs 容差内保留、真空段吞掉）；后端 `valid_segment_span` 恰 0.05s 可提交、1ulp 容差、真空段/负起点/NaN 拒绝。**修剪几何**：`findTrimEdge`（全局最近 ≤8px、共享边界按指针侧归属、恰 8px 含边界、首块入边/末块出边可达、热区外不命中）、`snapToKeyframe`（阈值内吸附、未加载/为空静默降级、并列取后扫描者） | FR-1735（修订版）· TIMELINE.md §17.9③⑤ |
 | TC-042 | `pnpm test`（Vitest）`src/components/ClipTimeline/geometry.test.ts`（blockAtTime 组）+ 手工（右键菜单与快捷键全链） | **自动化**：`blockAtTime` 前缀和命中（块中段 / 恰压右缘归下一块与 buildSplit 判定一致 / 总尾之外 null / 负时间第一块 / 空轴 null / 零宽块跳过）。**手工**：片段右键条目（切割按播放头命中禁用 / 波纹删除 / 移除并删除池片段确认后可撤销 / 加工 / 撤销·重做带操作名与空栈禁用）、空白菜单（撤销/重做/适应窗口）、K 暂停 / L 连按加速（0.5/1/1.5/2 循环 + 链断回 1× + 徽标）、A 追加（选中优先 / 最新未入轴）、Ctrl+E 导出、I/O 修剪选中片段（播放头不在片段内 no-op）、非拉丁布局下 C/S/Z 可用 | FR-1738/1739 · TIMELINE.md §17.9① |
+| TC-043 | 自动化半 = `node`（Vitest 临时计量跑完即删，纯函数层直跑）· 手工半 = 真机埋点报告（步骤见 [gui-e2e/cases-m11-perf.md](./gui-e2e/cases-m11-perf.md)） | **自动化半（已测 2026-09-25）**：100 片段文档命令层计量——重排 execute p50=0.003ms/max=0.289ms、undo max=0.126ms、redo max=0.011ms、批量建 composite×100 max=1.955ms、split/trim max ≤1.3ms——**核心 undo/redo 低于 16ms 预算两个数量级，composite/split/trim 亦有一个数量级余量**（React 渲染半不计入命令层计量；不落永久单测——计时断言会随环境波动 flaky）。**手工半（⏳ 待用户发起）**：drag/playing/seek 帧时间埋点报告（P95 ≤ 16.7ms、drops、播放头 commit 计数 0/帧），判定与操作步骤见 gui-e2e 用例 | TIMELINE.md §17.9①② · FR-1730（组级） |
 > 新增命令/参数改动时：**先补 `ffmpeg/command.rs` 的参数序列断言**，再靠 TC-001~003 兜回归（DESIGN 决策 #23）。
 
 ### 3.2 手工验收（必须人跑）

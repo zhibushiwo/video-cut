@@ -12,7 +12,8 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { useTauriEvent } from "../../hooks/useTauriEvent";
-import { fileSrc, generateProxy, onTaskStatus } from "../../services/tauri";
+import { appendFrontendLog, fileSrc, generateProxy, onTaskStatus } from "../../services/tauri";
+import { beginFrameSampling, formatPerfLine, type PerfScene, type PerfSummary } from "../../utils/perf";
 import type { RotateState } from "../RotateControls";
 import { formatTime } from "../../utils/time";
 
@@ -96,6 +97,11 @@ export default function ProductPreview({
   playingRef.current = playing;
   const cbsRef = useRef({ onPlayhead, onPlayingChange });
   cbsRef.current = { onPlayhead, onPlayingChange };
+  // 帧时间埋点（§18.6 playing 场景，M11-9 接线）：播放中按 rAF 间隔采样，5s 窗口汇总
+  const onPerfReport = useCallback(
+    (scene: PerfScene, s: PerfSummary) => void appendFrontendLog("debug", formatPerfLine(scene, s)),
+    [],
+  );
   // 倍率 ref：onLoadedMetadata（新媒体加载重置 playbackRate）与槽切换时补挂用
   const rateRef = useRef(playbackRate);
   rateRef.current = playbackRate;
@@ -237,6 +243,8 @@ export default function ProductPreview({
   // rAF 驱动播放头；越界切下一段 / 结尾停止
   useEffect(() => {
     if (!playing) return;
+    // playing 场景采样（§18.6）：起播开窗、停播冲掉不足一窗的余量
+    const stopPerf = beginFrameSampling("playing", onPerfReport);
     let alive = true;
     let raf = 0;
     const tick = () => {
@@ -282,8 +290,9 @@ export default function ProductPreview({
     return () => {
       alive = false;
       cancelAnimationFrame(raf);
+      stopPerf();
     };
-  }, [playing, switchTo, playheadRef, playheadElRef, scrollElRef, ppsRef]);
+  }, [playing, switchTo, playheadRef, playheadElRef, scrollElRef, ppsRef, onPerfReport]);
 
   // 预加载下一段到另一槽（停在其起点）
   useEffect(() => {
