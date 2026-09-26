@@ -15,6 +15,9 @@ export interface VideoPlayerHandle {
   pause(): void;
 }
 
+/** 倍速循环档位（M7-6）：0.5 → 1 → 1.5 → 2 → 0.5；工作台 K/L 走带（M11-8）复用同一档 */
+export const PLAYBACK_RATES = [0.5, 1, 1.5, 2];
+
 interface VideoPlayerProps {
   src: string;
   /** 播放/seek 期间的时间上报（rAF 驱动，比 timeupdate 平滑） */
@@ -51,8 +54,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const [dur, setDur] = useState(0);
     const [vol, setVol] = useState(1);
     const [muted, setMuted] = useState(false);
-    // 倍速循环切换（M7-6）：0.5 → 1 → 1.5 → 2 → 0.5
-    const RATES = [0.5, 1, 1.5, 2];
+    // 倍速循环切换（M7-6，档位见模块级 PLAYBACK_RATES）
+    const RATES = PLAYBACK_RATES;
     const [rate, setRate] = useState(1);
 
     useImperativeHandle(ref, () => ({

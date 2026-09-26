@@ -50,6 +50,9 @@ interface ProductPreviewProps {
   scrollElRef: { current: HTMLElement | null };
   /** 页面级 PPS 的 ref 镜像（§18.3）：tick 连续帧之间不重渲染，必须读 ref */
   ppsRef: { current: number };
+  /** 播放倍率（M11-8 K/L 走带，复用 M7-6 档位 0.5/1/1.5/2；默认 1）。
+   *  新媒体加载会把 playbackRate 重置回 1，故除 effect 外还要在 onLoadedMetadata 补挂 */
+  playbackRate: number;
 }
 
 type Slot = "a" | "b";
@@ -65,6 +68,7 @@ export default function ProductPreview({
   playheadElRef,
   scrollElRef,
   ppsRef,
+  playbackRate,
 }: ProductPreviewProps) {
   const [segIdx, setSegIdx] = useState(0);
   const [slot, setSlot] = useState<Slot>("a");
@@ -92,6 +96,13 @@ export default function ProductPreview({
   playingRef.current = playing;
   const cbsRef = useRef({ onPlayhead, onPlayingChange });
   cbsRef.current = { onPlayhead, onPlayingChange };
+  // 倍率 ref：onLoadedMetadata（新媒体加载重置 playbackRate）与槽切换时补挂用
+  const rateRef = useRef(playbackRate);
+  rateRef.current = playbackRate;
+  // 双槽都挂（预载槽播下一段时沿用同一倍率）；槽切换换活动元素后再补一次
+  useEffect(() => {
+    for (const v of [videoA.current, videoB.current]) if (v) v.playbackRate = playbackRate;
+  }, [playbackRate, slot]);
 
   // ---------- 代理映射：按需为需要代理的源生成，完成后按路径缓存 ----------
   const [proxyMap, setProxyMap] = useState<Record<string, string>>({});
@@ -359,6 +370,7 @@ export default function ProductPreview({
                 v.currentTime = t;
                 pendingSeekRef.current[name] = null;
               }
+              if (v) v.playbackRate = rateRef.current; // 新媒体加载重置倍率 → 补挂（M11-8）
               if (name === slot && playingRef.current) void v?.play();
             }}
             onEnded={() => {
@@ -411,6 +423,11 @@ export default function ProductPreview({
         >
           {playing ? "暂停" : "播放"}
         </button>
+        {playbackRate !== 1 && (
+          <span className="shrink-0 rounded border border-hairline px-1.5 py-0.5 font-mono text-[10px] text-mute">
+            {playbackRate}×
+          </span>
+        )}
         <input
           ref={progressRef}
           type="range"

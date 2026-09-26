@@ -3,6 +3,7 @@ import {
   MIN_BLOCK_PX,
   PPS_MAX,
   PPS_MIN,
+  blockAtTime,
   buildGeometry,
   clampPps,
   findTrimEdge,
@@ -203,5 +204,29 @@ describe("snapToKeyframe（修剪边缘关键帧吸附）", () => {
 
   it("距离并列取后扫描者（升序关键帧 = 更靠右者，与 snapToEdge 同约定）", () => {
     expect(snapToKeyframe(1.75, kfs, 0.75)).toBe(2.5); // 到 1 与 2.5 等距
+  });
+});
+
+describe("blockAtTime（成品时间前缀和命中，§17.2）", () => {
+  // 三块：[0,2) [2,6) [6,7.5)
+  const durations = [2, 4, 1.5];
+
+  it("块中段命中；恰好压右缘归下一块（与 buildSplit 的 t < acc + dur 一致）", () => {
+    expect(blockAtTime(durations, 1)).toEqual({ index: 0, offset: 0 });
+    expect(blockAtTime(durations, 3)).toEqual({ index: 1, offset: 2 });
+    expect(blockAtTime(durations, 2)).toEqual({ index: 1, offset: 2 }); // 压边界
+    expect(blockAtTime(durations, 6)).toEqual({ index: 2, offset: 6 });
+  });
+
+  it("总尾之外 → null；负时间 → 第一块（builder 侧判 no-op）；空轴 → null", () => {
+    expect(blockAtTime(durations, 7.5)).toBeNull();
+    expect(blockAtTime(durations, 99)).toBeNull();
+    expect(blockAtTime(durations, -1)).toEqual({ index: 0, offset: 0 });
+    expect(blockAtTime([], 1)).toBeNull();
+  });
+
+  it("时长为 0 的块不承接命中（跳过并保持前缀和推进）", () => {
+    expect(blockAtTime([0, 3], 0)).toEqual({ index: 1, offset: 0 });
+    expect(blockAtTime([3, 0], 3)).toBeNull(); // 末块零宽，t=3 在总尾上
   });
 });

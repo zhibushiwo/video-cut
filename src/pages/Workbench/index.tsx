@@ -11,9 +11,11 @@
 import { Film, Scissors, Sparkles } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ClipTimeline, { type TimelineClip } from "../../components/ClipTimeline";
-import { PPS_MIN } from "../../components/ClipTimeline/geometry";
+import { blockAtTime, PPS_MIN } from "../../components/ClipTimeline/geometry";
+import { ContextMenu, type MenuItem } from "../../components/ContextMenu";
 import ProductPreview, { type ProductEntry } from "../../components/ProductPreview";
 import { NO_ROTATE, type RotateState } from "../../components/RotateControls";
+import { PLAYBACK_RATES } from "../../components/VideoPlayer";
 import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useHotkeys } from "../../hooks/useHotkeys";
 import {
@@ -49,6 +51,7 @@ import {
   buildComposite,
   buildCreateClip,
   buildInsert,
+  buildRemoveAndDelete,
   buildReorder,
   buildRemoveFromTimeline,
   buildSplit,
@@ -112,6 +115,13 @@ export default function WorkbenchPage({
   // 成品连播（M6-6）：播放头（成品内秒）与播放状态在页面层持有，与时间轴播放头联动
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
+  // 播放倍率（M11-8 K/L 走带，§17.8）：档位复用 M7-6（PLAYBACK_RATES）
+  const [playbackRate, setPlaybackRate] = useState(1);
+  const lastLRef = useRef(0);
+  // 右键菜单（M11-8 §17.4）：null = 关闭；clipId = null 表示空白/标尺菜单
+  const [menu, setMenu] = useState<{ x: number; y: number; clipId: string | null } | null>(null);
+  // ClipTimeline「适应窗口」的指令句柄（空白菜单经它调 zoomFit）
+  const timelineZoomFitRef = useRef<(() => void) | null>(null);
   const [seekReq, setSeekReq] = useState<{ t: number; nonce: number } | null>(null);
   const seekNonce = useRef(0);
   // 时间轴 PPS（M11-2，plans/M11.md §18.3 页面级 state）：初始 PPS_MIN，ClipTimeline 在
@@ -253,8 +263,17 @@ export default function WorkbenchPage({
    * 一次手势 = 一条撤销记录；加工编辑（rot/crop）与素材增删走 `applyRaw`（旁路状态，不入栈）。
    * Ctrl+Z / Ctrl+Shift+Z 已接线（M11-7，见下方 useHotkeys）。
    */
-  const { execute: executeRaw, applyRaw, undo: undoRaw, redo: redoRaw, clear: clearUndoStack } =
-    useUndoStack({ doc, setDoc, ctx: buildCtx });
+  const {
+    execute: executeRaw,
+    applyRaw,
+    undo: undoRaw,
+    redo: redoRaw,
+    clear: clearUndoStack,
+    canUndo,
+    canRedo,
+    undoLabel,
+    redoLabel,
+  } = useUndoStack({ doc, setDoc, ctx: buildCtx });
 
   // 帧时间埋点（plans/M11.md §18.6 undo 场景）：结构操作经 performance.now span 采样，
   // 5s 窗口汇总落 logger debug（M11-9 验收取数）；undo/redo 按键调用同包 span（M11-7）。
@@ -475,6 +494,29 @@ export default function WorkbenchPage({
     [applyRaw, clearUndoStack],
   );
 
+  /**
+   * 右键「移除并删除池片段」（M11-8，§17.4）：确认后的复合命令——走命令栈、可撤销
+   * （与池卡 ✕ 真删不同，这里是 §17.5 承诺的可撤销删除入口）。
+   */
+  const removeAndDeleteClip = useCallback(
+    async (clipId: string) => {
+      const clip = clips.find((c) => c.id === clipId);
+      if (!clip) return;
+      const src = clipSource(clip);
+      const ok = await confirmDialog(
+        `将删除片段「${src ? basename(src.path) : "?"} ${
+          clip.seg
+            ? `${formatTime(clip.seg.start, false)}–${formatTime(clip.seg.end, false)}`
+            : "全段"
+        }」并从片段池移除（可撤销）。`,
+        "移除并删除池片段",
+      );
+      if (!ok) return;
+      if (execute(buildRemoveAndDelete(clipId))) setCheck(null);
+    },
+    [clips, clipSource, execute],
+  );
+
   const reorderTimeline = useCallback(
     (from: number, to: number) => {
       // 与其余结构操作同口径：旧 check.items 按下标映射，重排后立即失效（no-op 不清）
@@ -485,20 +527,22 @@ export default function WorkbenchPage({
 
   /**
    * 成品时间 → 命中片段与前缀偏移（M11-5 前缀和命中的共用形态：切割 / 修剪到播放头
-   * 同源；与 buildSplit 内部的 offset 求和同式同源——同用 `productDurationOf` 同序累加，
-   * 浮点逐位一致）。
+   * / 右键菜单同源）。命中几何抽为 `geometry.blockAtTime`（M11-5 注记的"勿复制"承诺，
+   * 有单测），累加顺序与 `buildSplit` 内部的 offset 求和同式同源（同用 `productDurationOf`
+   * 的结果序列，浮点逐位一致；缺失 id 按 0 宽跳过 = 旧实现 continue 不推进的等价形）。
    */
   const locateProduct = useCallback(
     (t: number): { clip: Clip; offset: number } | null => {
-      let acc = 0;
-      for (const id of timeline) {
-        const clip = clips.find((c) => c.id === id);
-        if (!clip) continue;
-        const dur = clipDuration(clip);
-        if (t < acc + dur) return { clip, offset: acc };
-        acc += dur;
-      }
-      return null;
+      const hit = blockAtTime(
+        timeline.map((id) => {
+          const clip = clips.find((c) => c.id === id);
+          return clip ? clipDuration(clip) : 0;
+        }),
+        t,
+      );
+      const id = hit ? timeline[hit.index] : undefined;
+      const clip = id ? clips.find((c) => c.id === id) : undefined;
+      return hit && clip ? { clip, offset: hit.offset } : null;
     },
     [timeline, clips, clipDuration],
   );
@@ -694,6 +738,9 @@ export default function WorkbenchPage({
       setSubmitting(false);
     }
   };
+  /** 导出可用性（页脚按钮与 Ctrl+E 共用，M11-8） */
+  const exportDisabled =
+    submitting || timelineClips.length === 0 || !outputDir || !outputName.trim() || hasProbeError;
 
   // 页脚检测汇总一行（§9.8：细节由块/卡徽标 hover 承载）
   const checkSummary = !allProbed
@@ -818,20 +865,15 @@ export default function WorkbenchPage({
     },
     !!selectedClipId,
   );
-  // C 键切割（M11-5，§17.4 / 决策 #30）：播放头处一刀两段；右键菜单入口归 M11-8。
-  // 播放头不在片段上 / 距边缘 <1 帧时 builder 判 no-op 不入栈；带修饰键的 C（Ctrl+C 等）
-  // 不触发（切割是入栈操作，M11-7 前无键盘撤销出口，防误触）
+  // C 键切割（M11-5，§17.4 / 决策 #30）：播放头处一刀两段；右键菜单入口见 M11-8。
+  // 播放头不在片段上 / 距边缘不足最短时长时 builder 判 no-op 不入栈；带修饰键的 C
+  // 不触发（切割是入栈操作，M11-7 起有撤销出口，但仍防误触）
   useHotkeys(
     (e) => {
-      if (
-        (e.key === "c" || e.key === "C") &&
-        !e.repeat &&
-        !e.ctrlKey &&
-        !e.metaKey &&
-        !e.altKey
-      ) {
-        splitAtPlayhead();
-      }
+      // e.code 判定（布局无关，同 Ctrl+Z；M11-8 统一口径）
+      if (e.repeat || e.code !== "KeyC") return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      splitAtPlayhead();
     },
     mode.type === "product" && timeline.length > 0,
   );
@@ -840,15 +882,9 @@ export default function WorkbenchPage({
   // 剪切页 Timeline 读同一设置项）。带修饰键不触发（Ctrl+S 是保存类语义，防误触）
   useHotkeys(
     (e) => {
-      if (
-        (e.key === "s" || e.key === "S") &&
-        !e.repeat &&
-        !e.ctrlKey &&
-        !e.metaKey &&
-        !e.altKey
-      ) {
-        onUpdateSettings({ keyframeSnap: !settings.keyframeSnap });
-      }
+      if (e.repeat || e.code !== "KeyS") return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      onUpdateSettings({ keyframeSnap: !settings.keyframeSnap });
     },
     mode.type === "product",
   );
@@ -867,6 +903,59 @@ export default function WorkbenchPage({
     },
   );
 
+  // M11-8 快捷键补全（§17.8 🆕 项落地）：K/L 走带 · A 追加入轴 · Ctrl+E 导出 · I/O 修剪
+  // 选中片段到播放头。e.code 判定（与 C/S/Z 同口径，布局无关）。
+  useHotkeys(
+    (e) => {
+      if (e.repeat) return;
+      // K = 暂停（倍率保留，L 恢复时沿用）；L = 正放，连按（600ms 内）按 M7-6 档位循环加速、链断回 1×
+      if (e.code === "KeyK" || e.code === "KeyL") {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        e.preventDefault();
+        if (e.code === "KeyK") {
+          setPlaying(false);
+          return;
+        }
+        const now = performance.now();
+        const rapid = now - lastLRef.current < 600;
+        lastLRef.current = now;
+        if (!playing) {
+          setPlaying(true);
+        } else if (rapid) {
+          const idx = PLAYBACK_RATES.indexOf(playbackRate);
+          setPlaybackRate(PLAYBACK_RATES[(idx + 1) % PLAYBACK_RATES.length] ?? 1);
+        } else {
+          setPlaybackRate(1);
+        }
+        return;
+      }
+      // A = 追加入轴：选中片段优先，未选中 = 池中最新未入轴片段（§17.8）
+      if (e.code === "KeyA") {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (selectedClipId && clips.some((c) => c.id === selectedClipId)) {
+          appendToTimeline(selectedClipId);
+          return;
+        }
+        const latest = [...clips].reverse().find((c) => !timeline.includes(c.id));
+        if (latest) appendToTimeline(latest.id);
+        return;
+      }
+      // Ctrl+E = 导出（等价页脚「合成导出」）
+      if (e.code === "KeyE") {
+        if (!e.ctrlKey || e.altKey) return;
+        e.preventDefault();
+        if (!exportDisabled) void startExport();
+        return;
+      }
+      // I / O = 修剪选中片段入/出点到播放头（等价 M11-6 双击边缘的键盘入口）
+      if (e.code === "KeyI" || e.code === "KeyO") {
+        if (e.ctrlKey || e.metaKey || e.altKey) return;
+        if (selectedClipId) onTrimToPlayhead(selectedClipId, e.code === "KeyI" ? "in" : "out");
+      }
+    },
+    mode.type === "product",
+  );
+
   // 切走预览模式时暂停连播；切回成品模式时把播放头同步给播放器。
   // 读 playheadRef（权威值）而非离散镜像 state——播放中 state 冻结在离散点，用它会丢位置
   const prevModeRef = useRef<PreviewMode>(mode);
@@ -877,6 +966,73 @@ export default function WorkbenchPage({
       prevModeRef.current = mode;
     }
   }, [mode, playing, productSeek]);
+
+  // 右键菜单条目（M11-8 §17.4）：打开时构建一次；切割项按播放头命中禁用
+  const menuItems: MenuItem[] = menu
+    ? menu.clipId
+      ? [
+          {
+            label: "切割（播放头处）",
+            hint: "C",
+            disabled: !locateProduct(playheadRef.current),
+            onSelect: () => splitAtPlayhead(),
+          },
+          {
+            label: "波纹删除",
+            hint: "Del",
+            danger: true,
+            onSelect: () => {
+              if (menu.clipId) removeFromTimeline(menu.clipId);
+            },
+          },
+          {
+            label: "移除并删除池片段",
+            danger: true,
+            onSelect: () => {
+              if (menu.clipId) void removeAndDeleteClip(menu.clipId);
+            },
+          },
+          {
+            label: "加工",
+            onSelect: () => {
+              if (!menu.clipId) return;
+              setSelectedClipId(menu.clipId);
+              setMode({ type: "edit", clipId: menu.clipId });
+            },
+          },
+          {
+            label: undoLabel ? `撤销：${undoLabel}` : "撤销",
+            hint: "Ctrl+Z",
+            disabled: !canUndo,
+            onSelect: undo,
+          },
+          {
+            label: redoLabel ? `重做：${redoLabel}` : "重做",
+            hint: "Ctrl+Shift+Z",
+            disabled: !canRedo,
+            onSelect: redo,
+          },
+        ]
+      : [
+          {
+            label: undoLabel ? `撤销：${undoLabel}` : "撤销",
+            hint: "Ctrl+Z",
+            disabled: !canUndo,
+            onSelect: undo,
+          },
+          {
+            label: redoLabel ? `重做：${redoLabel}` : "重做",
+            hint: "Ctrl+Shift+Z",
+            disabled: !canRedo,
+            onSelect: redo,
+          },
+          {
+            label: "适应窗口",
+            hint: "\\",
+            onSelect: () => timelineZoomFitRef.current?.(),
+          },
+        ]
+    : [];
 
   return (
     <div className="flex h-full flex-col">
@@ -959,6 +1115,7 @@ export default function WorkbenchPage({
                       playheadElRef={playheadElRef}
                       scrollElRef={timelineScrollRef}
                       ppsRef={ppsRef}
+                      playbackRate={playbackRate}
                     />
                   ))}
                 {mode.type === "cut" &&
@@ -1021,6 +1178,8 @@ export default function WorkbenchPage({
               onTrimPreview={onTrimPreview}
               onTrimCommit={onTrimCommit}
               onTrimToPlayhead={onTrimToPlayhead}
+              onContextMenu={(e, clipId) => setMenu({ x: e.clientX, y: e.clientY, clipId })}
+              zoomFitRef={timelineZoomFitRef}
             />
 
             {/* ③ 片段池 */}
@@ -1084,16 +1243,14 @@ export default function WorkbenchPage({
         onOutputNameChange={setOutputName}
         error={error}
         submitting={submitting}
-        exportDisabled={
-          submitting ||
-          timelineClips.length === 0 ||
-          !outputDir ||
-          !outputName.trim() ||
-          hasProbeError
-        }
+        exportDisabled={exportDisabled}
         exportTitle={timelineClips.length === 0 ? "请先剪出片段并加入时间轴" : undefined}
         onExport={() => void startExport()}
       />
+
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />
+      )}
     </div>
   );
 }

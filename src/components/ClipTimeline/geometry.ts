@@ -190,3 +190,24 @@ export function snapToKeyframe(
   }
   return best;
 }
+
+/**
+ * 成品时间 → 所在块（前缀和命中，§17.2）：返回块下标与其成品内起点。
+ * Workbench 的切割/修剪到播放头/右键菜单共用这一个实现（M11-5 注记的"勿复制"承诺），
+ * 累加顺序与 undo 层 `buildSplit` 的 offset 求和同式同源（同用 `productDurationOf`
+ * 的结果序列）。边界语义：t 恰好压在某块右缘 → 归**下一块**（与 buildSplit 的
+ * `t < acc + dur` 判定一致）；t ≥ 总时长 → null；负 t → 第一块（builder 侧判 no-op）。
+ */
+export function blockAtTime(
+  durations: readonly number[],
+  t: number,
+): { index: number; offset: number } | null {
+  let acc = 0;
+  for (let i = 0; i < durations.length; i++) {
+    const d = durations[i];
+    if (d === undefined) break;
+    if (t < acc + d) return { index: i, offset: acc };
+    acc += d;
+  }
+  return null;
+}

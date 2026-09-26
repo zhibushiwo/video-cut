@@ -103,6 +103,11 @@ interface ClipTimelineProps {
   onTrimCommit(clipId: string, edge: TrimEdge, srcTime: number): void;
   /** 双击边缘 = 修剪到播放头（§17.4）：播放头不在该片段内时由 Workbench 判 no-op */
   onTrimToPlayhead(clipId: string, edge: TrimEdge): void;
+  /** 块/空白右键（M11-8 §17.4 菜单）：clipId = null 表示空白/标尺；组件只 preventDefault
+   *  并上报命中，菜单渲染与条目动作在 Workbench */
+  onContextMenu(e: React.MouseEvent, clipId: string | null): void;
+  /** 适应窗口的指令句柄（空白菜单「适应窗口」经它调 zoomFit；每次渲染同步最新闭包） */
+  zoomFitRef: { current: (() => void) | null };
 }
 
 /** 刻度目标间距（px，§18.2：刻度间距 ≥60px） */
@@ -155,6 +160,8 @@ export default function ClipTimeline({
   onTrimPreview,
   onTrimCommit,
   onTrimToPlayhead,
+  onContextMenu,
+  zoomFitRef,
 }: ClipTimelineProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   // 帧时间埋点（§18.6 drag 场景）：拖拽激活时开采样、收尾时停（stop 冲掉不足一窗的余量）
@@ -309,6 +316,8 @@ export default function ClipTimeline({
       if (el) el.scrollLeft = 0;
     }
   }, [viewportW, geo.total, shortest, onChangePps]);
+  // 空白菜单「适应窗口」的指令句柄（M11-8）：每次渲染同步最新闭包（playheadElRef 同款桥接）
+  zoomFitRef.current = zoomFit;
 
   // pps commit 后补偿 scrollLeft：布局 effect 在 DOM 按新 pps 更新之后、绘制之前执行
   useLayoutEffect(() => {
@@ -572,9 +581,15 @@ export default function ClipTimeline({
           className="relative h-full w-full cursor-crosshair overflow-x-auto overflow-y-hidden"
           style={trimPreview ? { cursor: "ew-resize" } : undefined}
           onPointerDown={(e) => {
+            if (e.button !== 0) return; // 右键/中键不 seek（右键是菜单入口，§17.4）
             if (geo.total > 0) seekAt(e.clientX, e.altKey);
           }}
           onPointerMove={hoverTrim}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            if (trimRef.current) return; // 修剪手势中不开菜单（与块侧门禁同口径）
+            onContextMenu(e, null);
+          }}
         >
           {/* 世界坐标层：宽 = contentWidth，超出视口即横向滚动（§18.3）；播放头/块/刻度
               全部世界坐标定位，随内容滚动、无补偿计算 */}
@@ -623,6 +638,12 @@ export default function ClipTimeline({
                   onDoubleClick={(e) => {
                     const hit = trimHitAt(e.clientX);
                     if (hit && hit.index === i) onTrimToPlayhead(c.id, hit.edge);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (trimRef.current) return; // 修剪手势中不开菜单（同 pointerdown 门禁）
+                    onContextMenu(e, c.id);
                   }}
                   onClick={() => {
                     // 激活过的修剪手势松手在块上派发的 click 不算选择（状态机②：未激活松手
