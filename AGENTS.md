@@ -126,5 +126,5 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 | dev 下监听器重复/内存涨 | `listen()` 未退订 | 用 `useTauriEvent`（§3 第 11 条） |
 | 拖拽排序在 Windows 失效 | HTML5 DnD 被 Tauri 吞 | 指针事件实现（§3 第 12 条） |
 | 硬件编码器"可用"却失败 | 探测误判 | 试跑探测 + 失败回退 libx264（本机 nvenc/qsv/amf 全不可用，10bit 走 HEVC） |
-| 同文件二次打开仍等数秒 | probe 缓存未命中 | 缓存键 = 路径+size+mtime_ns；≥512 条整体清空（M12-2 前改 LRU） |
+| 同文件二次打开仍等数秒 | probe 缓存未命中 | 缓存键 = 路径+size+mtime_ns；达 512 条 LRU 逐条淘汰（R3-1） |
 | 契约对不上（前端拿不到字段） | Rust/TS 类型双写不同步 | 同提交更新 `lib.rs` + `src/types` + `docs/DESIGN.md` §7 |

@@ -19,8 +19,8 @@ type ProbeKey = (String, u64, u128);
 
 macro_rules! probe_cache {
     ($name:ident, $val:ty) => {
-        fn $name() -> &'static Mutex<HashMap<ProbeKey, $val>> {
-            static CACHE: OnceLock<Mutex<HashMap<ProbeKey, $val>>> = OnceLock::new();
+        fn $name() -> &'static Mutex<HashMap<ProbeKey, LruEntry<$val>>> {
+            static CACHE: OnceLock<Mutex<HashMap<ProbeKey, LruEntry<$val>>>> = OnceLock::new();
             CACHE.get_or_init(|| Mutex::new(HashMap::new()))
         }
     };
@@ -31,7 +31,20 @@ probe_cache!(facts_cache, MergeFileFacts);
 probe_cache!(keyframe_cache, Vec<f64>);
 probe_cache!(duration_cache, f64);
 
-/// 条目数上限：pipeline 中间文件路径每次任务都不同，粗粒度清理防缓慢膨胀。
+/// 缓存值 + 最近使用戳（R3-1 LRU）：get/put 都刷新，淘汰取最小戳。
+struct LruEntry<T> {
+    value: T,
+    stamp: u64,
+}
+
+/// 全局单调递增的使用序号（LRU 的时间源）。
+fn next_stamp() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static STAMP: AtomicU64 = AtomicU64::new(1);
+    STAMP.fetch_add(1, Ordering::Relaxed)
+}
+
+/// 条目数上限：pipeline 中间文件路径每次任务都不同，达限后 LRU 逐条淘汰防缓慢膨胀。
 const PROBE_CACHE_CAP: usize = 512;
 
 /// 读取缓存键；元数据读不到（文件被删/被占锁）返回 None，调用方直接走原路探测。
@@ -47,25 +60,42 @@ fn probe_key(path: &str) -> Option<ProbeKey> {
 }
 
 fn cache_get<T: Clone>(
-    cache: fn() -> &'static Mutex<HashMap<ProbeKey, T>>,
+    cache: fn() -> &'static Mutex<HashMap<ProbeKey, LruEntry<T>>>,
     key: &Option<ProbeKey>,
 ) -> Option<T> {
     let key = key.as_ref()?;
-    cache().lock().ok().and_then(|m| m.get(key).cloned())
+    let mut m = cache().lock().ok()?;
+    let entry = m.get_mut(key)?;
+    entry.stamp = next_stamp();
+    Some(entry.value.clone())
 }
 
 /// 仅缓存成功结果——探测失败可能是暂态（文件被占用等），不应固化。
 fn cache_put<T: Clone>(
-    cache: fn() -> &'static Mutex<HashMap<ProbeKey, T>>,
+    cache: fn() -> &'static Mutex<HashMap<ProbeKey, LruEntry<T>>>,
     key: &Option<ProbeKey>,
     value: &T,
 ) {
     let Some(key) = key else { return };
     if let Ok(mut m) = cache().lock() {
-        if m.len() >= PROBE_CACHE_CAP {
-            m.clear();
+        if m.len() >= PROBE_CACHE_CAP && !m.contains_key(key) {
+            // R3-1：LRU 逐条淘汰——只逐出最久未用的一条，不清空整表
+            //（否则 M12-2 预览高频探测会周期性清光关键帧缓存，FFMPEG.md §6.5）
+            let oldest = m
+                .iter()
+                .min_by_key(|(_, e)| e.stamp)
+                .map(|(k, _)| k.clone());
+            if let Some(oldest) = oldest {
+                m.remove(&oldest);
+            }
         }
-        m.insert(key.clone(), value.clone());
+        m.insert(
+            key.clone(),
+            LruEntry {
+                value: value.clone(),
+                stamp: next_stamp(),
+            },
+        );
     }
 }
 
@@ -491,7 +521,7 @@ mod tests {
     // ---------- 缓存（B1/M8） ----------
 
     probe_cache!(scratch_cache, f64);
-    // cap 测试专用：整体清空会波及同缓存的其他并发测试，不能与 scratch 混用
+    // cap 测试专用：逐条淘汰也可能逐到别的测试刚写入的条目，不能与 scratch 混用
     probe_cache!(cap_cache, f64);
 
     fn temp_file(tag: &str, size: usize) -> std::path::PathBuf {
@@ -523,18 +553,70 @@ mod tests {
     }
 
     #[test]
-    fn cache_clears_at_cap() {
+    fn cache_evicts_lru_at_cap() {
         let p = temp_file("cap", 8);
         let key = probe_key(p.to_str().unwrap()).unwrap();
         for i in 0..PROBE_CACHE_CAP {
             cache_put(cap_cache, &Some((format!("cap-{i}"), i as u64, i as u128)), &0.0);
         }
         assert_eq!(cap_cache().lock().unwrap().len(), PROBE_CACHE_CAP);
+        // 触碰最旧的一条（cap-0）→ 它变成最近使用，不该被淘汰
+        cache_get(cap_cache, &Some(("cap-0".to_string(), 0, 0)));
         cache_put(cap_cache, &Some(key.clone()), &2.5);
         let m = cap_cache().lock().unwrap();
-        assert_eq!(m.len(), 1, "第 513 条应触发整体清空后写入");
-        assert_eq!(m.get(&key), Some(&2.5));
+        assert_eq!(m.len(), PROBE_CACHE_CAP, "达限后只逐出一条，不清空整表");
+        assert_eq!(
+            m.get(&key).map(|e| e.value.clone()),
+            Some(2.5),
+            "新写入的第 513 条应挤掉最久未用者后正常入表"
+        );
+        assert!(
+            m.contains_key(&("cap-0".to_string(), 0, 0)),
+            "刚被触碰的条目不得被逐出（LRU 而非 FIFO/清空）"
+        );
+        assert!(
+            !m.contains_key(&("cap-1".to_string(), 1, 1)),
+            "被逐出的应是最久未用的 cap-1（cap-0 已被触碰刷新）"
+        );
         drop(m);
         let _ = std::fs::remove_file(&p);
+    }
+
+    #[test]
+    fn cache_put_existing_key_at_cap_overrides_without_evicting() {
+        // cap 测试专用（与 cache_evicts_lru_at_cap 隔离：并行测试共用会互相逐出条目）
+        probe_cache!(cap_ov_cache, f64);
+        let key = ("cap-ov".to_string(), 7u64, 7u128);
+        for i in 0..PROBE_CACHE_CAP {
+            cache_put(cap_ov_cache, &Some((format!("cap-f{i}"), i as u64, i as u128)), &0.0);
+        }
+        cache_put(cap_ov_cache, &Some(key.clone()), &1.0);
+        // 达限后插入新键：先逐出最久未用的 cap-f0 再入表，表长不变
+        let (len_insert, ov_first, f0_gone) = {
+            let m = cap_ov_cache().lock().unwrap();
+            (
+                m.len(),
+                m.get(&key).map(|e| e.value.clone()),
+                !m.contains_key(&("cap-f0".to_string(), 0u64, 0u128)),
+            )
+        };
+        assert_eq!(len_insert, PROBE_CACHE_CAP, "达限插入 = 逐出一条再入表");
+        assert_eq!(ov_first, Some(1.0));
+        assert!(f0_gone, "被逐出的应是最久未用的 cap-f0");
+
+        // 达限后覆盖已有键：只替换值并刷新使用序，不得再逐出任何条目
+        cache_put(cap_ov_cache, &Some(key.clone()), &3.5);
+        let (len_overwrite, ov_second, f1_survives) = {
+            let m = cap_ov_cache().lock().unwrap();
+            (
+                m.len(),
+                m.get(&key).map(|e| e.value.clone()),
+                m.contains_key(&("cap-f1".to_string(), 1u64, 1u128)),
+            )
+        };
+        assert_eq!(len_overwrite, PROBE_CACHE_CAP, "覆盖不改变条目数");
+        assert_eq!(ov_second, Some(3.5));
+        assert!(f1_survives, "覆盖不得再逐出条目");
+        let _ = std::fs::remove_file(temp_file("cap", 8));
     }
 }
