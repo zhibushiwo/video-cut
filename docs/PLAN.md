@@ -27,7 +27,7 @@
 | **M13 打磨（可选）** | 缩略图条、标记、多选拖拽（决策 #31） | M12 | ~1 周 | ⏳ 待实施 |
 | **R1 评审修复（第一轮）** | 2026-09-17 三路走读的 P0/P1 整改（rAF 单链 / 事件退订 / 清理钩子 / CropOverlay / ESLint） | M9 | 1 天 | ✅ 完成（2026-09-19） |
 | **R2 重构** | Workbench 拆分、重复收敛、useHotkeys 门控、ESLint 基线、死代码清理 | M11-0 ✅ | 2~3 天 | ✅ **完成**：`R2-1` ✅（2026-09-24）· `R2-2`/`R2-3`/`R2-4`/`R2-5` ✅（2026-09-25） |
-| **R3 收尾** | probe 缓存改 LRU、取消清理按 kind 统一、snapshot 过滤 internal、speed 接通、输出前导抽取、锁策略 | M11 | 1~2 天 | 🔜 **部分完成**：`R3-7`（输出=输入同一性比较归一化）已提前实施（2026-09-24）、`R3-1`（probe 缓存 LRU）已完成（2026-09-26）；其余待 M12-2 前 |
+| **R3 收尾** | probe 缓存改 LRU、取消清理按 kind 统一、snapshot 过滤 internal、speed 接通、输出前导抽取、锁策略 | M11 | 1~2 天 | 🔜 **部分完成**：`R3-7`（输出=输入同一性比较归一化）已提前实施（2026-09-24）、`R3-1`（probe 缓存 LRU）、`R3-2`/`R3-3`（任务去重统一管理 + internal 不可见）已完成（2026-09-26）；其余待 M12-2 前 |
 | **R4 第二轮审查整改** | 2026-09-19 四路复审的 P0/P1（`R4-1`–`R4-7`，`BUG-001`–`BUG-006`）：panic 隔离、原子替换、拖拽收尾、crop 钳制、缩略图容错、代理判定纳入容器维度；另并入真机首跑缺陷修复 `R4-8`（`BUG-007`–`BUG-009`）与 `R4-9`（`BUG-010`） | R1 | 1~2 天 | ✅ **9 条全部实施完毕**（2026-09-21 ~ 09-23，见「R4」段）；剩真机/手测半待发起 |
 
 > 预估按单人全职工时，仅供排期参考；顺序上 M2 与 M3 可并行挑选。
@@ -279,8 +279,8 @@
 > **关联**：—（工程批次，无 FR）　·　**验收**：—　——　执行：TESTING.md TC-005 + TC-001~003 回归
 
 - [x] **R3-1** probe 缓存改 LRU 逐条淘汰（原口径：现 ≥512 整体 clear，preview 高频提交会周期性清光关键帧缓存；FFMPEG.md §6.5）：四张探测缓存（media/facts/keyframe/duration）改 `LruEntry{value,stamp}` + 全局原子戳，命中刷新、达限逐出最久未用一条、覆盖已有键只刷新不逐出；cap 测试重写为 LRU 语义 + 补达限覆盖边界测试；规格（FFMPEG.md §6.5）与 AGENTS §8 坑表同批更新（2026-09-26，代码 `bad3096`） → **FR-313（缓存）· AC-313-1 · `ffmpeg/probe.rs` · TC-004**
-- [ ] **R3-2** 取消清理由 TaskManager 按 kind 统一管理（替代 pending_proxies 手工模式） → **FR-361 · FR-362 · AC-362-1 · `task/manager.rs` · TC-004**
-- [ ] **R3-3** snapshot 过滤 internal 任务（否则常驻 preview 任务令关闭窗口确认失效） → **FR-360（面板可见性）· AC-360-1 · `task/manager.rs` · `services/tauri.ts` · TC-015**
+- [x] **R3-2** 取消清理由 TaskManager 按 kind 统一管理（替代 pending_proxies 手工模式）：新增 `TaskManager::submit_internal(sink, kind, label, dedup_key, job)` —— 同 `(kind, dedup_key)` 活动任务复用既有 taskId，登记表 `(kind,key)→taskId` 由 TaskManager 持有、`run_cleanup` 终态统一回收（完成/失败/取消含排队取消全路径）；generate_proxy 三步手工簿记（自建 HashMap + cleanup 钩子 + is_active 自愈）整体迁移，删无调用方的 `TaskManager::is_active`；提交入口重构为私有 submit_core（旧路径行为逐语句等价），顺带消除旧"submit 后再登记"两步竞态（2026-09-26，代码 `4a8c6d4`） → **FR-361 · FR-362 · AC-362-1 · `task/manager.rs` · TC-004**
+- [x] **R3-3** snapshot 过滤 internal 任务（否则常驻 preview 任务令关闭窗口确认失效）：snapshot() 过滤 internal（list_tasks 两个消费方——任务面板补元数据、关闭守卫——均不可见）；`StatusPayload` 加 `internal` 标记、**事件照常派发**（useProxyPreview 完成事件链路不受影响），TaskProgress 凭标记跳过建行；TaskSnapshot 不加字段（CR 抓到死字段，snapshot 先过滤再构造恒 false）；TaskManager::is_active / 关闭守卫 / 历史落盘白名单均不改即正确（2026-09-26，代码 `4a8c6d4`） → **FR-360（面板可见性）· AC-360-1 · `task/manager.rs` · `services/tauri.ts` · TC-015**
 - [ ] **R3-4** 进度节流样板收敛（立项时记 7 份；2026-09-25 过度工程审查复核现为 **9** 份，收敛形态见 [archive/code-review-2026-09-25-overengineering.md](./archive/code-review-2026-09-25-overengineering.md) §1 表 1.2）+ **speed 接通**（现 speed 恒 None，前端速度列空壳） → **FR-361 · AC-361-1 · `ffmpeg/progress.rs` · `services/tauri.ts` · TC-004 · TC-015**
 - [ ] **R3-5** `prepare_output` 提交前导抽取（4 份）——**剩下只有这半**：`finalize_output` 消除"先删后改名"旧成品丢失窗口（pipeline/merge/crop/rotate 四处，另有 `cut.rs`/`media.rs` 两处同类问题）**已由 `R4-2` 做掉**（`fs::atomic_replace`，六处） → **NFR-008（输出前导/磁盘预检）· `commands/*.rs` · `commands/pipeline.rs` · TC-004**
 - [ ] **R3-6** parking_lot 统一锁中毒策略；`cargo fmt --check` 纳入流程（"输出=输入比较改 canonicalize"一条**已提前由 `R3-7` 完成**） → **NFR-006 · NFR-007 · `task/manager.rs` · `task/worker.rs` · TC-004**
