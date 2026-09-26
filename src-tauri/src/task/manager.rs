@@ -2,9 +2,10 @@
 //!
 //! M0 提供可复用骨架：提交 / 取消 / 快照 / 事件推送。ffmpeg 子进程接入在 M1。
 
+use parking_lot::{Condvar, Mutex};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
@@ -88,7 +89,7 @@ pub struct TaskHandle {
 impl TaskHandle {
     /// 任务结束（正常/失败/取消）后清空 killer，避免残留闭包。
     pub(crate) fn clear_killer(&self) {
-        *self.killer.lock().unwrap() = None;
+        *self.killer.lock() = None;
     }
 
     /// 首次到达终态时返回 true（并发到达时只有一个赢家）。
@@ -105,10 +106,10 @@ impl TaskHandle {
             id: self.id.clone(),
             kind: self.kind.clone(),
             label: self.label.clone(),
-            status: *self.status.lock().unwrap(),
-            progress: *self.progress.lock().unwrap(),
-            error: self.error.lock().unwrap().clone(),
-            outputs: self.outputs.lock().unwrap().clone(),
+            status: *self.status.lock(),
+            progress: *self.progress.lock(),
+            error: self.error.lock().clone(),
+            outputs: self.outputs.lock().clone(),
         }
     }
 }
@@ -135,7 +136,7 @@ impl TaskContext {
     /// p < 5% 时噪声过大不报、p ≥ 1.0 无剩余不报。
     pub fn set_progress(&self, percent: f64, speed: Option<f64>) {
         let p = percent.clamp(0.0, 1.0);
-        *self.handle.progress.lock().unwrap() = Some(p);
+        *self.handle.progress.lock() = Some(p);
         let eta_seconds = self.estimate_eta(p);
         self.sink.emit_progress(&ProgressPayload {
             task_id: self.handle.id.clone(),
@@ -149,7 +150,7 @@ impl TaskContext {
         if !(0.05..1.0).contains(&p) {
             return None;
         }
-        let started = *self.handle.started_at.lock().unwrap();
+        let started = *self.handle.started_at.lock();
         if started == 0 {
             return None;
         }
@@ -159,21 +160,21 @@ impl TaskContext {
 
     /// 登记成功产物路径，任务完成后展示给用户。
     pub fn add_output(&self, path: String) {
-        self.handle.outputs.lock().unwrap().push(path);
+        self.handle.outputs.lock().push(path);
     }
 
     /// 注册立即终止手段（kill 子进程）。运行中任务被取消时由 cancel() 触发。
     pub fn set_killer(&self, killer: crate::task::manager::Killer) {
-        *self.handle.killer.lock().unwrap() = Some(killer);
+        *self.handle.killer.lock() = Some(killer);
     }
 
     pub(crate) fn emit_status(&self) {
         let handle = &self.handle;
         self.sink.emit_status(&StatusPayload {
             task_id: handle.id.clone(),
-            status: *handle.status.lock().unwrap(),
-            error: handle.error.lock().unwrap().clone(),
-            outputs: handle.outputs.lock().unwrap().clone(),
+            status: *handle.status.lock(),
+            error: handle.error.lock().clone(),
+            outputs: handle.outputs.lock().clone(),
             internal: handle.internal,
         });
     }
@@ -189,7 +190,7 @@ struct TaskEntry {
 impl TaskEntry {
     fn is_active(&self) -> bool {
         matches!(
-            *self.handle.status.lock().unwrap(),
+            *self.handle.status.lock(),
             TaskStatus::Pending | TaskStatus::Running
         )
     }
@@ -219,7 +220,7 @@ pub(crate) struct Shared {
 impl Shared {
     /// 作业线程收尾：归还并发配额并唤醒调度器。
     pub(crate) fn task_finished(&self) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock();
         inner.running -= 1;
         drop(inner);
         self.cv.notify_all();
@@ -230,7 +231,7 @@ impl Shared {
     /// 含排队中被取消）都会走到这里，提交方无需自建回收逻辑。
     pub(crate) fn run_cleanup(&self, id: &str) {
         let cb = {
-            let mut inner = self.inner.lock().unwrap();
+            let mut inner = self.inner.lock();
             inner.dedup.retain(|_, v| v != id);
             inner.tasks.get_mut(id).and_then(|e| e.cleanup.take())
         };
@@ -245,8 +246,8 @@ impl Shared {
             return;
         }
         // 终态全量入日志（DESIGN §12.1）：成功记输出与耗时，失败记 stderr 尾部全文
-        let status = *handle.status.lock().unwrap();
-        let started = *handle.started_at.lock().unwrap();
+        let status = *handle.status.lock();
+        let started = *handle.started_at.lock();
         let elapsed = if started > 0 {
             format!("{}s", (crate::history::now_ms() - started) / 1000)
         } else {
@@ -257,14 +258,14 @@ impl Shared {
                 log::info!(
                     "任务完成（耗时 {elapsed}）：{}，输出：{:?}",
                     handle.label,
-                    handle.outputs.lock().unwrap()
+                    handle.outputs.lock()
                 );
             }
             TaskStatus::Failed => {
                 log::error!(
                     "任务失败（{elapsed}）：{}：{}",
                     handle.label,
-                    handle.error.lock().unwrap().as_deref().unwrap_or("未知错误")
+                    handle.error.lock().as_deref().unwrap_or("未知错误")
                 );
             }
             TaskStatus::Cancelled => {
@@ -272,7 +273,7 @@ impl Shared {
             }
             _ => {}
         }
-        if let Some(cb) = self.on_terminal.lock().unwrap().as_ref() {
+        if let Some(cb) = self.on_terminal.lock().as_ref() {
             cb(handle);
         }
     }
@@ -312,7 +313,7 @@ impl TaskManager {
 
     /// 注册终态回调（历史记录）：须在提交任何任务前调用（App setup 阶段）。
     pub fn set_on_terminal(&self, cb: OnTerminal) {
-        *self.shared.on_terminal.lock().unwrap() = Some(cb);
+        *self.shared.on_terminal.lock() = Some(cb);
     }
 
     /// 提交任务：立即返回 TaskId，作业由调度线程在并发配额内执行（DESIGN §8.2）。
@@ -379,7 +380,7 @@ impl TaskManager {
             started_at: Mutex::new(0),
             terminal_recorded: AtomicBool::new(false),
         });
-        let mut inner = self.shared.inner.lock().unwrap();
+        let mut inner = self.shared.inner.lock();
         if let Some(key) = dedup_key {
             let entry_key = (kind.to_string(), key.to_string());
             if let Some(existing) = inner.dedup.get(&entry_key).cloned() {
@@ -410,17 +411,17 @@ impl TaskManager {
     /// 取消任务：排队中直接置 Cancelled；运行中置标记并触发 killer（kill 子进程）。
     pub fn cancel(&self, id: &str) -> bool {
         let (handle, sink, killer, pending) = {
-            let mut inner = self.shared.inner.lock().unwrap();
+            let mut inner = self.shared.inner.lock();
             let Some(entry) = inner.tasks.get(id) else {
                 return false;
             };
             let handle = entry.handle.clone();
             let sink = entry.sink.clone();
             handle.cancelled.store(true, Ordering::Relaxed);
-            let pending = *handle.status.lock().unwrap() == TaskStatus::Pending;
-            let killer = handle.killer.lock().unwrap().take();
+            let pending = *handle.status.lock() == TaskStatus::Pending;
+            let killer = handle.killer.lock().take();
             if pending {
-                *handle.status.lock().unwrap() = TaskStatus::Cancelled;
+                *handle.status.lock() = TaskStatus::Cancelled;
                 inner.queue.retain(|(qid, _)| qid != id);
             }
             (handle, sink, killer, pending)
@@ -441,7 +442,7 @@ impl TaskManager {
     /// 清除已到终态（完成/失败/取消）的任务记录，返回清除数（DESIGN §5.4 clear_finished_tasks）。
     /// 运行中/排队中的任务不受影响。
     pub fn clear_finished(&self) -> usize {
-        let mut inner = self.shared.inner.lock().unwrap();
+        let mut inner = self.shared.inner.lock();
         let keep: Vec<String> = inner
             .order
             .iter()
@@ -459,7 +460,7 @@ impl TaskManager {
     /// 关闭窗口确认（listTasks 的两个消费方）都不应看到后台代理等内部任务；
     /// 事件通道不受影响（订阅方凭 payload 的 internal 标记自行过滤展示）。
     pub fn snapshot(&self) -> Vec<TaskSnapshot> {
-        let inner = self.shared.inner.lock().unwrap();
+        let inner = self.shared.inner.lock();
         inner
             .order
             .iter()
@@ -482,7 +483,7 @@ impl TaskManager {
 fn scheduler_loop(shared: Arc<Shared>) {
     loop {
         let (id, handle, sink, job) = {
-            let mut inner = shared.inner.lock().unwrap();
+            let mut inner = shared.inner.lock();
             loop {
                 // 排队期间被取消的任务直接出队丢弃，不占用并发配额
                 if let Some(pos) = inner.queue.iter().position(|(id, _)| {
@@ -504,7 +505,7 @@ fn scheduler_loop(shared: Arc<Shared>) {
                         }
                     }
                 }
-                inner = shared.cv.wait(inner).unwrap();
+                shared.cv.wait(&mut inner);
             }
         };
         let s2 = shared.clone();
@@ -529,13 +530,10 @@ mod tests {
 
     impl EventSink for CollectSink {
         fn emit_status(&self, p: &StatusPayload) {
-            self.statuses
-                .lock()
-                .unwrap()
-                .push((p.task_id.clone(), p.status));
+            self.statuses.lock().push((p.task_id.clone(), p.status));
         }
         fn emit_progress(&self, p: &ProgressPayload) {
-            self.progresses.lock().unwrap().push(p.clone());
+            self.progresses.lock().push(p.clone());
         }
     }
 
@@ -574,9 +572,13 @@ mod tests {
             }),
         );
         wait_terminal(&mgr, &[&id], Duration::from_secs(5));
-        let all = sink.progresses.lock().unwrap();
-        assert!(all.iter().filter(|p| p.task_id == id).all(|p| p.eta_seconds.is_none()),
-            "p<5% 与 p=1.0 都不得带 ETA");
+        let all = sink.progresses.lock();
+        assert!(
+            all.iter()
+                .filter(|p| p.task_id == id)
+                .all(|p| p.eta_seconds.is_none()),
+            "p<5% 与 p=1.0 都不得带 ETA"
+        );
     }
 
     #[test]
@@ -609,14 +611,16 @@ mod tests {
         let reported = sink
             .progresses
             .lock()
-            .unwrap()
             .iter()
             .find(|p| p.task_id == id1 && p.percent == 0.5)
             .cloned();
         assert!(reported.is_some());
         let reported = reported.unwrap();
         assert_eq!(reported.speed.as_deref(), Some("2.50"));
-        assert!(reported.eta_seconds.unwrap_or(-1.0) >= 0.0, "p=0.5 应带 ETA");
+        assert!(
+            reported.eta_seconds.unwrap_or(-1.0) >= 0.0,
+            "p=0.5 应带 ETA"
+        );
         assert_eq!(s2.status, TaskStatus::Failed);
         assert_eq!(s2.error.as_deref(), Some("boom"));
     }
@@ -710,7 +714,7 @@ mod tests {
         );
         // 提交即派发 task-status（订阅方靠事件知道任务存在）
         assert!(
-            sink.statuses.lock().unwrap().iter().any(|(tid, _)| tid == &id),
+            sink.statuses.lock().iter().any(|(tid, _)| tid == &id),
             "internal 任务的 task-status 事件必须照常派发"
         );
         // job 确实执行了；snapshot 看不到 internal 任务，不能走 wait_terminal
@@ -741,12 +745,22 @@ mod tests {
             }),
         );
         // 活动（排队或运行中）期间同 key 再提交 → 复用既有任务，不重复入队
-        let id2 =
-            mgr.submit_internal(sink.clone(), "proxy", "第二个", "key-a", Box::new(|_| Ok(())));
+        let id2 = mgr.submit_internal(
+            sink.clone(),
+            "proxy",
+            "第二个",
+            "key-a",
+            Box::new(|_| Ok(())),
+        );
         assert_eq!(id1, id2, "同 key 活动期间应复用既有任务");
         // 不同 key 各自独立
-        let id3 =
-            mgr.submit_internal(sink.clone(), "proxy", "第三个", "key-b", Box::new(|_| Ok(())));
+        let id3 = mgr.submit_internal(
+            sink.clone(),
+            "proxy",
+            "第三个",
+            "key-b",
+            Box::new(|_| Ok(())),
+        );
         assert_ne!(id1, id3);
         tx.send(()).unwrap();
     }
@@ -768,12 +782,20 @@ mod tests {
         // 终态回收后同 key 再提交 → 新任务（回收异步于 job 结束，poll 到换新即止）
         let start = Instant::now();
         loop {
-            let id2 =
-                mgr.submit_internal(sink.clone(), "proxy", "再跑一次", "key-r", Box::new(|_| Ok(())));
+            let id2 = mgr.submit_internal(
+                sink.clone(),
+                "proxy",
+                "再跑一次",
+                "key-r",
+                Box::new(|_| Ok(())),
+            );
             if id2 != id1 {
                 break;
             }
-            assert!(start.elapsed() < Duration::from_secs(5), "终态后去重条目未被回收");
+            assert!(
+                start.elapsed() < Duration::from_secs(5),
+                "终态后去重条目未被回收"
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
     }
@@ -793,14 +815,24 @@ mod tests {
                 Ok(())
             }),
         );
-        let queued =
-            mgr.submit_internal(sink.clone(), "proxy", "排队中取消", "key-q", Box::new(|_| Ok(())));
+        let queued = mgr.submit_internal(
+            sink.clone(),
+            "proxy",
+            "排队中取消",
+            "key-q",
+            Box::new(|_| Ok(())),
+        );
         assert_ne!(blocker, queued);
         assert!(mgr.cancel(&queued));
         // 排队中取消不执行作业体（R1-3），去重条目也必须已被回收（R3-2）——
         // 直接再提交：拿到新 id 即证明回收完成
-        let again =
-            mgr.submit_internal(sink.clone(), "proxy", "重新提交", "key-q", Box::new(|_| Ok(())));
+        let again = mgr.submit_internal(
+            sink.clone(),
+            "proxy",
+            "重新提交",
+            "key-q",
+            Box::new(|_| Ok(())),
+        );
         assert_ne!(again, queued, "排队取消后同 key 应可重新提交");
         tx.send(()).unwrap();
         wait_terminal(&mgr, &[&blocker], Duration::from_secs(5));
@@ -863,11 +895,21 @@ mod tests {
         );
         let snaps = wait_terminal(&mgr, &[&id1], Duration::from_secs(5));
         let s1 = snaps.iter().find(|s| s.id == id1).unwrap();
-        assert_eq!(s1.status, TaskStatus::Failed, "panic 应记为失败，而不是停在 Running");
+        assert_eq!(
+            s1.status,
+            TaskStatus::Failed,
+            "panic 应记为失败，而不是停在 Running"
+        );
         assert_eq!(s1.progress, None, "失败保留实际进度（本次从未上报）");
         let err = s1.error.clone().unwrap_or_default();
-        assert!(err.contains("任务内部错误"), "文案应表明是任务内部错误，实际：{err}");
-        assert!(err.contains("模拟作业体 panic"), "文案应带上 panic 内容，实际：{err}");
+        assert!(
+            err.contains("任务内部错误"),
+            "文案应表明是任务内部错误，实际：{err}"
+        );
+        assert!(
+            err.contains("模拟作业体 panic"),
+            "文案应带上 panic 内容，实际：{err}"
+        );
 
         // 第二次 panic + 一个正常任务：并发位只有 1 个，泄漏的话 id3 会永远排不上。
         // 这次的 panic 走 `panic!("{}", …)` 形态（载荷是 String，与上面的 &str 分支不同），

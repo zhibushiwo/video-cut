@@ -58,7 +58,9 @@ pub fn file_exists(path: String) -> bool {
 /// 文件对话框与目录扫描认的**扩展名**（= 处理范围，与前端 `services/tauri.ts` 的 `VIDEO_EXTENSIONS` 同表）。
 /// ⚠ 这不是"能直接预览"的范围——预览判定按 ffprobe 的 `format_name`（解复用器名）走
 /// 另一张白名单（`src/utils/media.ts` 的 `NATIVE_CONTAINERS`），两者命名空间不同，别拿它当预览依据。
-const VIDEO_EXTS: &[&str] = &["mp4", "mov", "mkv", "avi", "webm", "m4v", "ts", "flv", "wmv"];
+const VIDEO_EXTS: &[&str] = &[
+    "mp4", "mov", "mkv", "avi", "webm", "m4v", "ts", "flv", "wmv",
+];
 
 fn is_video_file(p: &std::path::Path) -> bool {
     p.extension()
@@ -204,7 +206,14 @@ mod tests {
         let made = std::process::Command::new(&ffmpeg)
             .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi"])
             .args(["-i", "testsrc=duration=2:size=64x48:rate=10"])
-            .args(["-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p"])
+            .args([
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-pix_fmt",
+                "yuv420p",
+            ])
             .arg(&good1)
             .status()
             .map(|s| s.success())
@@ -236,7 +245,8 @@ mod tests {
             "坏文件不该出现在结果里：{out:?}"
         );
         assert!(
-            out.iter().all(|t| std::path::Path::new(&t.thumb_path).exists()),
+            out.iter()
+                .all(|t| std::path::Path::new(&t.thumb_path).exists()),
             "返回的缩略图必须真的落盘：{out:?}"
         );
 
@@ -345,7 +355,10 @@ pub fn generate_proxy(
     });
 
     // internal 提交（R3-2/R3-3）：同源去重 + 不进任务面板/关闭守卫
-    let task_id = state.0.submit_internal(Arc::new(TauriEmitter(app)), "proxy", &label, &input, job);
+    let task_id =
+        state
+            .0
+            .submit_internal(Arc::new(TauriEmitter(app)), "proxy", &label, &input, job);
     Ok(ProxyStart {
         task_id: Some(task_id),
         proxy_path: path_to_string(&output),
@@ -487,7 +500,11 @@ fn generate_clip_thumbs_sync(
                 .map_err(|e| format!("无法启动 ffmpeg：{e}"))?;
             if !status.success() || !path.exists() {
                 // 单个失败跳过，不拖累整批（与文件缩略图同口径，见 `BUG-005`）
-                log::warn!("片段缩略图生成失败，跳过该张：{}@{:.2}s", r.input, r.time_sec);
+                log::warn!(
+                    "片段缩略图生成失败，跳过该张：{}@{:.2}s",
+                    r.input,
+                    r.time_sec
+                );
                 continue;
             }
         }

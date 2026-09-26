@@ -7,8 +7,10 @@ pub mod merge;
 pub mod pipeline;
 pub mod rotate;
 
+use crate::ffmpeg::command;
+
 use std::cell::Cell;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 /// FNV-1a 64：为字符串生成稳定哈希（代理缓存 / 临时文件命名，跨进程一致）。
@@ -53,6 +55,44 @@ pub(crate) fn require_disk_space(dir: &Path, estimate_bytes: u64) -> Result<(), 
         ));
     }
     Ok(())
+}
+
+/// 提交期输出前导的产物（R3-5）：四个 submit 命令（crop/rotate/merge/pipeline）
+/// 共用的公共前导解析结果。
+pub(crate) struct PreparedOutput {
+    pub out_dir: PathBuf,
+    pub out_name: String,
+    /// 提交级临时令牌：防并发任务同名互写（`.part.<令牌>`，DESIGN NFR-007）。
+    pub token: String,
+    pub ffmpeg: PathBuf,
+    pub ffprobe: PathBuf,
+}
+
+/// 提交期输出前导（R3-5）：解析输出目录与文件名、建目录、解析 ffmpeg/ffprobe
+/// sidecar（提交期就失败，不让坏任务占队列）、生成提交级令牌。
+/// `final_base` = 已按容器校正的最终名（crop/rotate）；容器在作业体内才定的
+/// （merge/pipeline，排队后状态可能变化）传请求路径。
+pub(crate) fn prepare_output(
+    final_base: &Path,
+    token_seed: &str,
+) -> Result<PreparedOutput, String> {
+    let out_dir = final_base
+        .parent()
+        .ok_or_else(|| "输出路径无效".to_string())?
+        .to_path_buf();
+    std::fs::create_dir_all(&out_dir).map_err(|e| format!("无法创建输出目录：{e}"))?;
+    let out_name = final_base
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| "输出文件名无效".to_string())?
+        .to_string();
+    Ok(PreparedOutput {
+        out_dir,
+        out_name,
+        token: pipeline::temp_token(token_seed),
+        ffmpeg: command::resolve_sidecar("ffmpeg")?,
+        ffprobe: command::resolve_sidecar("ffprobe")?,
+    })
 }
 
 /// 进度节流间隔（DESIGN §8.2，NFR-009）：~200ms 放行一次。

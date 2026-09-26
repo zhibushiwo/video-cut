@@ -5,7 +5,7 @@
 > **读时机**：每次接手任务前；准备动 `ffmpeg/`、`task/`、IPC 层之前必须读完 §3。
 > **写规则**：只在"红线、命令、完事标准、流程"变化时改本文；每条尽量一行，能指向文档就指向。**不写规格、不写进度**。
 > **关联**：[docs/INDEX.md](docs/INDEX.md)（文档地图与 ID 规范） · [docs/PLAN.md](docs/PLAN.md)（进度与任务） · [docs/HANDOFF.md](docs/HANDOFF.md)（当前状态）
-> **最后更新**：2026-09-26（第 8 条补 `submit_internal`：内部任务去重登记由 TaskManager 统一管理，R3-2/R3-3）
+> **最后更新**：2026-09-26（§2/§4 补 `cargo fmt --check` 入流程；第 8 条补 `submit_internal`，R3-2/R3-3）
 
 ---
 
@@ -32,8 +32,9 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 | 静态检查 | `pnpm lint`（或 `pnpm lint:fix`） |
 | 前端单测（纯函数） | `pnpm test`（= `vitest run`；配置 `vitest.config.ts`，node 环境不含 DOM；用例在 `src/**/*.test.ts`） |
 | 文档一致性（链接 / § 归属 / ID 交叉 / skip 区间） | `pnpm check:docs`（= `node scripts/check-docs.mjs`；`--strict` 更严，`--list` 列出扫描文件） |
-| 安装 git 钩子（克隆后跑一次） | `pnpm hooks:install`（= `git config core.hooksPath .githooks`；钩子在库内 `.githooks/`，提交时自动跑 check-docs） |
+| 安装 git 钩子（克隆后跑一次） | `pnpm hooks:install`（= `git config core.hooksPath .githooks`；钩子在库内 `.githooks/`，提交时自动跑 cargo fmt --check + check-docs） |
 | 后端测试（含 e2e） | `cd src-tauri && cargo test` |
+| Rust 格式化 / 检查 | `cd src-tauri && cargo fmt` / `cargo fmt --check`（pre-commit 自动跑检查，R3-6） |
 | 下载/更新 sidecar FFmpeg | `pwsh scripts/fetch-ffmpeg.ps1` |
 | 生成测试夹具 | `pwsh scripts/gen-fixtures.ps1` |
 
@@ -82,7 +83,7 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 
 改动**完成**需同时满足：
 
-1. `tsc --noEmit` 通过 · `pnpm lint` 0 problems · `pnpm test` 全绿 · `cargo test` 全绿（含 e2e；sidecar 缺失时 e2e 自动跳过，需在说明里注明）
+1. `tsc --noEmit` 通过 · `pnpm lint` 0 problems · `pnpm test` 全绿 · `cargo test` 全绿（含 e2e；sidecar 缺失时 e2e 自动跳过，需在说明里注明） · `cargo fmt --check` 零 diff（R3-6，pre-commit 已拦）
 2. 动过 `command.rs` ⇒ 有对应的参数序列断言
 3. 动过 UI ⇒ 在提交说明或回复里列出**手测点**（测试口径见 [docs/TESTING.md](docs/TESTING.md)）
 4. 动过规格 ⇒ 同步更新 DESIGN 的 FR/AC 或对应文档

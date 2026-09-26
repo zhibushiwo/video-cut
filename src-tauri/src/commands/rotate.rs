@@ -6,9 +6,9 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, State};
 
-use super::ProgressThrottle;
+use super::{PreparedOutput, ProgressThrottle};
+use crate::ffmpeg::command;
 use crate::ffmpeg::probe;
-use crate::ffmpeg::{command};
 use crate::task::manager::{Job, TaskContext, TauriEmitter};
 use crate::task::worker;
 use crate::{AppTasks, QualityPreset};
@@ -38,26 +38,20 @@ pub fn submit_rotate(
     };
     let out = crate::fs::output_path_for(&PathBuf::from(&output), &container_ext);
     crate::fs::reject_if_input_equals(&out, &[&input])?;
-    let out_dir = out
-        .parent()
-        .ok_or_else(|| "输出路径无效".to_string())?
-        .to_path_buf();
-    std::fs::create_dir_all(&out_dir).map_err(|e| format!("无法创建输出目录：{e}"))?;
-    let ffmpeg = command::resolve_sidecar("ffmpeg")?;
-    let ffprobe = command::resolve_sidecar("ffprobe")?;
+    let PreparedOutput {
+        out_dir,
+        out_name,
+        token,
+        ffmpeg,
+        ffprobe,
+    } = super::prepare_output(&out, &output)?;
 
     let in_name = Path::new(&input)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(&input)
         .to_string();
-    let out_name = out
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| "输出文件名无效".to_string())?
-        .to_string();
     // 半成品与成品**共用同一容器扩展名**（ADR-033 ④；ffmpeg 靠扩展名推断封装）+ 提交级令牌
-    let token = super::pipeline::temp_token(&output);
     let part = out_dir.join(format!("{out_name}.part.{token}.{container_ext}"));
 
     let label = if transcode {
@@ -92,13 +86,7 @@ pub fn submit_rotate(
             // 绝角度 = 源 metadata 旋转 + 用户增量（-display_rotation 为覆盖语义）
             let current = facts.info.rotation.unwrap_or(0);
             let abs = (current + rotate_deg).rem_euclid(360);
-            command::rotate_remux_args_deg(
-                abs,
-                hflip,
-                vflip,
-                &job_input,
-                &part.to_string_lossy(),
-            )
+            command::rotate_remux_args_deg(abs, hflip, vflip, &job_input, &part.to_string_lossy())
         };
 
         let throttle = ProgressThrottle::new();
@@ -122,5 +110,7 @@ pub fn submit_rotate(
         }
     });
 
-    Ok(state.0.submit(Arc::new(TauriEmitter(app)), "rotate", &label, job))
+    Ok(state
+        .0
+        .submit(Arc::new(TauriEmitter(app)), "rotate", &label, job))
 }

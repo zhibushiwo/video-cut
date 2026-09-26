@@ -1,5 +1,7 @@
 #!/bin/sh
-# video-cut pre-commit —— 文档一致性检查（四项：链接 / § 归属 / ID 交叉 / skip 区间）
+# video-cut pre-commit —— cargo fmt --check + 文档一致性检查
+#   ① fmt：Rust 格式检查（R3-6 纳入流程；全仓必须零 diff）
+#   ② check-docs：链接 / § 归属 / ID 交叉 / skip 区间
 #
 # 安装（一次即可，写入本地 .git/config，不动仓库历史）：
 #   git config core.hooksPath .githooks      # 或 pnpm hooks:install
@@ -8,12 +10,25 @@
 # 临时跳过：git commit --no-verify
 set -u
 
+if command -v cargo >/dev/null 2>&1; then
+  if [ -t 1 ]; then
+    echo "[pre-commit] cargo fmt --check …"
+  fi
+  if ! (cd src-tauri && cargo fmt --check); then
+    echo "" >&2
+    echo "[pre-commit] ✘ cargo fmt --check 未通过（在 src-tauri 跑一次 cargo fmt 后重试）。" >&2
+    echo "[pre-commit]   确需跳过：git commit --no-verify" >&2
+    exit 1
+  fi
+else
+  echo "[pre-commit] 未找到 cargo，跳过 fmt 检查" >&2
+fi
+
 if ! command -v node >/dev/null 2>&1; then
   echo "[pre-commit] 未找到 node，跳过 check-docs（请把 node 放上 PATH；或 git commit --no-verify）" >&2
   exit 0
 fi
 
-# 本次提交未触及文档面时直接放行（避免无谓等待）
 if [ -t 1 ]; then
   echo "[pre-commit] 文档一致性检查 …"
 fi

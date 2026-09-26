@@ -8,7 +8,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
-use super::ProgressThrottle;
+use super::{PreparedOutput, ProgressThrottle};
 use crate::ffmpeg::command;
 use crate::ffmpeg::probe::{self, MergeFileFacts};
 use crate::task::manager::{Job, TaskContext, TauriEmitter};
@@ -192,7 +192,8 @@ pub async fn check_pipeline(
             warnings.push(format!("{d}（拼接时将自动统一，需一次额外转码）"));
         }
     }
-    let mut checks = Vec::with_capacity(items.len());    for (i, (it, plan)) in items.iter().zip(plans.iter()).enumerate() {
+    let mut checks = Vec::with_capacity(items.len());
+    for (i, (it, plan)) in items.iter().zip(plans.iter()).enumerate() {
         let mut reasons = Vec::new();
         if !plan.copy {
             if it.crop.is_some() {
@@ -251,23 +252,17 @@ pub fn submit_pipeline(
     )?;
     // 用户请求的输出路径（真正落盘的名字由作业体按容器校正后决定，见下）
     let requested = PathBuf::from(&output);
-    let out_dir = requested
-        .parent()
-        .ok_or_else(|| "输出路径无效".to_string())?
-        .to_path_buf();
-    std::fs::create_dir_all(&out_dir).map_err(|e| format!("无法创建输出目录：{e}"))?;
-    let ffmpeg = command::resolve_sidecar("ffmpeg")?;
-    let ffprobe = command::resolve_sidecar("ffprobe")?;
+    let PreparedOutput {
+        out_dir,
+        out_name,
+        token,
+        ffmpeg,
+        ffprobe,
+    } = super::prepare_output(&requested, &output)?;
 
     // ADR-033：容器要按"有没有片段需要转码"来定，而这只在探测+计划之后才知道；
     // 探测与计划**留在作业体内**（`DESIGN` §8.1/§8.2：按运行时的文件状态做，排队期间文件可能变），
     // 因此最终名与 `.part` 也在作业体内才定（见下面的容器决策）。
-    let out_name = requested
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| "输出文件名无效".to_string())?
-        .to_string();
-    let token = temp_token(&output);
     let list_path = out_dir.join(format!(".concat_{token}.txt"));
 
     let label = format!("工作台 {} 个片段 → {out_name}", items.len());
@@ -341,8 +336,10 @@ pub fn submit_pipeline(
                     )?),
                     None => None,
                 };
-                let encoder =
-                    command::effective_encoder(locked_encoder.as_deref(), &facts[i].info.video.pix_fmt);
+                let encoder = command::effective_encoder(
+                    locked_encoder.as_deref(),
+                    &facts[i].info.video.pix_fmt,
+                );
                 command::pipeline_transcode_args(
                     seg,
                     plan.bake_deg,
@@ -503,7 +500,9 @@ pub fn submit_pipeline(
         Ok(())
     });
 
-    Ok(state.0.submit(Arc::new(TauriEmitter(app)), "pipeline", &label, job))
+    Ok(state
+        .0
+        .submit(Arc::new(TauriEmitter(app)), "pipeline", &label, job))
 }
 
 fn plan_inputs(items: &[PipelineItem], facts: &[MergeFileFacts]) -> Vec<PlanInput> {
@@ -521,7 +520,10 @@ fn plan_inputs(items: &[PipelineItem], facts: &[MergeFileFacts]) -> Vec<PlanInpu
 }
 
 fn file_name(p: &str) -> &str {
-    Path::new(p).file_name().and_then(|n| n.to_str()).unwrap_or(p)
+    Path::new(p)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(p)
 }
 
 #[cfg(test)]
@@ -610,11 +612,47 @@ mod tests {
     fn displayed_crop_bounds_swap_for_quarter_turns() {
         let info = media(1920, 1080);
         // 90° 显示空间为 1080×1920：x 上限 1080，y 上限 1920
-        let ok = display_crop_rect(&info, 90, CropRect { x: 0, y: 1000, width: 1080, height: 900 }, None, None).unwrap();
+        let ok = display_crop_rect(
+            &info,
+            90,
+            CropRect {
+                x: 0,
+                y: 1000,
+                width: 1080,
+                height: 900,
+            },
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(ok, (0, 1000, 1080, 900, 1080, 1920));
-        assert!(display_crop_rect(&info, 90, CropRect { x: 0, y: 0, width: 1920, height: 1080 }, None, None).is_err());
+        assert!(display_crop_rect(
+            &info,
+            90,
+            CropRect {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1080
+            },
+            None,
+            None
+        )
+        .is_err());
         // 0° 仍按源宽高校验
-        let ok0 = display_crop_rect(&info, 0, CropRect { x: 100, y: 100, width: 800, height: 600 }, None, None).unwrap();
+        let ok0 = display_crop_rect(
+            &info,
+            0,
+            CropRect {
+                x: 100,
+                y: 100,
+                width: 800,
+                height: 600,
+            },
+            None,
+            None,
+        )
+        .unwrap();
         assert_eq!(ok0.4, 1920);
     }
 

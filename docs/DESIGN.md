@@ -492,7 +492,7 @@ Pending ──▶ Running ──▶ Completed
 ### 8.2 实现要点（manager.rs / worker.rs）
 
 - **任务实体与标识**：运行中 = `TaskHandle`（进程内）/ 对外快照 = `TaskSnapshot` / 终态落盘 = `HistoryEntry`（结构见 §7）；实例标识 = `taskId`（`t<毫秒十六进制><两位序号>`，如 `t18f3a2b5c01`），类型维度 = `kind` 白名单（`cut`/`merge`/`rotate`/`crop_zoom`/`pipeline`，内部另有 `proxy`）；文档层不为它设独立命名空间。
-- `TaskManager` 持有 `Mutex<HashMap<TaskId, TaskHandle>>` + pending 队列，通过 `tauri::State` 注入；任务句柄存子进程 PID + 取消信号
+- `TaskManager` 持有 `Mutex<HashMap<TaskId, TaskHandle>>` + pending 队列，通过 `tauri::State` 注入；任务句柄存子进程 PID + 取消信号。**锁统一 = `parking_lot`**（R3-6，全仓 `Mutex`/`Condvar`）：不中毒 ⇒ 不再有「裸 unwrap / into_inner / 静默吞」三种中毒策略并存的问题，作业体 panic（R4-1 隔离）也不会把锁永久毒化
 - **内部任务提交入口（`submit_internal`，R3-2/R3-3）**：内部任务（当前唯一用户 = 代理生成）经此提交，带两重语义——① **kind + key 去重**：同 `(kind, dedup_key)` 已有活动任务时不重复提交、直接复用既有 `taskId`（前端事件订阅天然共享），登记表 `(kind, key) → taskId` 由 TaskManager 持有、在任务终态（完成/失败/取消，含排队中被取消）统一回收——调用方不再自建 HashMap 簿记 + cleanup 钩子；② **面板与关闭守卫不可见**：internal 任务不进 `list_tasks`（任务面板补元数据、关闭窗口确认均不可见），但 task-status / task-progress 事件照常派发（代理完成切换画面的订阅方依赖它），payload 带 `internal` 标记供前端过滤展示。
 - **取消**：向子进程发 kill（Windows 下 kill 即终止），随后**删除该任务已产生的 `.part` 半成品**；任务内最后一个子进程退出后状态置 Cancelled
 - **半成品保护**（NFR-007）：所有输出先写 `<name>.part.<令牌>.<扩展名>`（令牌 = `temp_token`，防同名输出并发互写；保留真实扩展名供 ffmpeg 推断封装格式），ffmpeg 正常退出后 rename 为最终文件名——保证输出目录永远没有"看起来完整实际损坏"的文件。**唯一例外**：代理预览写 `<hash>.part.mp4`（无令牌，输出名本身已按源路径 hash 唯一）

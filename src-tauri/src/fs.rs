@@ -100,7 +100,8 @@ fn resolve_for_compare(p: &Path) -> Option<PathBuf> {
 fn path_eq(a: &Path, b: &Path) -> bool {
     #[cfg(windows)]
     {
-        a.to_string_lossy().eq_ignore_ascii_case(&b.to_string_lossy())
+        a.to_string_lossy()
+            .eq_ignore_ascii_case(&b.to_string_lossy())
     }
     #[cfg(not(windows))]
     {
@@ -128,7 +129,10 @@ pub fn output_path_for(requested: &Path, ext: &str) -> PathBuf {
         .unwrap_or("output");
     let parent = corrected.parent().unwrap_or(Path::new(""));
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
-    let ext = corrected.extension().and_then(|e| e.to_str()).unwrap_or("mp4");
+    let ext = corrected
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("mp4");
     parent.join(format!("{stem}_{ts}.{ext}"))
 }
 
@@ -139,11 +143,26 @@ mod tests {
     /// `ADR-033` ③：最终名的扩展名按容器校正（含无扩展名与大小写）。
     #[test]
     fn output_name_takes_container_extension() {
-        assert_eq!(with_container_ext(Path::new("d/x.mkv"), "mp4"), PathBuf::from("d/x.mp4"));
-        assert_eq!(with_container_ext(Path::new("d/x.mp4"), "mkv"), PathBuf::from("d/x.mkv"));
-        assert_eq!(with_container_ext(Path::new("d/x"), "mp4"), PathBuf::from("d/x.mp4"));
-        assert_eq!(with_container_ext(Path::new("d/X.MP4"), "mkv"), PathBuf::from("d/X.mkv"));
-        assert_eq!(with_container_ext(Path::new("d/x.tar.gz"), "mp4"), PathBuf::from("d/x.tar.mp4"));
+        assert_eq!(
+            with_container_ext(Path::new("d/x.mkv"), "mp4"),
+            PathBuf::from("d/x.mp4")
+        );
+        assert_eq!(
+            with_container_ext(Path::new("d/x.mp4"), "mkv"),
+            PathBuf::from("d/x.mkv")
+        );
+        assert_eq!(
+            with_container_ext(Path::new("d/x"), "mp4"),
+            PathBuf::from("d/x.mp4")
+        );
+        assert_eq!(
+            with_container_ext(Path::new("d/X.MP4"), "mkv"),
+            PathBuf::from("d/X.mkv")
+        );
+        assert_eq!(
+            with_container_ext(Path::new("d/x.tar.gz"), "mp4"),
+            PathBuf::from("d/x.tar.mp4")
+        );
     }
 
     /// `ADR-033` ①：copy 类跟随源容器；取不到扩展名时退回 `mp4`。
@@ -214,7 +233,10 @@ mod tests {
         assert!(!d.join("new.mp4").exists(), "构造前提：目标文件不存在");
 
         assert!(same_path(&d.join("new.mp4"), &d.join("NEW.MP4")));
-        assert!(!same_path(&d.join("new.mp4"), &d.join("OLD.MP4")), "名字不同仍应放行");
+        assert!(
+            !same_path(&d.join("new.mp4"), &d.join("OLD.MP4")),
+            "名字不同仍应放行"
+        );
     }
 
     /// Windows 会剥掉文件名末尾的点/空格：`<dir>/movie.mp4.` 与 `<dir>/movie.mp4` 是**同一个文件**
@@ -227,7 +249,10 @@ mod tests {
         let real = d.join("movie.mp4");
         std::fs::write(&real, b"real").unwrap();
 
-        assert!(same_path(&d.join("movie.mp4."), &real), "末尾点指向同一文件");
+        assert!(
+            same_path(&d.join("movie.mp4."), &real),
+            "末尾点指向同一文件"
+        );
         assert!(same_path(&d.join("movie.mp4 "), &real), "末尾空格同理");
         assert!(
             reject_if_input_equals(&d.join("movie.mp4."), &[&real.to_string_lossy()]).is_err(),

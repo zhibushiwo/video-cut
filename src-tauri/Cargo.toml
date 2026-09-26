@@ -29,7 +29,7 @@ fs4 = "1.1.0"
 log = "0.4"
 fern = "0.7"
 chrono = "0.4"
-
+parking_lot = "0.12.5"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

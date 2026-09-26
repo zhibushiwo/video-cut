@@ -19,7 +19,10 @@ use crate::{EnvironmentInfo, QualityPreset};
 /// 开发与打包后的运行目录布局相同）；cargo test 的测试二进制位于 deps/，需上溯一级。
 pub fn resolve_sidecar(name: &str) -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| format!("无法定位程序目录：{e}"))?;
-    let mut dir = exe.parent().ok_or_else(|| "程序目录缺失".to_string())?.to_path_buf();
+    let mut dir = exe
+        .parent()
+        .ok_or_else(|| "程序目录缺失".to_string())?
+        .to_path_buf();
     if dir.ends_with("deps") {
         dir = dir.parent().map(PathBuf::from).unwrap_or(dir);
     }
@@ -226,9 +229,19 @@ pub fn normalize_args(
     .map(|s| s.to_string())
     .collect();
     args.push(input.into());
-    args.extend(["-map".into(), "0:v:0".into(), "-map".into(), "0:a:0?".into()]);
+    args.extend([
+        "-map".into(),
+        "0:v:0".into(),
+        "-map".into(),
+        "0:a:0?".into(),
+    ]);
     args.extend(["-vf".into(), vf, "-c:v".into(), "libx264".into()]);
-    args.extend(["-preset".into(), "medium".into(), "-crf".into(), "20".into()]);
+    args.extend([
+        "-preset".into(),
+        "medium".into(),
+        "-crf".into(),
+        "20".into(),
+    ]);
     args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "192k".into()]);
     if video_timescale > 0 {
         args.extend(["-video_track_timescale".into(), video_timescale.to_string()]);
@@ -249,7 +262,8 @@ pub fn concat_list_content(paths: &[String]) -> String {
 }
 
 /// 无损合并（concat demuxer + stream copy，DESIGN §6.3③）。
-pub fn concat_args(list_file: &str, output: &str) -> Vec<String> {    [
+pub fn concat_args(list_file: &str, output: &str) -> Vec<String> {
+    [
         "-hide_banner",
         "-nostats",
         "-loglevel",
@@ -313,27 +327,26 @@ fn encoder_works(encoder: &str) -> bool {
     };
     let mut cmd = Command::new(&ffmpeg);
     spawn_hidden(&mut cmd);
-    cmd
-        .args([
-            "-v",
-            "error",
-            "-f",
-            "lavfi",
-            "-i",
-            "color=c=black:s=320x240:d=0.1",
-            "-frames:v",
-            "3",
-            "-c:v",
-            encoder,
-            "-f",
-            "null",
-            "-",
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    cmd.args([
+        "-v",
+        "error",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=black:s=320x240:d=0.1",
+        "-frames:v",
+        "3",
+        "-c:v",
+        encoder,
+        "-f",
+        "null",
+        "-",
+    ])
+    .stdout(std::process::Stdio::null())
+    .stderr(std::process::Stdio::null())
+    .status()
+    .map(|s| s.success())
+    .unwrap_or(false)
 }
 
 fn first_working(candidates: &[&str]) -> Option<String> {
@@ -380,7 +393,14 @@ pub fn encoder_quality_args(encoder: &str, quality: QualityPreset) -> Vec<String
         QualityPreset::Small => ("28", "speed", "26", "fast"),
     };
     if encoder.ends_with("nvenc") {
-        vec!["-rc".into(), "vbr".into(), "-cq".into(), cq.into(), "-b:v".into(), "0".into()]
+        vec![
+            "-rc".into(),
+            "vbr".into(),
+            "-cq".into(),
+            cq.into(),
+            "-b:v".into(),
+            "0".into(),
+        ]
     } else if encoder.ends_with("qsv") {
         vec!["-global_quality".into(), cq.into()]
     } else if encoder.ends_with("amf") {
@@ -509,9 +529,7 @@ pub fn crop_zoom_args(
     quality: QualityPreset,
     output: &str,
 ) -> Vec<String> {
-    let vf = format!(
-        "crop={width}:{height}:{x}:{y},scale={out_width}:{out_height}:flags=lanczos"
-    );
+    let vf = format!("crop={width}:{height}:{x}:{y},scale={out_width}:{out_height}:flags=lanczos");
     let mut args: Vec<String> = vec![
         "-hide_banner".into(),
         "-nostats".into(),
@@ -730,7 +748,10 @@ mod tests {
     #[test]
     fn cut_args_negative_start_clamped() {
         let args = cut_args(-1.0, 5.0, "a.mkv", "b.mkv");
-        assert_eq!(args[args.iter().position(|a| a == "-ss").unwrap() + 1], "0.000001");
+        assert_eq!(
+            args[args.iter().position(|a| a == "-ss").unwrap() + 1],
+            "0.000001"
+        );
     }
 
     /// BUG-007 回归：输入侧 `-ss` **不得**小于调用方给的时刻。
@@ -758,14 +779,23 @@ mod tests {
     #[test]
     fn pipeline_copy_input_seek_never_lands_before_requested_time() {
         let args = pipeline_copy_args(Some((1.319333, 2.0)), 0, false, false, "in.mp4", "out.mp4");
-        let ss: f64 = args[args.iter().position(|a| a == "-ss").unwrap() + 1].parse().unwrap();
+        let ss: f64 = args[args.iter().position(|a| a == "-ss").unwrap() + 1]
+            .parse()
+            .unwrap();
         assert!(ss > 1.319333, "-ss {ss} 不得 ≤ 1.319333");
     }
 
     /// 输出侧 seek（精确剪切 / 转码片段）**不加余量**：那里是帧级精确，语义不同。
     #[test]
     fn precise_cut_output_seek_keeps_plain_precision() {
-        let args = precise_cut_args(2.0, 3.0, "in.mp4", "out.mp4", "libx264", QualityPreset::Balanced);
+        let args = precise_cut_args(
+            2.0,
+            3.0,
+            "in.mp4",
+            "out.mp4",
+            "libx264",
+            QualityPreset::Balanced,
+        );
         let ss = args.iter().position(|a| a == "-ss").unwrap();
         assert_eq!(args[ss + 1], "2.000");
         let t_args = pipeline_transcode_args(
@@ -788,7 +818,8 @@ mod tests {
     fn proxy_args_uses_escaped_filter_expression() {
         let args = proxy_args("in.avi", "proxy.mp4");
         assert!(
-            args.iter().any(|a| a == "scale=-2:min(720\\,ih),format=yuv420p"),
+            args.iter()
+                .any(|a| a == "scale=-2:min(720\\,ih),format=yuv420p"),
             "缺少滤镜参数，实际 {args:?}"
         );
     }
@@ -804,7 +835,11 @@ mod tests {
     #[test]
     fn sidecar_binaries_resolve_in_dev() {
         let ffmpeg = resolve_sidecar("ffmpeg").unwrap();
-        assert!(ffmpeg.exists(), "ffmpeg sidecar 不存在：{}", ffmpeg.display());
+        assert!(
+            ffmpeg.exists(),
+            "ffmpeg sidecar 不存在：{}",
+            ffmpeg.display()
+        );
         let ffprobe = resolve_sidecar("ffprobe").unwrap();
         assert!(ffprobe.exists());
     }
@@ -857,13 +892,19 @@ mod tests {
     fn normalize_args_builds_filter_chain() {
         let args = normalize_args("in.mkv", 1920, 1080, 29.97, "yuv420p", 0, "out.mp4");
         let vf_pos = args.iter().position(|a| a == "-vf").unwrap();
-        assert_eq!(args[vf_pos + 1], "scale=1920:1080:flags=lanczos,fps=29.970,format=yuv420p");
+        assert_eq!(
+            args[vf_pos + 1],
+            "scale=1920:1080:flags=lanczos,fps=29.970,format=yuv420p"
+        );
         assert!(args.iter().any(|a| a == "libx264"));
         assert!(args.iter().any(|a| a == "192k"));
         assert!(!args.contains(&"-video_track_timescale".to_string()));
         // 指定 timescale 时写入对齐参数
         let args = normalize_args("in.mkv", 1920, 1080, 29.97, "yuv420p", 60000, "out.mp4");
-        let ts = args.iter().position(|a| a == "-video_track_timescale").unwrap();
+        let ts = args
+            .iter()
+            .position(|a| a == "-video_track_timescale")
+            .unwrap();
         assert_eq!(args[ts + 1], "60000");
     }
 
@@ -904,7 +945,15 @@ mod tests {
 
     #[test]
     fn rotate_transcode_uses_transpose_filter() {
-        let args = rotate_transcode_args(270, false, false, "in.mp4", "out.mp4", "libx264", QualityPreset::Balanced);
+        let args = rotate_transcode_args(
+            270,
+            false,
+            false,
+            "in.mp4",
+            "out.mp4",
+            "libx264",
+            QualityPreset::Balanced,
+        );
         let vf_pos = args.iter().position(|a| a == "-vf").unwrap();
         assert_eq!(args[vf_pos + 1], "transpose=2");
         // 音频 copy
@@ -914,7 +963,15 @@ mod tests {
 
     #[test]
     fn rotate_transcode_composes_flip_then_rotate() {
-        let args = rotate_transcode_args(90, true, false, "in.mp4", "out.mp4", "libx264", QualityPreset::Balanced);
+        let args = rotate_transcode_args(
+            90,
+            true,
+            false,
+            "in.mp4",
+            "out.mp4",
+            "libx264",
+            QualityPreset::Balanced,
+        );
         let vf_pos = args.iter().position(|a| a == "-vf").unwrap();
         // 翻转先作用（源空间），再旋转
         assert_eq!(args[vf_pos + 1], "hflip,transpose=1");
@@ -922,15 +979,37 @@ mod tests {
 
     #[test]
     fn rotate_transcode_flip_only_omits_vf_when_no_transform() {
-        let args = rotate_transcode_args(0, false, false, "in.mp4", "out.mp4", "libx264", QualityPreset::Balanced);
+        let args = rotate_transcode_args(
+            0,
+            false,
+            false,
+            "in.mp4",
+            "out.mp4",
+            "libx264",
+            QualityPreset::Balanced,
+        );
         assert!(!args.contains(&"-vf".to_string()));
     }
 
     #[test]
     fn crop_args_build_crop_scale_chain() {
-        let args = crop_zoom_args("in.mp4", 400, 200, 800, 800, 1920, 1080, "h264_nvenc", QualityPreset::High, "out.mp4");
+        let args = crop_zoom_args(
+            "in.mp4",
+            400,
+            200,
+            800,
+            800,
+            1920,
+            1080,
+            "h264_nvenc",
+            QualityPreset::High,
+            "out.mp4",
+        );
         let vf_pos = args.iter().position(|a| a == "-vf").unwrap();
-        assert_eq!(args[vf_pos + 1], "crop=800:800:400:200,scale=1920:1080:flags=lanczos");
+        assert_eq!(
+            args[vf_pos + 1],
+            "crop=800:800:400:200,scale=1920:1080:flags=lanczos"
+        );
         let cv = args.iter().position(|a| a == "-c:v").unwrap();
         assert_eq!(args[cv + 1], "h264_nvenc");
         // nvenc 质量档位：vbr + cq
@@ -942,7 +1021,14 @@ mod tests {
 
     #[test]
     fn precise_cut_seeks_after_input() {
-        let args = precise_cut_args(13.0, 7.0, "in.mp4", "out.mp4", "libx264", QualityPreset::Small);
+        let args = precise_cut_args(
+            13.0,
+            7.0,
+            "in.mp4",
+            "out.mp4",
+            "libx264",
+            QualityPreset::Small,
+        );
         let i_pos = args.iter().position(|a| a == "-i").unwrap();
         let ss_pos = args.iter().position(|a| a == "-ss").unwrap();
         assert!(ss_pos > i_pos, "精确剪切 -ss 必须在 -i 之后（输出侧 seek）");
@@ -977,7 +1063,10 @@ mod tests {
         let rot = args.iter().position(|a| a == "-display_rotation").unwrap();
         let ss = args.iter().position(|a| a == "-ss").unwrap();
         let i = args.iter().position(|a| a == "-i").unwrap();
-        assert!(rot < ss && ss < i, "输入选项（display_rotation/ss）必须在 -i 之前");
+        assert!(
+            rot < ss && ss < i,
+            "输入选项（display_rotation/ss）必须在 -i 之前"
+        );
         assert_eq!(args[rot + 1], "90");
         assert_eq!(args[ss + 1], "5.000001");
         let t = args.iter().position(|a| a == "-t").unwrap();
@@ -1011,7 +1100,10 @@ mod tests {
             "out.mp4",
         );
         let vf = &args[args.iter().position(|a| a == "-vf").unwrap() + 1];
-        assert_eq!(vf, "hflip,transpose=1,crop=300:200:10:20,scale=600:400:flags=lanczos");
+        assert_eq!(
+            vf,
+            "hflip,transpose=1,crop=300:200:10:20,scale=600:400:flags=lanczos"
+        );
         // -ss 在 -i 之后（输出侧精确 seek）
         let i = args.iter().position(|a| a == "-i").unwrap();
         let ss = args.iter().position(|a| a == "-ss").unwrap();
@@ -1023,7 +1115,10 @@ mod tests {
         let ca = args.iter().position(|a| a == "-c:a").unwrap();
         assert_eq!(args[ca + 1], "copy");
         // timescale 对齐参数在 -y 之前
-        let ts = args.iter().position(|a| a == "-video_track_timescale").unwrap();
+        let ts = args
+            .iter()
+            .position(|a| a == "-video_track_timescale")
+            .unwrap();
         assert_eq!(args[ts + 1], "60000");
         assert!(ts < args.iter().position(|a| a == "-y").unwrap());
     }
@@ -1057,7 +1152,10 @@ mod tests {
         );
         let enc10 = resolve_encoder("yuv420p10le");
         assert!(
-            enc10 == "hevc_nvenc" || enc10 == "hevc_qsv" || enc10 == "hevc_amf" || enc10 == "libx265",
+            enc10 == "hevc_nvenc"
+                || enc10 == "hevc_qsv"
+                || enc10 == "hevc_amf"
+                || enc10 == "libx265",
             "10bit 应走 HEVC 路径：{enc10}"
         );
     }
@@ -1065,10 +1163,16 @@ mod tests {
     #[test]
     fn effective_encoder_honors_lock_and_rejects_unknown() {
         assert_eq!(effective_encoder(Some("libx265"), "yuv420p"), "libx265");
-        assert_eq!(effective_encoder(Some("h264_nvenc"), "yuv420p10le"), "h264_nvenc");
+        assert_eq!(
+            effective_encoder(Some("h264_nvenc"), "yuv420p10le"),
+            "h264_nvenc"
+        );
         // 非法值与 None 都回退自动探测
         let auto = effective_encoder(Some("not-an-encoder"), "yuv420p");
         assert!(LOCKABLE_ENCODERS.contains(&auto.as_str()) || auto == "libx264");
-        assert_eq!(effective_encoder(None, "yuv420p10le"), resolve_encoder("yuv420p10le"));
+        assert_eq!(
+            effective_encoder(None, "yuv420p10le"),
+            resolve_encoder("yuv420p10le")
+        );
     }
 }

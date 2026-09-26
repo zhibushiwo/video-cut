@@ -1,10 +1,10 @@
 //! 任务历史（DESIGN §12 / M4-2）：终态任务追加落盘到 `history.json`，
 //! 历史页读取后可重新定位输出文件。内部任务（代理预览）不入库（白名单在 lib.rs 接线处）。
 
+use parking_lot::Mutex;
 use std::fs;
 use std::io;
 use std::path::Path;
-use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -54,7 +54,7 @@ pub fn load(path: &Path) -> Vec<HistoryEntry> {
 /// 追加一条并裁剪到 [`MAX_ENTRIES`]；原子写（.tmp + rename），损坏不影响原文件。
 /// 与 [`clear`] 共用写锁，避免并发读改写互相覆盖。
 pub fn append(path: &Path, entry: HistoryEntry) -> io::Result<()> {
-    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = WRITE_LOCK.lock();
     let mut all = load(path);
     all.push(entry);
     if all.len() > MAX_ENTRIES {
@@ -66,7 +66,7 @@ pub fn append(path: &Path, entry: HistoryEntry) -> io::Result<()> {
 
 /// 清空历史。与 [`append`] 共用写锁。
 pub fn clear(path: &Path) -> io::Result<()> {
-    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = WRITE_LOCK.lock();
     write_all(path, &[])
 }
 

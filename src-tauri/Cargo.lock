@@ -4383,6 +4383,7 @@ dependencies = [
  "fern",
  "fs4",
  "log",
+ "parking_lot",
  "serde",
  "serde_json",
  "tauri",

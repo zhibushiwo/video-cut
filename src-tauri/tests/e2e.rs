@@ -6,9 +6,9 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-use video_cut_lib::QualityPreset;
 use video_cut_lib::ffmpeg::command as cmd;
 use video_cut_lib::ffmpeg::probe;
+use video_cut_lib::QualityPreset;
 
 /// 夹具：两个参数一致（可无损 concat）、内容不同的 320×240 H.264+AAC 源，
 /// `-g 30` 保证每秒一个关键帧（copy 剪切落点确定）。
@@ -40,7 +40,9 @@ fn build_fixtures() -> Option<Fixtures> {
             .args(["-hide_banner", "-loglevel", "error", "-y"])
             .args(["-f", "lavfi", "-i", &testsrc])
             .args(["-f", "lavfi", "-i", &sine])
-            .args(["-c:v", "libx264", "-preset", "veryfast", "-g", "30", "-pix_fmt", "yuv420p"])
+            .args([
+                "-c:v", "libx264", "-preset", "veryfast", "-g", "30", "-pix_fmt", "yuv420p",
+            ])
             .args(["-c:a", "aac", "-b:a", "96k", "-shortest"])
             .arg(&out)
             .output();
@@ -50,7 +52,9 @@ fn build_fixtures() -> Option<Fixtures> {
                 eprintln!(
                     "skip: 夹具生成失败（{}）：{}",
                     name,
-                    other.map(|o| String::from_utf8_lossy(&o.stderr).into_owned()).unwrap_or_default()
+                    other
+                        .map(|o| String::from_utf8_lossy(&o.stderr).into_owned())
+                        .unwrap_or_default()
                 );
                 return None;
             }
@@ -59,11 +63,20 @@ fn build_fixtures() -> Option<Fixtures> {
     let (src_a, src_b) = (dir.join("src_a.mp4"), dir.join("src_b.mp4"));
     // 源本身可探测，双保险
     probe::probe_duration_sync(&ffprobe, &src_a.to_string_lossy()).ok()?;
-    Some(Fixtures { ffmpeg, ffprobe, dir, src_a, src_b })
+    Some(Fixtures {
+        ffmpeg,
+        ffprobe,
+        dir,
+        src_a,
+        src_b,
+    })
 }
 
 fn run_ffmpeg(fx: &Fixtures, args: &[String], what: &str) {
-    let out = Command::new(&fx.ffmpeg).args(args).output().expect("启动 ffmpeg 失败");
+    let out = Command::new(&fx.ffmpeg)
+        .args(args)
+        .output()
+        .expect("启动 ffmpeg 失败");
     assert!(
         out.status.success(),
         "{what} 失败：{}",
@@ -123,11 +136,19 @@ fn fast_cut_and_merge_chain() {
     let list = fx.dir.join("e2e_concat.txt");
 
     // g=30 → 1.0/0.0 恰为关键帧，copy 输出时长 ≈ 请求值（音频 priming ±0.1s）
-    run_ffmpeg(fx, &cmd::cut_args(1.0, 2.0, &s(&fx.src_a), &s(&cut1)), "极速剪切 A");
+    run_ffmpeg(
+        fx,
+        &cmd::cut_args(1.0, 2.0, &s(&fx.src_a), &s(&cut1)),
+        "极速剪切 A",
+    );
     let d1 = assert_duration(fx, &cut1, 2.0, 0.3);
     assert_decodable(fx, &cut1);
 
-    run_ffmpeg(fx, &cmd::cut_args(0.0, 3.0, &s(&fx.src_b), &s(&cut2)), "极速剪切 B");
+    run_ffmpeg(
+        fx,
+        &cmd::cut_args(0.0, 3.0, &s(&fx.src_b), &s(&cut2)),
+        "极速剪切 B",
+    );
     let d2 = assert_duration(fx, &cut2, 3.0, 0.3);
     assert_decodable(fx, &cut2);
 
@@ -147,7 +168,14 @@ fn precise_cut_is_accurate_and_decodable() {
     let out = fx.dir.join("e2e_precise.mp4");
     run_ffmpeg(
         fx,
-        &cmd::precise_cut_args(1.0, 2.0, &s(&fx.src_a), &s(&out), "libx264", QualityPreset::Balanced),
+        &cmd::precise_cut_args(
+            1.0,
+            2.0,
+            &s(&fx.src_a),
+            &s(&out),
+            "libx264",
+            QualityPreset::Balanced,
+        ),
         "精确剪切",
     );
     assert_duration(fx, &out, 2.0, 0.3);
@@ -216,7 +244,11 @@ fn pipeline_full_chain() {
     let d2 = assert_duration(fx, &seg2n, 2.0, 0.3);
 
     std::fs::write(&list, cmd::concat_list_content(&[s(&seg1), s(&seg2n)])).unwrap();
-    run_ffmpeg(fx, &cmd::concat_args(&s(&list), &s(&final_out)), "pipeline concat");
+    run_ffmpeg(
+        fx,
+        &cmd::concat_args(&s(&list), &s(&final_out)),
+        "pipeline concat",
+    );
     assert_duration(fx, &final_out, d1 + d2, 0.5);
     assert_decodable(fx, &final_out);
 }
@@ -236,10 +268,18 @@ fn output_replace_over_existing_file() {
     let part = fx.dir.join("e2e_replace.part.t99.mp4");
 
     // 先造一个"上一次导出"的旧产物（内容与时长都和新产物不同）
-    run_ffmpeg(fx, &cmd::cut_args(0.0, 4.0, &s(&fx.src_b), &s(&final_path)), "准备旧产物");
+    run_ffmpeg(
+        fx,
+        &cmd::cut_args(0.0, 4.0, &s(&fx.src_b), &s(&final_path)),
+        "准备旧产物",
+    );
     let old_dur = assert_duration(fx, &final_path, 4.0, 0.3);
 
-    run_ffmpeg(fx, &cmd::cut_args(1.0, 2.0, &s(&fx.src_a), &s(&part)), "新产物写 .part");
+    run_ffmpeg(
+        fx,
+        &cmd::cut_args(1.0, 2.0, &s(&fx.src_a), &s(&part)),
+        "新产物写 .part",
+    );
     video_cut_lib::fs::atomic_replace(&part, &final_path).expect("替换必须成功");
 
     let new_dur = assert_duration(fx, &final_path, 2.0, 0.3);
@@ -254,12 +294,23 @@ fn output_replace_over_existing_file() {
 /// ffprobe 读容器名（`format_name`），断言包含期望片段（matroska / mp4 …）。
 fn assert_container(fx: &Fixtures, p: &Path, want: &str) {
     let out = Command::new(&fx.ffprobe)
-        .args(["-v", "error", "-show_entries", "format=format_name", "-of", "csv=p=0"])
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=format_name",
+            "-of",
+            "csv=p=0",
+        ])
         .arg(p)
         .output()
         .expect("启动 ffprobe 失败");
     let got = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    assert!(got.contains(want), "{} 的容器应含 {want}，实际：{got}", p.display());
+    assert!(
+        got.contains(want),
+        "{} 的容器应含 {want}，实际：{got}",
+        p.display()
+    );
 }
 
 /// 输出容器/扩展名口径（`TC-029` / `ADR-033`）：**名字必须与封装一致**——
@@ -272,20 +323,28 @@ fn output_container_follows_adr_033() {
     };
     // 先造一个 matroska 容器的源（copy 类的容器要跟随它，而不是被硬编码成 mp4）
     let src_mkv = fx.dir.join("e2e_src.mkv");
-    run_ffmpeg(fx, &cmd::cut_args(0.0, 3.0, &s(&fx.src_a), &s(&src_mkv)), "造 mkv 源");
+    run_ffmpeg(
+        fx,
+        &cmd::cut_args(0.0, 3.0, &s(&fx.src_a), &s(&src_mkv)),
+        "造 mkv 源",
+    );
     assert_container(fx, &src_mkv, "matroska");
 
     // ① copy 类（极速剪切）：容器 = 源容器 → 扩展名也跟随源
     let copy_ext = video_cut_lib::fs::source_container_ext(&s(&src_mkv));
     assert_eq!(copy_ext, "mkv");
-    let copy_out = video_cut_lib::fs::with_container_ext(&fx.dir.join("e2e_copy_out.mkv"), &copy_ext);
-    run_ffmpeg(fx, &cmd::cut_args(1.0, 1.0, &s(&src_mkv), &s(&copy_out)), "copy 剪切");
+    let copy_out =
+        video_cut_lib::fs::with_container_ext(&fx.dir.join("e2e_copy_out.mkv"), &copy_ext);
+    run_ffmpeg(
+        fx,
+        &cmd::cut_args(1.0, 1.0, &s(&src_mkv), &s(&copy_out)),
+        "copy 剪切",
+    );
     assert_container(fx, &copy_out, "matroska");
     assert_decodable(fx, &copy_out);
 
     // ② 重编码类（精确剪切）：容器固定 mp4；用户把名字写成 .mkv 也要被校正成 .mp4
-    let trans_out =
-        video_cut_lib::fs::with_container_ext(&fx.dir.join("e2e_trans_out.mkv"), "mp4");
+    let trans_out = video_cut_lib::fs::with_container_ext(&fx.dir.join("e2e_trans_out.mkv"), "mp4");
     assert_eq!(
         trans_out.extension().and_then(|e| e.to_str()),
         Some("mp4"),

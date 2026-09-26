@@ -5,9 +5,9 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, State};
 
-use super::ProgressThrottle;
-use crate::ffmpeg::probe;
+use super::{PreparedOutput, ProgressThrottle};
 use crate::ffmpeg::command;
+use crate::ffmpeg::probe;
 use crate::task::manager::{Job, TaskContext, TauriEmitter};
 use crate::task::worker;
 use crate::{AppTasks, MediaInfo, QualityPreset};
@@ -106,26 +106,20 @@ pub fn submit_crop(
     let container_ext = "mp4";
     let out = crate::fs::output_path_for(&PathBuf::from(&output), container_ext);
     crate::fs::reject_if_input_equals(&out, &[&input])?;
-    let out_dir = out
-        .parent()
-        .ok_or_else(|| "输出路径无效".to_string())?
-        .to_path_buf();
-    std::fs::create_dir_all(&out_dir).map_err(|e| format!("无法创建输出目录：{e}"))?;
-    let ffmpeg = command::resolve_sidecar("ffmpeg")?;
-    let ffprobe = command::resolve_sidecar("ffprobe")?;
+    let PreparedOutput {
+        out_dir,
+        out_name,
+        token,
+        ffmpeg,
+        ffprobe,
+    } = super::prepare_output(&out, &output)?;
 
     let in_name = Path::new(&input)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(&input)
         .to_string();
-    let out_name = out
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| "输出文件名无效".to_string())?
-        .to_string();
     // 半成品与成品**共用同一容器扩展名**（ADR-033 ④）+ 提交级令牌，防并发任务互写
-    let token = super::pipeline::temp_token(&output);
     let part = out_dir.join(format!("{out_name}.part.{token}.{container_ext}"));
 
     let label = format!("局部放大 {in_name}");
@@ -176,7 +170,9 @@ pub fn submit_crop(
         }
     });
 
-    Ok(state.0.submit(Arc::new(TauriEmitter(app)), "crop_zoom", &label, job))
+    Ok(state
+        .0
+        .submit(Arc::new(TauriEmitter(app)), "crop_zoom", &label, job))
 }
 
 #[cfg(test)]
@@ -209,7 +205,8 @@ mod tests {
 
     #[test]
     fn rect_accepts_custom_out_size() {
-        let (.., ow, oh) = normalize_crop_rect(&info_1080p(), 0, 0, 800, 600, Some(1281), Some(721)).unwrap();
+        let (.., ow, oh) =
+            normalize_crop_rect(&info_1080p(), 0, 0, 800, 600, Some(1281), Some(721)).unwrap();
         assert_eq!((ow, oh), (1280, 720));
     }
 }

@@ -8,8 +8,8 @@ mod logger;
 mod task;
 
 use serde::{Deserialize, Serialize};
-use tauri::Manager;
 use task::manager::TaskManager;
+use tauri::Manager;
 
 /// 环境检测结果（DESIGN §6.1）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -227,11 +227,11 @@ pub fn run() {
                         id: h.id.clone(),
                         kind: h.kind.clone(),
                         label: h.label.clone(),
-                        status: *h.status.lock().unwrap(),
-                        outputs: h.outputs.lock().unwrap().clone(),
-                        error: h.error.lock().unwrap().clone(),
+                        status: *h.status.lock(),
+                        outputs: h.outputs.lock().clone(),
+                        error: h.error.lock().clone(),
                         created_at: h.created_at,
-                        started_at: *h.started_at.lock().unwrap(),
+                        started_at: *h.started_at.lock(),
                         finished_at: history::now_ms(),
                     };
                     let path = match commands::history::history_path(&handle) {

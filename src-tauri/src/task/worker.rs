@@ -1,12 +1,13 @@
 //! 任务执行器：状态流转与 ffmpeg 子进程生命周期（DESIGN §8.2）。
 
+use parking_lot::Mutex;
 use std::any::Any;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader};
 use std::panic::AssertUnwindSafe;
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use super::manager::{EventSink, Job, Shared, TaskContext, TaskHandle};
 use crate::ffmpeg::command;
@@ -45,7 +46,7 @@ pub(crate) fn run_ffmpeg(
         let tail = stderr_tail.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                let mut t = tail.lock().unwrap();
+                let mut t = tail.lock();
                 if t.len() >= 30 {
                     t.pop_front();
                 }
@@ -59,7 +60,7 @@ pub(crate) fn run_ffmpeg(
     {
         let c = child.clone();
         ctx.set_killer(Box::new(move || {
-            let _ = c.lock().unwrap().kill();
+            let _ = c.lock().kill();
         }));
     }
 
@@ -67,7 +68,7 @@ pub(crate) fn run_ffmpeg(
     if let Some(out) = stdout {
         for line in BufReader::new(out).lines() {
             if ctx.is_cancelled() {
-                let mut c = child.lock().unwrap();
+                let mut c = child.lock();
                 let _ = c.kill();
                 let _ = c.wait();
                 return Err("已取消".into());
@@ -91,7 +92,6 @@ pub(crate) fn run_ffmpeg(
 
     let status = child
         .lock()
-        .unwrap()
         .wait()
         .map_err(|e| format!("等待 ffmpeg 退出失败：{e}"))?;
     if ctx.is_cancelled() {
@@ -99,7 +99,7 @@ pub(crate) fn run_ffmpeg(
     }
     if !status.success() {
         let tail = {
-            let t = stderr_tail.lock().unwrap();
+            let t = stderr_tail.lock();
             t.iter().map(String::as_str).collect::<Vec<_>>().join("\n")
         };
         return Err(if tail.trim().is_empty() {
@@ -123,8 +123,8 @@ pub(crate) fn run(
 ) {
     let ctx = TaskContext::new(handle, sink);
     if !ctx.is_cancelled() {
-        *ctx.handle.status.lock().unwrap() = TaskStatus::Running;
-        *ctx.handle.started_at.lock().unwrap() = crate::history::now_ms();
+        *ctx.handle.status.lock() = TaskStatus::Running;
+        *ctx.handle.started_at.lock() = crate::history::now_ms();
         ctx.emit_status();
 
         let result = run_job_isolated(&ctx, job);
@@ -137,9 +137,9 @@ pub(crate) fn run(
             TaskStatus::Failed
         };
         if let Err(err) = result {
-            *ctx.handle.error.lock().unwrap() = Some(err);
+            *ctx.handle.error.lock() = Some(err);
         }
-        *ctx.handle.status.lock().unwrap() = final_status;
+        *ctx.handle.status.lock() = final_status;
         // 成功才把进度推满；失败/取消保留实际进度，便于用户看到卡在哪里
         if final_status == TaskStatus::Completed {
             ctx.set_progress(1.0, None);
@@ -148,7 +148,7 @@ pub(crate) fn run(
         shared.record_terminal(&ctx.handle);
     } else {
         // 排队期间被取消但未及出队：兜底置为 Cancelled
-        *ctx.handle.status.lock().unwrap() = TaskStatus::Cancelled;
+        *ctx.handle.status.lock() = TaskStatus::Cancelled;
         ctx.emit_status();
         shared.record_terminal(&ctx.handle);
     }

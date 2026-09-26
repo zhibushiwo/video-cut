@@ -6,14 +6,12 @@ use std::sync::Arc;
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
-use super::ProgressThrottle;
-use crate::ffmpeg::probe::{self, MergeFileFacts};
+use super::{PreparedOutput, ProgressThrottle};
 use crate::ffmpeg::command;
+use crate::ffmpeg::probe::{self, MergeFileFacts};
 use crate::task::manager::{Job, TaskContext, TauriEmitter};
 use crate::task::worker;
 use crate::{AppTasks, MediaInfo};
-
-use super::pipeline::temp_token;
 
 /// 全部文件的九项比对结果（DESIGN §3.3）。
 #[derive(Debug, Clone, Serialize)]
@@ -176,20 +174,14 @@ pub fn submit_merge(
     // **类别取决于探测结果**，所以最终名与 `.part` 都在作业体内（探测后）才定：提交期定不了，
     // 也不该提前探测（`DESIGN` §8.1/§8.2：探测与检查按**运行时**的文件状态做）。
     let requested = PathBuf::from(&output);
-    let out_dir = requested
-        .parent()
-        .ok_or_else(|| "输出路径无效".to_string())?
-        .to_path_buf();
-    std::fs::create_dir_all(&out_dir).map_err(|e| format!("无法创建输出目录：{e}"))?;
-    let ffmpeg = command::resolve_sidecar("ffmpeg")?;
-    let ffprobe = command::resolve_sidecar("ffprobe")?;
-
-    let out_name = requested
-        .file_name()
-        .and_then(|n| n.to_str())
-        .ok_or_else(|| "输出文件名无效".to_string())?
-        .to_string();
-    let token = temp_token(&output);
+    // 容器由作业体按探测结果定（ADR-033），提交期前导只按请求路径解析
+    let PreparedOutput {
+        out_dir,
+        out_name,
+        token,
+        ffmpeg,
+        ffprobe,
+    } = super::prepare_output(&requested, &output)?;
     let list_path = out_dir.join(format!(".concat_{token}.txt"));
 
     let label = format!("合并 {} 个文件 → {out_name}", inputs.len());
@@ -267,10 +259,7 @@ pub fn submit_merge(
                     cleanup(&temps);
                     return Err("已取消".into());
                 }
-                let inter = out_dir.join(format!(
-                    ".merge_{token}_{:03}.mp4",
-                    i
-                ));
+                let inter = out_dir.join(format!(".merge_{token}_{:03}.mp4", i));
                 temps.push(inter.clone());
                 let _ = std::fs::remove_file(&inter);
                 let dur = facts[i].info.duration_sec;
@@ -290,7 +279,10 @@ pub fn submit_merge(
                     dur,
                     &|local, speed| {
                         if throttle.update(local) {
-                            ctx.set_progress((i as f64 + local) / (total_steps_base + 1) as f64, speed);
+                            ctx.set_progress(
+                                (i as f64 + local) / (total_steps_base + 1) as f64,
+                                speed,
+                            );
                         }
                     },
                 );
@@ -339,11 +331,16 @@ pub fn submit_merge(
         Ok(())
     });
 
-    Ok(state.0.submit(Arc::new(TauriEmitter(app)), "merge", &label, job))
+    Ok(state
+        .0
+        .submit(Arc::new(TauriEmitter(app)), "merge", &label, job))
 }
 
 fn file_name(p: &str) -> &str {
-    Path::new(p).file_name().and_then(|n| n.to_str()).unwrap_or(p)
+    Path::new(p)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(p)
 }
 
 #[cfg(test)]

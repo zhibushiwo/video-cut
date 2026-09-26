@@ -1,9 +1,10 @@
 //! ffprobe 封装：媒体信息 JSON 解析与关键帧扫描（DESIGN §6.5）。
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::Command;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -64,7 +65,7 @@ fn cache_get<T: Clone>(
     key: &Option<ProbeKey>,
 ) -> Option<T> {
     let key = key.as_ref()?;
-    let mut m = cache().lock().ok()?;
+    let mut m = cache().lock();
     let entry = m.get_mut(key)?;
     entry.stamp = next_stamp();
     Some(entry.value.clone())
@@ -77,26 +78,25 @@ fn cache_put<T: Clone>(
     value: &T,
 ) {
     let Some(key) = key else { return };
-    if let Ok(mut m) = cache().lock() {
-        if m.len() >= PROBE_CACHE_CAP && !m.contains_key(key) {
-            // R3-1：LRU 逐条淘汰——只逐出最久未用的一条，不清空整表
-            //（否则 M12-2 预览高频探测会周期性清光关键帧缓存，FFMPEG.md §6.5）
-            let oldest = m
-                .iter()
-                .min_by_key(|(_, e)| e.stamp)
-                .map(|(k, _)| k.clone());
-            if let Some(oldest) = oldest {
-                m.remove(&oldest);
-            }
+    let mut m = cache().lock();
+    if m.len() >= PROBE_CACHE_CAP && !m.contains_key(key) {
+        // R3-1：LRU 逐条淘汰——只逐出最久未用的一条，不清空整表
+        //（否则 M12-2 预览高频探测会周期性清光关键帧缓存，FFMPEG.md §6.5）
+        let oldest = m
+            .iter()
+            .min_by_key(|(_, e)| e.stamp)
+            .map(|(k, _)| k.clone());
+        if let Some(oldest) = oldest {
+            m.remove(&oldest);
         }
-        m.insert(
-            key.clone(),
-            LruEntry {
-                value: value.clone(),
-                stamp: next_stamp(),
-            },
-        );
     }
+    m.insert(
+        key.clone(),
+        LruEntry {
+            value: value.clone(),
+            stamp: next_stamp(),
+        },
+    );
 }
 
 async fn run_ffprobe(app: &AppHandle, args: &[&str], input: &str) -> Result<String, String> {
@@ -145,8 +145,7 @@ pub async fn probe_media(app: &AppHandle, input: &str) -> Result<MediaInfo, Stri
         input,
     )
     .await?;
-    let v: Value =
-        serde_json::from_str(&out).map_err(|e| format!("ffprobe 输出解析失败：{e}"))?;
+    let v: Value = serde_json::from_str(&out).map_err(|e| format!("ffprobe 输出解析失败：{e}"))?;
     let info = parse_media_json(&v)?;
     cache_put(media_cache, &key, &info);
     Ok(info)
@@ -164,8 +163,7 @@ pub async fn probe_merge_facts(app: &AppHandle, input: &str) -> Result<MergeFile
         input,
     )
     .await?;
-    let v: Value =
-        serde_json::from_str(&out).map_err(|e| format!("ffprobe 输出解析失败：{e}"))?;
+    let v: Value = serde_json::from_str(&out).map_err(|e| format!("ffprobe 输出解析失败：{e}"))?;
     let facts = parse_merge_facts(&v)?;
     cache_put(facts_cache, &key, &facts);
     Ok(facts)
@@ -180,7 +178,15 @@ pub fn probe_merge_facts_sync(ffprobe: &Path, input: &str) -> Result<MergeFileFa
     let mut cmd = Command::new(ffprobe);
     super::command::spawn_hidden(&mut cmd);
     let out = cmd
-        .args(["-v", "error", "-print_format", "json", "-show_format", "-show_streams", input])
+        .args([
+            "-v",
+            "error",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+            input,
+        ])
         .output()
         .map_err(|e| format!("无法启动 ffprobe：{e}"))?;
     if !out.status.success() {
@@ -259,7 +265,8 @@ pub fn probe_duration_sync(ffprobe: &Path, input: &str) -> Result<f64, String> {
 // ---------- 纯解析函数（可单测） ----------
 
 fn as_f64(v: &Value) -> Option<f64> {
-    v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()))
+    v.as_f64()
+        .or_else(|| v.as_str().and_then(|s| s.parse().ok()))
 }
 
 /// "60/1" / "30000/1001" → 60.0 / 29.97
@@ -292,11 +299,17 @@ pub fn parse_media_json(v: &Value) -> Result<MediaInfo, String> {
         }
     }
 
-    let format = v.get("format").ok_or_else(|| "ffprobe 输出缺少 format".to_string())?;
-    let duration_sec =
-        format.get("duration").and_then(as_f64).ok_or_else(|| "无法解析时长".to_string())?;
-    let size_bytes =
-        format.get("size").and_then(as_f64).ok_or_else(|| "无法解析文件大小".to_string())? as u64;
+    let format = v
+        .get("format")
+        .ok_or_else(|| "ffprobe 输出缺少 format".to_string())?;
+    let duration_sec = format
+        .get("duration")
+        .and_then(as_f64)
+        .ok_or_else(|| "无法解析时长".to_string())?;
+    let size_bytes = format
+        .get("size")
+        .and_then(as_f64)
+        .ok_or_else(|| "无法解析文件大小".to_string())? as u64;
 
     Ok(MediaInfo {
         container: format
@@ -341,10 +354,7 @@ fn parse_video_stream(s: &Value) -> Result<VideoStreamInfo, String> {
             .and_then(Value::as_str)
             .unwrap_or("unknown")
             .to_string(),
-        profile: s
-            .get("profile")
-            .and_then(Value::as_str)
-            .map(str::to_string),
+        profile: s.get("profile").and_then(Value::as_str).map(str::to_string),
         width: num("width").ok_or_else(|| "缺少宽度".to_string())? as u32,
         height: num("height").ok_or_else(|| "缺少高度".to_string())? as u32,
         pix_fmt: s
@@ -373,10 +383,7 @@ fn parse_audio_stream(s: &Value) -> Result<AudioStreamInfo, String> {
             .get("sample_rate")
             .and_then(as_f64)
             .ok_or_else(|| "缺少采样率".to_string())? as u32,
-        channels: s
-            .get("channels")
-            .and_then(as_f64)
-            .unwrap_or(0.0) as u32,
+        channels: s.get("channels").and_then(as_f64).unwrap_or(0.0) as u32,
         bitrate: s.get("bit_rate").and_then(as_f64).map(|b| b as u64),
     })
 }
@@ -406,7 +413,13 @@ fn parse_rotation(video: &Value) -> Option<i32> {
 pub fn parse_keyframes(csv: &str) -> Vec<f64> {
     csv.lines()
         .filter_map(|l| {
-            l.split(',').next().unwrap_or("").trim().parse::<f64>().ok().filter(|t| t.is_finite())
+            l.split(',')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .parse::<f64>()
+                .ok()
+                .filter(|t| t.is_finite())
         })
         .collect()
 }
@@ -525,7 +538,10 @@ mod tests {
     probe_cache!(cap_cache, f64);
 
     fn temp_file(tag: &str, size: usize) -> std::path::PathBuf {
-        let p = std::env::temp_dir().join(format!("video-cut-cache-test-{}-{tag}.bin", std::process::id()));
+        let p = std::env::temp_dir().join(format!(
+            "video-cut-cache-test-{}-{tag}.bin",
+            std::process::id()
+        ));
         std::fs::write(&p, vec![0u8; size]).unwrap();
         p
     }
@@ -548,7 +564,10 @@ mod tests {
         assert!(cache_get(scratch_cache, &key).is_none());
         cache_put(scratch_cache, &key, &1.25);
         // 同路径同内容 → 键相同 → 命中
-        assert_eq!(cache_get(scratch_cache, &probe_key(p.to_str().unwrap())), Some(1.25));
+        assert_eq!(
+            cache_get(scratch_cache, &probe_key(p.to_str().unwrap())),
+            Some(1.25)
+        );
         let _ = std::fs::remove_file(&p);
     }
 
@@ -557,13 +576,17 @@ mod tests {
         let p = temp_file("cap", 8);
         let key = probe_key(p.to_str().unwrap()).unwrap();
         for i in 0..PROBE_CACHE_CAP {
-            cache_put(cap_cache, &Some((format!("cap-{i}"), i as u64, i as u128)), &0.0);
+            cache_put(
+                cap_cache,
+                &Some((format!("cap-{i}"), i as u64, i as u128)),
+                &0.0,
+            );
         }
-        assert_eq!(cap_cache().lock().unwrap().len(), PROBE_CACHE_CAP);
+        assert_eq!(cap_cache().lock().len(), PROBE_CACHE_CAP);
         // 触碰最旧的一条（cap-0）→ 它变成最近使用，不该被淘汰
         cache_get(cap_cache, &Some(("cap-0".to_string(), 0, 0)));
         cache_put(cap_cache, &Some(key.clone()), &2.5);
-        let m = cap_cache().lock().unwrap();
+        let m = cap_cache().lock();
         assert_eq!(m.len(), PROBE_CACHE_CAP, "达限后只逐出一条，不清空整表");
         assert_eq!(
             m.get(&key).map(|e| e.value.clone()),
@@ -588,12 +611,16 @@ mod tests {
         probe_cache!(cap_ov_cache, f64);
         let key = ("cap-ov".to_string(), 7u64, 7u128);
         for i in 0..PROBE_CACHE_CAP {
-            cache_put(cap_ov_cache, &Some((format!("cap-f{i}"), i as u64, i as u128)), &0.0);
+            cache_put(
+                cap_ov_cache,
+                &Some((format!("cap-f{i}"), i as u64, i as u128)),
+                &0.0,
+            );
         }
         cache_put(cap_ov_cache, &Some(key.clone()), &1.0);
         // 达限后插入新键：先逐出最久未用的 cap-f0 再入表，表长不变
         let (len_insert, ov_first, f0_gone) = {
-            let m = cap_ov_cache().lock().unwrap();
+            let m = cap_ov_cache().lock();
             (
                 m.len(),
                 m.get(&key).map(|e| e.value.clone()),
@@ -607,7 +634,7 @@ mod tests {
         // 达限后覆盖已有键：只替换值并刷新使用序，不得再逐出任何条目
         cache_put(cap_ov_cache, &Some(key.clone()), &3.5);
         let (len_overwrite, ov_second, f1_survives) = {
-            let m = cap_ov_cache().lock().unwrap();
+            let m = cap_ov_cache().lock();
             (
                 m.len(),
                 m.get(&key).map(|e| e.value.clone()),

@@ -61,9 +61,10 @@ pub async fn submit_task(
             output,
             encoder,
         } => {
-            let rect =
-                super::crop::validate_crop_rect(&app, &input, x, y, width, height, out_width, out_height)
-                    .await?;
+            let rect = super::crop::validate_crop_rect(
+                &app, &input, x, y, width, height, out_width, out_height,
+            )
+            .await?;
             super::crop::submit_crop(app, &state, input, rect, quality, output, encoder)
         }
         VideoTask::Pipeline {
@@ -157,7 +158,11 @@ fn submit_cut(
             .collect()
     };
 
-    let mode_label = if precise { "精确剪切（重编码）" } else { "剪切" };
+    let mode_label = if precise {
+        "精确剪切（重编码）"
+    } else {
+        "剪切"
+    };
     let label = format!(
         "{mode_label} {}（{} 个片段）",
         src.file_name().and_then(|n| n.to_str()).unwrap_or(&input),
@@ -207,7 +212,12 @@ fn submit_cut(
                     crate::QualityPreset::Balanced,
                 )
             } else {
-                command::cut_args(item.start, item.dur, &job_input, &item.part.to_string_lossy())
+                command::cut_args(
+                    item.start,
+                    item.dur,
+                    &job_input,
+                    &item.part.to_string_lossy(),
+                )
             };
             let r = worker::run_ffmpeg(ctx, &ffmpeg, &args, item.dur, &|local, speed| {
                 if throttle.update(local) {
@@ -230,7 +240,9 @@ fn submit_cut(
         Ok(())
     });
 
-    Ok(state.0.submit(Arc::new(TauriEmitter(app)), "cut", &label, job))
+    Ok(state
+        .0
+        .submit(Arc::new(TauriEmitter(app)), "cut", &label, job))
 }
 
 fn in_name_of(p: &str) -> &str {
