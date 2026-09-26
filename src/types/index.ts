@@ -258,6 +258,8 @@ export interface TaskStatusPayload {
   status: TaskStatus;
   error: string | null;
   outputs: string[];
+  /** 内部任务（R3-3，如代理生成）：事件照常派发，任务面板凭它跳过展示 */
+  internal: boolean;
 }
 
 /** `task-progress` 事件负载 */

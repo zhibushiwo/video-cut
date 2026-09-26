@@ -29,7 +29,8 @@ pub trait EventSink: Send + Sync {
     fn emit_progress(&self, payload: &ProgressPayload);
 }
 
-/// `task-status` 事件负载（DESIGN §5.4）。
+/// `task-status` 事件负载（DESIGN §5.4）。`internal` = 内部任务（R3-3）：事件照常
+/// 派发（useProxyPreview 等订阅方依赖完成事件），任务面板凭它跳过展示。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StatusPayload {
@@ -37,6 +38,7 @@ pub struct StatusPayload {
     pub status: TaskStatus,
     pub error: Option<String>,
     pub outputs: Vec<String>,
+    pub internal: bool,
 }
 
 /// `task-progress` 事件负载（DESIGN §5.4）。
@@ -71,6 +73,9 @@ pub struct TaskHandle {
     pub error: Mutex<Option<String>>,
     pub outputs: Mutex<Vec<String>>,
     pub cancelled: AtomicBool,
+    /// 内部任务（R3-3，如代理生成）：不进 `snapshot()`（任务面板补元数据与关闭守卫
+    /// 均不可见），事件照常派发。经 [`TaskManager::submit_internal`] 提交时为 true。
+    pub internal: bool,
     killer: Mutex<Option<Killer>>,
     /// 提交时间（unix ms，供 [`crate::history::HistoryEntry`] 使用）。
     pub(crate) created_at: u64,
@@ -152,6 +157,7 @@ impl TaskContext {
             status: *handle.status.lock().unwrap(),
             error: handle.error.lock().unwrap().clone(),
             outputs: handle.outputs.lock().unwrap().clone(),
+            internal: handle.internal,
         });
     }
 }
@@ -163,6 +169,15 @@ struct TaskEntry {
     cleanup: Option<Cleanup>,
 }
 
+impl TaskEntry {
+    fn is_active(&self) -> bool {
+        matches!(
+            *self.handle.status.lock().unwrap(),
+            TaskStatus::Pending | TaskStatus::Running
+        )
+    }
+}
+
 /// 终态回调：历史记录等订阅者经此接入，任务模块保持与 Tauri 解耦。
 pub(crate) type OnTerminal = Box<dyn Fn(&TaskHandle) + Send + Sync>;
 
@@ -171,6 +186,10 @@ struct Inner {
     order: Vec<String>,
     queue: VecDeque<(String, Job)>,
     running: usize,
+    /// kind 维度去重登记表（R3-2）：(kind, dedup_key) → task_id。由 [`TaskManager::
+    /// submit_internal`] 登记，条目回收统一在 [`Shared::run_cleanup`]（全部终态路径都经过它，
+    /// 含排队中被取消）——替代调用方自建 HashMap + cleanup 钩子的手工簿记。
+    dedup: HashMap<(String, String), String>,
 }
 
 pub(crate) struct Shared {
@@ -190,9 +209,12 @@ impl Shared {
     }
 
     /// 执行并消费任务的终态清理钩子（幂等：只有第一个调用者拿到闭包）。
+    /// 同时回收该任务的去重登记条目（R3-2）——所有终态路径（完成/失败/取消，
+    /// 含排队中被取消）都会走到这里，提交方无需自建回收逻辑。
     pub(crate) fn run_cleanup(&self, id: &str) {
         let cb = {
             let mut inner = self.inner.lock().unwrap();
+            inner.dedup.retain(|_, v| v != id);
             inner.tasks.get_mut(id).and_then(|e| e.cleanup.take())
         };
         if let Some(cb) = cb {
@@ -252,6 +274,7 @@ impl TaskManager {
                 order: Vec::new(),
                 queue: VecDeque::new(),
                 running: 0,
+                dedup: HashMap::new(),
             }),
             cv: Condvar::new(),
             max_concurrent,
@@ -280,7 +303,7 @@ impl TaskManager {
         self.submit_with_cleanup(sink, kind, label, job, Box::new(|_| {}))
     }
 
-    /// 带清理钩子的提交（R1-3）：需要回收簿记（如同源代理去重表条目）的调用方用此入口，
+    /// 带清理钩子的提交（R1-3）：需要回收簿记的调用方用此入口，
     /// 保证「排队中被取消」也能回收——该路径不执行作业体。
     pub fn submit_with_cleanup(
         &self,
@@ -289,6 +312,39 @@ impl TaskManager {
         label: &str,
         job: Job,
         cleanup: Cleanup,
+    ) -> String {
+        self.submit_core(sink, kind, label, None, false, job, Some(cleanup))
+    }
+
+    /// 内部任务的统一提交入口（R3-2/R3-3，当前唯一用户是代理生成）：
+    ///
+    /// - **kind + key 去重**：同 `(kind, dedup_key)` 已有活动任务时**不重复提交**，
+    ///   直接返回既有 taskId（调用方拿到的是同一任务，事件订阅天然共享）；条目由
+    ///   TaskManager 在任务到终态时统一回收（见 [`Shared::run_cleanup`]），残留条目
+    ///   （理论上不应有）按活性自愈一次。
+    /// - **面板与关闭守卫不可见**：internal 任务不进 [`TaskManager::snapshot`]
+    ///   （list_tasks → 任务面板补元数据、关闭窗口确认都看不到），但 task-status /
+    ///   task-progress 事件照常派发，payload 带 `internal` 标记供前端过滤展示（R3-3）。
+    pub fn submit_internal(
+        &self,
+        sink: Arc<dyn EventSink>,
+        kind: &str,
+        label: &str,
+        dedup_key: &str,
+        job: Job,
+    ) -> String {
+        self.submit_core(sink, kind, label, Some(dedup_key), true, job, None)
+    }
+
+    fn submit_core(
+        &self,
+        sink: Arc<dyn EventSink>,
+        kind: &str,
+        label: &str,
+        dedup_key: Option<&str>,
+        internal: bool,
+        job: Job,
+        cleanup: Option<Cleanup>,
     ) -> String {
         let id = self.next_id();
         let handle = Arc::new(TaskHandle {
@@ -300,19 +356,31 @@ impl TaskManager {
             error: Mutex::new(None),
             outputs: Mutex::new(Vec::new()),
             cancelled: AtomicBool::new(false),
+            internal,
             killer: Mutex::new(None),
             created_at: crate::history::now_ms(),
             started_at: Mutex::new(0),
             terminal_recorded: AtomicBool::new(false),
         });
         let mut inner = self.shared.inner.lock().unwrap();
+        if let Some(key) = dedup_key {
+            let entry_key = (kind.to_string(), key.to_string());
+            if let Some(existing) = inner.dedup.get(&entry_key).cloned() {
+                if inner.tasks.get(&existing).is_some_and(TaskEntry::is_active) {
+                    return existing;
+                }
+                // 残留条目自愈：理论上 run_cleanup 已回收，防御一次（R1-3 同思路）
+                inner.dedup.remove(&entry_key);
+            }
+            inner.dedup.insert(entry_key, id.clone());
+        }
         inner.order.push(id.clone());
         inner.tasks.insert(
             id.clone(),
             TaskEntry {
                 handle: handle.clone(),
                 sink: sink.clone(),
-                cleanup: Some(cleanup),
+                cleanup,
             },
         );
         inner.queue.push_back((id.clone(), job));
@@ -320,17 +388,6 @@ impl TaskManager {
         TaskContext::new(handle, sink).emit_status();
         self.shared.cv.notify_all();
         id
-    }
-
-    /// 任务是否仍在排队/运行（R1-3）：提交方登记簿记前用它挡掉「已终结」的登记。
-    pub fn is_active(&self, id: &str) -> bool {
-        let inner = self.shared.inner.lock().unwrap();
-        inner.tasks.get(id).is_some_and(|e| {
-            matches!(
-                *e.handle.status.lock().unwrap(),
-                TaskStatus::Pending | TaskStatus::Running
-            )
-        })
     }
 
     /// 取消任务：排队中直接置 Cancelled；运行中置标记并触发 killer（kill 子进程）。
@@ -371,14 +428,7 @@ impl TaskManager {
         let keep: Vec<String> = inner
             .order
             .iter()
-            .filter(|id| {
-                inner.tasks.get(*id).is_some_and(|e| {
-                    matches!(
-                        *e.handle.status.lock().unwrap(),
-                        TaskStatus::Pending | TaskStatus::Running
-                    )
-                })
-            })
+            .filter(|id| inner.tasks.get(*id).is_some_and(TaskEntry::is_active))
             .cloned()
             .collect();
         let removed = inner.order.len() - keep.len();
@@ -388,12 +438,17 @@ impl TaskManager {
         removed
     }
 
+    /// 用户可见的任务快照（R3-3）：internal 任务不进列表——任务面板补元数据与
+    /// 关闭窗口确认（listTasks 的两个消费方）都不应看到后台代理等内部任务；
+    /// 事件通道不受影响（订阅方凭 payload 的 internal 标记自行过滤展示）。
     pub fn snapshot(&self) -> Vec<TaskSnapshot> {
         let inner = self.shared.inner.lock().unwrap();
         inner
             .order
             .iter()
-            .filter_map(|id| inner.tasks.get(id).map(|e| e.handle.snapshot()))
+            .filter_map(|id| inner.tasks.get(id))
+            .filter(|e| !e.handle.internal)
+            .map(|e| e.handle.snapshot())
             .collect()
     }
 
@@ -585,6 +640,122 @@ mod tests {
         assert_eq!(cleaned.load(Ordering::Relaxed), 1);
         // 收尾：放开阻塞任务，避免线程悬挂
         assert!(mgr.cancel(&blocker));
+        wait_terminal(&mgr, &[&blocker], Duration::from_secs(5));
+    }
+
+    // ---------- 内部任务（R3-2 去重登记 / R3-3 快照过滤） ----------
+
+    #[test]
+    fn internal_task_hidden_from_snapshot_but_events_flow() {
+        let mgr = TaskManager::new(1);
+        let sink = Arc::new(CollectSink::default());
+        let ran = Arc::new(AtomicUsize::new(0));
+        let ran2 = ran.clone();
+        let id = mgr.submit_internal(
+            sink.clone(),
+            "proxy",
+            "内部任务",
+            "C:/a.mp4",
+            Box::new(move |_| {
+                ran2.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }),
+        );
+        // 提交即派发 task-status（订阅方靠事件知道任务存在）
+        assert!(
+            sink.statuses.lock().unwrap().iter().any(|(tid, _)| tid == &id),
+            "internal 任务的 task-status 事件必须照常派发"
+        );
+        // job 确实执行了；snapshot 看不到 internal 任务，不能走 wait_terminal
+        let start = Instant::now();
+        while ran.load(Ordering::Relaxed) == 0 && start.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(ran.load(Ordering::Relaxed), 1);
+        assert!(
+            mgr.snapshot().iter().all(|s| s.id != id),
+            "internal 任务不得出现在 snapshot（任务面板/关闭守卫不可见）"
+        );
+    }
+
+    #[test]
+    fn submit_internal_dedups_same_key_while_active() {
+        let mgr = TaskManager::new(2);
+        let sink: Arc<dyn EventSink> = Arc::new(CollectSink::default());
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let id1 = mgr.submit_internal(
+            sink.clone(),
+            "proxy",
+            "第一个",
+            "key-a",
+            Box::new(move |_| {
+                let _ = rx.recv();
+                Ok(())
+            }),
+        );
+        // 活动（排队或运行中）期间同 key 再提交 → 复用既有任务，不重复入队
+        let id2 =
+            mgr.submit_internal(sink.clone(), "proxy", "第二个", "key-a", Box::new(|_| Ok(())));
+        assert_eq!(id1, id2, "同 key 活动期间应复用既有任务");
+        // 不同 key 各自独立
+        let id3 =
+            mgr.submit_internal(sink.clone(), "proxy", "第三个", "key-b", Box::new(|_| Ok(())));
+        assert_ne!(id1, id3);
+        tx.send(()).unwrap();
+    }
+
+    #[test]
+    fn dedup_entry_recycled_after_terminal() {
+        let mgr = TaskManager::new(1);
+        let sink: Arc<dyn EventSink> = Arc::new(CollectSink::default());
+        let id1 = mgr.submit_internal(
+            sink.clone(),
+            "proxy",
+            "先跑一次",
+            "key-r",
+            Box::new(|_| {
+                std::thread::sleep(Duration::from_millis(30));
+                Ok(())
+            }),
+        );
+        // 终态回收后同 key 再提交 → 新任务（回收异步于 job 结束，poll 到换新即止）
+        let start = Instant::now();
+        loop {
+            let id2 =
+                mgr.submit_internal(sink.clone(), "proxy", "再跑一次", "key-r", Box::new(|_| Ok(())));
+            if id2 != id1 {
+                break;
+            }
+            assert!(start.elapsed() < Duration::from_secs(5), "终态后去重条目未被回收");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn queued_internal_cancel_recycles_dedup_entry() {
+        let mgr = TaskManager::new(1);
+        let sink: Arc<dyn EventSink> = Arc::new(CollectSink::default());
+        // 占满唯一并发位，让 internal 任务停留在排队中
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let blocker = mgr.submit(
+            sink.clone(),
+            "test",
+            "占位",
+            Box::new(move |_| {
+                let _ = rx.recv();
+                Ok(())
+            }),
+        );
+        let queued =
+            mgr.submit_internal(sink.clone(), "proxy", "排队中取消", "key-q", Box::new(|_| Ok(())));
+        assert_ne!(blocker, queued);
+        assert!(mgr.cancel(&queued));
+        // 排队中取消不执行作业体（R1-3），去重条目也必须已被回收（R3-2）——
+        // 直接再提交：拿到新 id 即证明回收完成
+        let again =
+            mgr.submit_internal(sink.clone(), "proxy", "重新提交", "key-q", Box::new(|_| Ok(())));
+        assert_ne!(again, queued, "排队取消后同 key 应可重新提交");
+        tx.send(()).unwrap();
         wait_terminal(&mgr, &[&blocker], Duration::from_secs(5));
     }
 

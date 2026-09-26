@@ -32,7 +32,8 @@ pub enum TaskStatus {
     Cancelled,
 }
 
-/// 任务快照：`list_tasks` 返回值与事件推送共用（DESIGN §7）。
+/// 任务快照：`list_tasks` 返回值（DESIGN §7）。internal 任务（R3-3）不进列表——
+/// 事件 payload 的 internal 标记在 `task-status` 的 StatusPayload 上。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TaskSnapshot {

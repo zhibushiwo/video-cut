@@ -5,7 +5,7 @@
 > **读时机**：每次接手任务前；准备动 `ffmpeg/`、`task/`、IPC 层之前必须读完 §3。
 > **写规则**：只在"红线、命令、完事标准、流程"变化时改本文；每条尽量一行，能指向文档就指向。**不写规格、不写进度**。
 > **关联**：[docs/INDEX.md](docs/INDEX.md)（文档地图与 ID 规范） · [docs/PLAN.md](docs/PLAN.md)（进度与任务） · [docs/HANDOFF.md](docs/HANDOFF.md)（当前状态）
-> **最后更新**：2026-09-24（§2/§4/§7 补前端单测 `pnpm test`（M11-0 引入 Vitest））
+> **最后更新**：2026-09-26（第 8 条补 `submit_internal`：内部任务去重登记由 TaskManager 统一管理，R3-2/R3-3）
 
 ---
 
@@ -51,7 +51,7 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 **任务系统**
 
 7. 长耗时操作**一律走 `TaskManager`**（并发 2、可取消、`.part`→rename），不要写同步阻塞命令。
-8. 提交方若要回收自己的簿记（如去重表条目），用 `submit_with_cleanup` —— **排队中被取消的任务不执行作业体**，写在作业体里的回收会被跳过。
+8. 提交方若要回收自己的簿记，用 `submit_with_cleanup` —— **排队中被取消的任务不执行作业体**，写在作业体里的回收会被跳过；内部任务的同源去重登记**不要自建**，走 `submit_internal`（(kind, key) 去重 + 终态由 TaskManager 统一回收 + 面板/关闭守卫不可见，R3-2/R3-3）。
 9. 事件名与 payload 固定：`task-status` / `task-progress`（payload camelCase）；Rust 类型集中在 `lib.rs`（serde `rename_all = "camelCase"`，枚举 snake_case）。
 
 **前端**

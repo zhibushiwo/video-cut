@@ -90,6 +90,9 @@ export default function TaskProgress({ autoCloseSec = 0 }: { autoCloseSec?: numb
     };
 
     return onTaskStatus((p) => {
+      // 内部任务（R3-3，如代理生成）：事件照常派发（useProxyPreview 依赖完成事件），
+      // 但不进任务面板——不建行，后续 progress 事件因查无此行自然忽略
+      if (p.internal) return;
       ensureMeta(p.taskId);
       setRows((prev) => {
         const old = prev.get(p.taskId);
