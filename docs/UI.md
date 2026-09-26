@@ -77,7 +77,7 @@ Workbench ──右上角──▶ History / Settings
 
 ### 9.7 TaskProgress（全局）
 
-- 右下角可折叠抽屉；每任务一行：标签 + 进度条 + 百分比 + 速度 + 取消按钮
+- 右下角可折叠抽屉；每任务一行：标签 + 进度条 + 百分比 + 速度 + 预计剩余（R3-4） + 取消按钮
 - 失败时展开显示 ffmpeg stderr 最后若干行 + "复制日志"按钮
 - Completed 项提供"打开所在文件夹"（`tauri-plugin-opener`）
 - **内部任务不显示**（R3-3，DESIGN §8.2）：代理生成等 internal 任务的事件照常派发，面板凭 payload 的 `internal` 标记跳过——面板只反映用户可操作的导出类任务

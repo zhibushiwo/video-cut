@@ -1,12 +1,11 @@
 //! 局部放大：crop + scale 放大输出（DESIGN §3.5、§6.3⑦）。必然重编码。
 
-use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, State};
 
+use super::ProgressThrottle;
 use crate::ffmpeg::probe;
 use crate::ffmpeg::command;
 use crate::task::manager::{Job, TaskContext, TauriEmitter};
@@ -156,12 +155,10 @@ pub fn submit_crop(
             &part.to_string_lossy(),
         );
 
-        let last = Cell::new(Instant::now() - Duration::from_millis(250));
-        let r = worker::run_ffmpeg(ctx, &ffmpeg, &args, duration, &|local, _| {
-            let now = Instant::now();
-            if now.duration_since(last.get()) >= Duration::from_millis(200) || local >= 1.0 {
-                last.set(now);
-                ctx.set_progress(local);
+        let throttle = ProgressThrottle::new();
+        let r = worker::run_ffmpeg(ctx, &ffmpeg, &args, duration, &|local, speed| {
+            if throttle.update(local) {
+                ctx.set_progress(local, speed);
             }
         });
 

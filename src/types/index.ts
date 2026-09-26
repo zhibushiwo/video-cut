@@ -267,7 +267,7 @@ export interface TaskProgressPayload {
   taskId: string;
   percent: number;
   speed: string | null;
-  /** 后端 payload（manager.rs ProgressPayload）恒发 null、值归 `R3-4` 接通 */
+  /** 预计剩余秒数（R3-4 接通：调和估计 剩余≈已耗×(1-p)/p，p<5% 或收尾时不发） */
   etaSeconds: number | null;
 }
 

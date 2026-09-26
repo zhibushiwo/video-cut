@@ -1,15 +1,14 @@
 //! 工作台：多文件流水线（逐段剪切/旋转/放大 → 定向统一 → concat）
 //! （DESIGN §3.8、§6.3⑨⑩）。
 
-use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
+use super::ProgressThrottle;
 use crate::ffmpeg::command;
 use crate::ffmpeg::probe::{self, MergeFileFacts};
 use crate::task::manager::{Job, TaskContext, TauriEmitter};
@@ -358,12 +357,10 @@ pub fn submit_pipeline(
                 )
             };
 
-            let last = Cell::new(Instant::now() - Duration::from_millis(250));
-            let r = worker::run_ffmpeg(ctx, &ffmpeg, &args, dur, &|local, _| {
-                let now = Instant::now();
-                if now.duration_since(last.get()) >= Duration::from_millis(200) || local >= 1.0 {
-                    last.set(now);
-                    ctx.set_progress((i as f64 + local) / (n as f64 + 1.0));
+            let throttle = ProgressThrottle::new();
+            let r = worker::run_ffmpeg(ctx, &ffmpeg, &args, dur, &|local, speed| {
+                if throttle.update(local) {
+                    ctx.set_progress((i as f64 + local) / (n as f64 + 1.0), speed);
                 }
             });
             if let Err(e) = r {
@@ -418,7 +415,7 @@ pub fn submit_pipeline(
             temps.push(norm.clone());
             let _ = std::fs::remove_file(&norm);
             let dur = inter_facts[i].info.duration_sec;
-            let last = Cell::new(Instant::now() - Duration::from_millis(250));
+            let throttle = ProgressThrottle::new();
             // 归一化占用剩余进度预算的前半段，concat 占后半段
             let r = worker::run_ffmpeg(
                 ctx,
@@ -433,13 +430,12 @@ pub fn submit_pipeline(
                     &norm.to_string_lossy(),
                 ),
                 dur,
-                &|local, _| {
-                    let now = Instant::now();
-                    if now.duration_since(last.get()) >= Duration::from_millis(200) || local >= 1.0
-                    {
-                        last.set(now);
+                &|local, speed| {
+                    if throttle.update(local) {
                         let phase = (norm_done as f64 + local) / (n_norm.max(1) as f64 + 1.0);
-                        ctx.set_progress(n as f64 + phase * 0.5);
+                        // 归一化/concat 与上面的逐段处理共享 n+1 个进度单位（BUG-013：
+                        // 旧公式漏除 (n+1)，两阶段进度恒被钳到 100%）
+                        ctx.set_progress((n as f64 + phase * 0.5) / (n as f64 + 1.0), speed);
                     }
                 },
             );
@@ -478,18 +474,16 @@ pub fn submit_pipeline(
             return Err(format!("写入 concat 列表失败：{e}"));
         }
         let total_sec: f64 = inter_facts.iter().map(|f| f.info.duration_sec).sum();
-        let last = Cell::new(Instant::now() - Duration::from_millis(250));
+        let throttle = ProgressThrottle::new();
         let r = worker::run_ffmpeg(
             ctx,
             &ffmpeg,
             &command::concat_args(&list_path.to_string_lossy(), &part.to_string_lossy()),
             total_sec,
-            &|local, _| {
-                let now = Instant::now();
-                if now.duration_since(last.get()) >= Duration::from_millis(200) || local >= 1.0 {
-                    last.set(now);
+            &|local, speed| {
+                if throttle.update(local) {
                     let phase = if n_norm > 0 { 0.5 + local * 0.5 } else { local };
-                    ctx.set_progress(n as f64 + phase);
+                    ctx.set_progress((n as f64 + phase) / (n as f64 + 1.0), speed);
                 }
             },
         );

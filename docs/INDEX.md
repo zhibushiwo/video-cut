@@ -141,7 +141,7 @@
 | **FR-330** 合并 | DESIGN.md §3.3 · FFMPEG.md §6.3② | `ffmpeg/command.rs` · `commands/*.rs` | M2-1 … M2-6 | AC-331-1 · AC-332-1/2 · AC-333-1 · TC-001 · TC-011 | ✅ |
 | **FR-340** 旋转 | DESIGN.md §3.4 · FFMPEG.md §6.3③ | `ffmpeg/command.rs` · `commands/*.rs` | M3-1 · M3-2 | AC-341-1/2 · AC-342-1 · TC-012 | ✅ |
 | **FR-350** 局部放大 | DESIGN.md §3.5 | `ffmpeg/command.rs` · `commands/*.rs` · `ClipTimeline`/`CropOverlay` | M3-3 · M3-4 · M3-5 · R1-4 | AC-351-1 · AC-352-1 · AC-353-1 · TC-012 · TC-004 | ✅ |
-| **FR-360** 任务队列与面板 | DESIGN.md §3.6 / §8 | `task/manager.rs` · `task/worker.rs` · `ProductPreview`/`TaskProgress`/`hooks` | M0-5 · M1-5 · M4-2 · M4-7 ·（R3-4 speed 待） | AC-360-1 · AC-361-1 · AC-362-1 · TC-015 · TC-004 | 🚧 部分（speed/ETA 待 R3-4） |
+| **FR-360** 任务队列与面板 | DESIGN.md §3.6 / §8 | `task/manager.rs` · `task/worker.rs` · `ProductPreview`/`TaskProgress`/`hooks` | M0-5 · M1-5 · M4-2 · M4-7 · R3-2/R3-3/R3-4（2026-09-26） | AC-360-1 · AC-361-1 · AC-362-1 · TC-015 · TC-004 | ✅ |
 | **FR-370** 代理预览 | DESIGN.md §3.7 | `ffmpeg/probe.rs` · `commands/*.rs` | M1-8 · R1-3 | AC-371-1 · AC-372-1 · TC-018 | ✅ |
 | **FR-380** 工作台流水线 | DESIGN.md §3.8 | `commands/pipeline.rs` · `ClipTimeline`/`CropOverlay` · `ProductPreview`/`TaskProgress`/`hooks` | M5-1 … M5-7 · M6-1 … M6-8 · M9-1 … M9-5 | AC-380-1 · TC-003 · TC-013 | ✅（原子 FR-381+ 随 M11） |
 | **NFR-001**–**005** 设计原则 | DESIGN.md §2 | 全局 | 贯穿 M1–M9 | TC-001 – TC-005（回归） | ✅ |

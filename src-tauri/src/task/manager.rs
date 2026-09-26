@@ -128,16 +128,33 @@ impl TaskContext {
         self.handle.cancelled.load(Ordering::Relaxed)
     }
 
-    /// 上报进度（0.0~1.0）。节流约 200ms，由作业侧负责（DESIGN §5.4）。
-    pub fn set_progress(&self, percent: f64) {
+    /// 上报进度（0.0~1.0）与当前编码速度（`-progress` 的 `speed=`，倍速）。
+    /// 节流由作业体侧的 [`crate::commands::ProgressThrottle`] 负责，本方法不节流
+    /// （worker 收尾推满 1.0 必须直通）；`speed` 随报随传（R3-4 接通前端速度列）。
+    /// ETA（FR-361 预计剩余）由已耗时长与当前百分比调和推算：剩余 ≈ 已耗 × (1−p)/p，
+    /// p < 5% 时噪声过大不报、p ≥ 1.0 无剩余不报。
+    pub fn set_progress(&self, percent: f64, speed: Option<f64>) {
         let p = percent.clamp(0.0, 1.0);
         *self.handle.progress.lock().unwrap() = Some(p);
+        let eta_seconds = self.estimate_eta(p);
         self.sink.emit_progress(&ProgressPayload {
             task_id: self.handle.id.clone(),
             percent: p,
-            speed: None,
-            eta_seconds: None,
+            speed: speed.map(|s| format!("{s:.2}")),
+            eta_seconds,
         });
+    }
+
+    fn estimate_eta(&self, p: f64) -> Option<f64> {
+        if !(0.05..1.0).contains(&p) {
+            return None;
+        }
+        let started = *self.handle.started_at.lock().unwrap();
+        if started == 0 {
+            return None;
+        }
+        let elapsed = (crate::history::now_ms() - started) as f64 / 1000.0;
+        Some(elapsed * (1.0 - p) / p)
     }
 
     /// 登记成功产物路径，任务完成后展示给用户。
@@ -507,7 +524,7 @@ mod tests {
     #[derive(Default)]
     struct CollectSink {
         statuses: Mutex<Vec<(String, TaskStatus)>>,
-        progresses: Mutex<Vec<(String, f64)>>,
+        progresses: Mutex<Vec<ProgressPayload>>,
     }
 
     impl EventSink for CollectSink {
@@ -518,7 +535,7 @@ mod tests {
                 .push((p.task_id.clone(), p.status));
         }
         fn emit_progress(&self, p: &ProgressPayload) {
-            self.progresses.lock().unwrap().push((p.task_id.clone(), p.percent));
+            self.progresses.lock().unwrap().push(p.clone());
         }
     }
 
@@ -543,6 +560,26 @@ mod tests {
     }
 
     #[test]
+    fn eta_gated_by_progress_floor_and_ceiling() {
+        let mgr = TaskManager::new(1);
+        let sink = Arc::new(CollectSink::default());
+        let id = mgr.submit(
+            sink.clone(),
+            "test",
+            "ETA 门限",
+            Box::new(|ctx| {
+                ctx.set_progress(0.01, None); // < 5%：噪声过大不报
+                ctx.set_progress(1.0, None); // 收尾：无剩余不报
+                Ok(())
+            }),
+        );
+        wait_terminal(&mgr, &[&id], Duration::from_secs(5));
+        let all = sink.progresses.lock().unwrap();
+        assert!(all.iter().filter(|p| p.task_id == id).all(|p| p.eta_seconds.is_none()),
+            "p<5% 与 p=1.0 都不得带 ETA");
+    }
+
+    #[test]
     fn tasks_run_and_reach_final_status() {
         let mgr = TaskManager::new(1);
         let sink = Arc::new(CollectSink::default());
@@ -551,7 +588,7 @@ mod tests {
             "test",
             "成功",
             Box::new(|ctx| {
-                ctx.set_progress(0.5);
+                ctx.set_progress(0.5, Some(2.5));
                 Ok(())
             }),
         );
@@ -568,8 +605,18 @@ mod tests {
         assert_eq!(s1.status, TaskStatus::Completed);
         // 成功完成时进度被推满
         assert_eq!(s1.progress, Some(1.0));
-        // 作业过程中上报过 0.5
-        assert!(sink.progresses.lock().unwrap().iter().any(|(id, p)| id == &id1 && *p == 0.5));
+        // 作业过程中上报过 0.5（speed 格式化为 "2.50"；ETA = 已耗 ×(1-p)/p，p=0.5 时等于已耗时长）
+        let reported = sink
+            .progresses
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|p| p.task_id == id1 && p.percent == 0.5)
+            .cloned();
+        assert!(reported.is_some());
+        let reported = reported.unwrap();
+        assert_eq!(reported.speed.as_deref(), Some("2.50"));
+        assert!(reported.eta_seconds.unwrap_or(-1.0) >= 0.0, "p=0.5 应带 ETA");
         assert_eq!(s2.status, TaskStatus::Failed);
         assert_eq!(s2.error.as_deref(), Some("boom"));
     }

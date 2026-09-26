@@ -7,7 +7,9 @@ pub mod merge;
 pub mod pipeline;
 pub mod rotate;
 
+use std::cell::Cell;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 /// FNV-1a 64：为字符串生成稳定哈希（代理缓存 / 临时文件命名，跨进程一致）。
 pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
@@ -53,6 +55,38 @@ pub(crate) fn require_disk_space(dir: &Path, estimate_bytes: u64) -> Result<(), 
     Ok(())
 }
 
+/// 进度节流间隔（DESIGN §8.2，NFR-009）：~200ms 放行一次。
+const PROGRESS_INTERVAL_MS: u64 = 200;
+
+/// 进度节流（R3-4，NFR-009）：九处作业体（cut/crop/rotate/merge×2/pipeline×3/proxy）
+/// 共用的放行门——距上次放行 ≥200ms、或已到收尾（local ≥ 1.0）时放行。
+/// 放行后由调用方 `ctx.set_progress(百分比, speed)` 上报（speed 随报随传）。
+pub(crate) struct ProgressThrottle {
+    /// 上次放行时刻；初始化为"250ms 前"保证首个进度立即放行。
+    last: Cell<Instant>,
+}
+
+impl ProgressThrottle {
+    pub(crate) fn new() -> Self {
+        Self {
+            last: Cell::new(Instant::now() - Duration::from_millis(PROGRESS_INTERVAL_MS + 50)),
+        }
+    }
+
+    /// 是否放行本次进度（放行即刷新计时）。`local` 为本进程输出占比（0..1）。
+    pub(crate) fn update(&self, local: f64) -> bool {
+        let now = Instant::now();
+        if now.duration_since(self.last.get()) >= Duration::from_millis(PROGRESS_INTERVAL_MS)
+            || local >= 1.0
+        {
+            self.last.set(now);
+            true
+        } else {
+            false
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -84,5 +118,22 @@ mod tests {
         assert!(!valid_segment_span(0.0, 0.0));
         assert!(!valid_segment_span(-0.1, 1.0));
         assert!(!valid_segment_span(f64::NAN, 1.0));
+    }
+
+    #[test]
+    fn progress_throttle_first_and_final_pass_window_blocks() {
+        let t = ProgressThrottle::new();
+        assert!(t.update(0.1), "首个进度立即放行（初始化在间隔之前）");
+        assert!(!t.update(0.2), "间隔内的后续进度被节流");
+        assert!(t.update(1.0), "收尾（local ≥ 1.0）恒放行");
+    }
+
+    #[test]
+    fn progress_throttle_reopens_after_interval() {
+        let t = ProgressThrottle::new();
+        assert!(t.update(0.1));
+        assert!(!t.update(0.15));
+        std::thread::sleep(Duration::from_millis(PROGRESS_INTERVAL_MS + 30));
+        assert!(t.update(0.2), "超过间隔后重新放行");
     }
 }

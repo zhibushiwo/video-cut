@@ -142,7 +142,7 @@ pub(crate) fn run(
         *ctx.handle.status.lock().unwrap() = final_status;
         // 成功才把进度推满；失败/取消保留实际进度，便于用户看到卡在哪里
         if final_status == TaskStatus::Completed {
-            ctx.set_progress(1.0);
+            ctx.set_progress(1.0, None);
         }
         ctx.emit_status();
         shared.record_terminal(&ctx.handle);

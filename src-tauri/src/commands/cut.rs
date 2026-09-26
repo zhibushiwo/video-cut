@@ -1,13 +1,12 @@
 //! 剪切任务提交：极速（stream copy）与精确（重编码）双模式（DESIGN §3.2、§6.3①②）。
 //! 同时是四类任务的统一提交入口（§5.4）。
 
-use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, State};
 
+use super::ProgressThrottle;
 use crate::ffmpeg::{command, probe};
 use crate::task::manager::{Job, TaskContext, TauriEmitter};
 use crate::task::worker;
@@ -197,7 +196,7 @@ fn submit_cut(
             }
             let _ = std::fs::remove_file(&item.part);
 
-            let last = Cell::new(Instant::now() - Duration::from_millis(250));
+            let throttle = ProgressThrottle::new();
             let args = if precise {
                 command::precise_cut_args(
                     item.start,
@@ -210,11 +209,9 @@ fn submit_cut(
             } else {
                 command::cut_args(item.start, item.dur, &job_input, &item.part.to_string_lossy())
             };
-            let r = worker::run_ffmpeg(ctx, &ffmpeg, &args, item.dur, &|local, _| {
-                let now = Instant::now();
-                if now.duration_since(last.get()) >= Duration::from_millis(200) || local >= 1.0 {
-                    last.set(now);
-                    ctx.set_progress((i as f64 + local) / total_segments as f64);
+            let r = worker::run_ffmpeg(ctx, &ffmpeg, &args, item.dur, &|local, speed| {
+                if throttle.update(local) {
+                    ctx.set_progress((i as f64 + local) / total_segments as f64, speed);
                 }
             });
 

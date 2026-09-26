@@ -16,7 +16,14 @@ interface TaskRow {
   snap: TaskSnapshot;
   percent: number | null;
   speed: string | null;
+  etaSeconds: number | null;
 }
+
+/** ETA 展示：秒 → 紧凑形式（"42s" / "3:05"），与面板行内 mono 风格一致 */
+const formatEta = (s: number): string => {
+  const sec = Math.max(0, Math.round(s));
+  return sec >= 60 ? `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}` : `${sec}s`;
+};
 
 /**
  * 全局任务面板（DESIGN §9.7）：右下角浮层，订阅 task-status / task-progress 事件。
@@ -82,6 +89,7 @@ export default function TaskProgress({ autoCloseSec = 0 }: { autoCloseSec?: numb
           },
           percent: null,
           speed: null,
+          etaSeconds: null,
         };
         const next = new Map(prev);
         next.set(taskId, placeholder);
@@ -108,6 +116,7 @@ export default function TaskProgress({ autoCloseSec = 0 }: { autoCloseSec?: numb
           },
           percent: p.status === "completed" ? 1 : old.percent,
           speed: p.status === "running" ? old.speed : null,
+          etaSeconds: p.status === "running" ? old.etaSeconds : null,
         });
         return next;
       });
@@ -136,7 +145,12 @@ export default function TaskProgress({ autoCloseSec = 0 }: { autoCloseSec?: numb
         const old = prev.get(p.taskId);
         if (!old) return prev;
         const next = new Map(prev);
-        next.set(p.taskId, { ...old, percent: p.percent, speed: p.speed });
+        next.set(p.taskId, {
+          ...old,
+          percent: p.percent,
+          speed: p.speed,
+          etaSeconds: p.etaSeconds,
+        });
         return next;
       });
     }),
@@ -217,7 +231,7 @@ export default function TaskProgress({ autoCloseSec = 0 }: { autoCloseSec?: numb
           </button>
         </div>
       </div>
-      {[...rows.values()].map(({ snap, percent, speed }) => {
+      {[...rows.values()].map(({ snap, percent, speed, etaSeconds }) => {
         const showPercent = percent ?? snap.progress;
         return (
           <div key={snap.id} className="rounded-md border border-hairline bg-panel/95 p-3 shadow-lg backdrop-blur">
@@ -283,6 +297,9 @@ export default function TaskProgress({ autoCloseSec = 0 }: { autoCloseSec?: numb
                 <span>{Math.round(showPercent * 100)}%</span>
               )}
               {snap.status === "running" && speed && <span>{speed}x</span>}
+              {snap.status === "running" && etaSeconds !== null && (
+                <span>剩余 {formatEta(etaSeconds)}</span>
+              )}
               {snap.status === "completed" && <span className="text-signal">完成</span>}
               {snap.status === "cancelled" && <span>已取消</span>}
               {snap.status === "failed" && (

@@ -1,13 +1,12 @@
 //! 合并：参数一致性检测与 concat 拼接（DESIGN §3.3、§6.3③④、§9.5）。
 
-use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
+use super::ProgressThrottle;
 use crate::ffmpeg::probe::{self, MergeFileFacts};
 use crate::ffmpeg::command;
 use crate::task::manager::{Job, TaskContext, TauriEmitter};
@@ -275,7 +274,7 @@ pub fn submit_merge(
                 temps.push(inter.clone());
                 let _ = std::fs::remove_file(&inter);
                 let dur = facts[i].info.duration_sec;
-                let last = Cell::new(Instant::now() - Duration::from_millis(250));
+                let throttle = ProgressThrottle::new();
                 let r = worker::run_ffmpeg(
                     ctx,
                     &ffmpeg,
@@ -289,13 +288,9 @@ pub fn submit_merge(
                         &inter.to_string_lossy(),
                     ),
                     dur,
-                    &|local, _| {
-                        let now = Instant::now();
-                        if now.duration_since(last.get()) >= Duration::from_millis(200)
-                            || local >= 1.0
-                        {
-                            last.set(now);
-                            ctx.set_progress((i as f64 + local) / (total_steps_base + 1) as f64);
+                    &|local, speed| {
+                        if throttle.update(local) {
+                            ctx.set_progress((i as f64 + local) / (total_steps_base + 1) as f64, speed);
                         }
                     },
                 );
@@ -316,17 +311,15 @@ pub fn submit_merge(
         }
 
         let total_sec: f64 = facts.iter().map(|f| f.info.duration_sec).sum();
-        let last = Cell::new(Instant::now() - Duration::from_millis(250));
+        let throttle = ProgressThrottle::new();
         let r = worker::run_ffmpeg(
             ctx,
             &ffmpeg,
             &command::concat_args(&list_path.to_string_lossy(), &part.to_string_lossy()),
             total_sec,
-            &|local, _| {
-                let now = Instant::now();
-                if now.duration_since(last.get()) >= Duration::from_millis(200) || local >= 1.0 {
-                    last.set(now);
-                    ctx.set_progress((copy_offset + local) / steps_total);
+            &|local, speed| {
+                if throttle.update(local) {
+                    ctx.set_progress((copy_offset + local) / steps_total, speed);
                 }
             },
         );

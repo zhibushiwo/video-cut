@@ -486,7 +486,7 @@ Pending ──▶ Running ──▶ Completed
    └──▶ Cancelled (排队中被取消)
 ```
 
-- **Running**：进入后先跑 ffprobe（探测在作业线程内完成，**不单独占一个状态**——原 `TaskStatus::Probing` 变体已于 R2-5 删除，见 §7 注释），probe 失败立即进 Failed（如文件损坏）；随后启动 ffmpeg 主命令，进度事件按 ~200ms 节流后 emit（NFR-009）
+- **Running**：进入后先跑 ffprobe（探测在作业线程内完成，**不单独占一个状态**——原 `TaskStatus::Probing` 变体已于 R2-5 删除，见 §7 注释），probe 失败立即进 Failed（如文件损坏）；随后启动 ffmpeg 主命令，进度事件按 ~200ms 节流后 emit（NFR-009；节流门 = `commands::ProgressThrottle`，R3-4 收敛九处作业体样板）；**speed 与 ETA 随进度上报（R3-4 接通 FR-361）**：speed = `-progress` 的 `speed=`（随报随传，格式化两位小数），ETA = 调和估计 `已耗时长 × (1−p)/p`（p<5% 噪声过大不报、收尾 p=1.0 不报）
 - 剪切多片段 = 一个任务内串行执行 N 个 ffmpeg 子进程，进度按 (已完成片段 + 当前片段进度)/N 汇总
 
 ### 8.2 实现要点（manager.rs / worker.rs）

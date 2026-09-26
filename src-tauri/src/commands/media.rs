@@ -321,24 +321,15 @@ pub fn generate_proxy(
             // 磁盘空间预检（DESIGN §8.2）：代理写入缓存目录，按源大小保守估算
             super::require_disk_space(&job_cache_dir, super::file_size(&job_input))?;
             let total_sec = probe::probe_duration_sync(&ffprobe, &job_input).unwrap_or(0.0);
-            let last = std::cell::Cell::new(
-                std::time::Instant::now() - std::time::Duration::from_millis(250),
-            );
+            let throttle = super::ProgressThrottle::new();
             if let Err(e) = worker::run_ffmpeg(
                 ctx,
                 &ffmpeg,
                 &command::proxy_args(&job_input, &part.to_string_lossy()),
                 total_sec,
-                &|local, _| {
-                    if total_sec <= 0.0 {
-                        return;
-                    }
-                    let now = std::time::Instant::now();
-                    if now.duration_since(last.get()) >= std::time::Duration::from_millis(200)
-                        || local >= 1.0
-                    {
-                        last.set(now);
-                        ctx.set_progress(local);
+                &|local, speed| {
+                    if total_sec > 0.0 && throttle.update(local) {
+                        ctx.set_progress(local, speed);
                     }
                 },
             ) {
