@@ -5,7 +5,7 @@
 > **读时机**：新会话第一个读它；提问"这事定过没有 / 该改哪个文件 / 这个编号是什么"时先查这里。
 > **写规则**：新增或调整文档分工、新增 ID 命名空间、改动矩阵时改本文；规格类内容一律改对应专题文档，不写在这里。
 > **关联**：[../AGENTS.md](../AGENTS.md)（agent 作业规程） · 上位 [DESIGN.md](./DESIGN.md)（规格仲裁者） · 进度 [PLAN.md](./PLAN.md)
-> **最后更新**：2026-09-25（同步 `M11-5`~`M11-9`（切割/边缘修剪/撤销接线/菜单+快捷键/性能验收 ✅——帧预算真机半 ⏳；FR-17xx 行补 `FR-1736`~`FR-1739` 发号、`FR-1735` 修订与 `TC-041`~`TC-043`）；同日此前：同步 `M11-3`/`M11-4`（播放头路径 ✅、选择与波纹删除 ✅）、同步 `M11-1`/`M11-2`、登记第三轮审查（`T-005`/`T-006` 立项）、同步 `R2-1`~`R2-3` 与 `M11-0`/`R3-7`；此前 2026-09-23：同步 R4 段实施完毕 `R4-1`–`R4-9` 与回归 `TC-019`–`TC-029`）
+> **最后更新**：2026-09-28（**文档精简**：§5.1 附录 A（47 行完成态任务索引）迁出为 [archive/completed-task-index.md](./archive/completed-task-index.md)——INDEX 是会话开场必读，附录属查表类历史内容；§2 登记该文件；**同日登记 M15 保留式裁剪**——`CAND-020` 晋升为最高优先级：§1 加"改 M15 读什么"、§2 加 [plans/M15.md](./plans/M15.md)、§5 矩阵加 `FR-326` 行与 M15 批次行（`M15-1`~`M15-4` / `TC-047`）；同日登记 **M14 交互完善批次**（`FR-354` 行、M14 批次行、`TC-044`~`TC-046`、`BUG-014`/`BUG-015`）；顺带把 §5 的 R3 状态改为 ✅；此前 2026-09-25：同步 `M11-5`~`M11-9` 与 `FR-1735`~`FR-1739`、`TC-041`~`TC-043`；2026-09-23：同步 R4 段实施完毕与回归 `TC-019`–`TC-029`）
 
 ---
 
@@ -16,6 +16,8 @@
 | 新增/修改 FFmpeg 参数、排查时长/时间戳/画质 | [FFMPEG.md](./FFMPEG.md) | [DESIGN.md](./DESIGN.md) §5.3 |
 | 改工作台、时间线（M11–M13） | [TIMELINE.md](./TIMELINE.md) §17（行为） | [plans/M11.md](./plans/M11.md)（实施）、[UI.md](./UI.md) §9.8 |
 | 改页面布局/交互/主题 | [UI.md](./UI.md) | 决策 #16/#25（主题令牌与深浅主题） |
+| 改交互完善批次（M14：重置/换素材、默认命名、放大预览、池卡手柄） | [plans/M14.md](./plans/M14.md) | [UI.md](./UI.md) §9.2/§9.4/§9.5/§9.6/§9.8 |
+| 改保留式裁剪（M15：标记删除区间 → 补集导出，"删垃圾"流） | [plans/M15.md](./plans/M15.md) | [DESIGN.md](./DESIGN.md) §3.2（`FR-326`） · [UI.md](./UI.md) §9.4 |
 | 改任务系统、并发、取消、事件 | [DESIGN.md](./DESIGN.md) §8 | [FFMPEG.md](./FFMPEG.md) §6.4 |
 | 问"这事定过没有 / 为什么这么做" | [DECISIONS.md](./DECISIONS.md) | — |
 | 想知道"下一步做什么 / 做到哪了" | [PLAN.md](./PLAN.md) | [HANDOFF.md](./HANDOFF.md)（当前状态） |
@@ -36,6 +38,8 @@
 | [UI.md](./UI.md) | 页面流转与各页布局/交互规格 | 改前端页面与交互 |
 | [TIMELINE.md](./TIMELINE.md) | 时间线**行为规格**（§17） | 动 M11–M13 任何一项前 |
 | [plans/M11.md](./plans/M11.md) | M11 **实施级方案**（原 §18，迁出前编号） | M11 动工期间 |
+| [plans/M14.md](./plans/M14.md) | M14 **实施级方案**（交互完善批次：重置/换素材、默认命名、入出点按钮、放大双态预览、池卡手柄、连播缺陷） | M14 动工期间 |
+| [plans/M15.md](./plans/M15.md) | M15 **实施级方案**（保留式裁剪：派生链纯函数、剪切页删除模式、导出接线） | M15 动工期间 |
 | [DECISIONS.md](./DECISIONS.md) | 历史决策（ADR）与其理由、状态 | 动手前确认"定过没有" |
 | [CANDIDATES.md](./CANDIDATES.md) | 未排期候选池（CAND）与"不做"清单 | 提新需求、排下一批时 |
 | [PLAN.md](./PLAN.md) | 里程碑、任务、验收与**进度** | 接活/汇报进度 |
@@ -44,6 +48,7 @@
 | [BUGS.md](./BUGS.md) | **活跃缺陷**（BUG）的状态、违反规格、修复任务与回归 TC | 收到 bug 反馈、判断"缺陷还是需求变更" |
 | [HANDOFF.md](./HANDOFF.md) | 会话状态快照（现在在哪/下一步/近期坑） | 会话开场 |
 | [handoff-archive.md](./archive/handoff-archive.md) | 已交付批次的历史实施要点 | 追溯历史实现细节 |
+| [completed-task-index.md](./archive/completed-task-index.md) | M0–M9 + R1 完成态任务索引（任务 → FR/NFR → AC → 模块 → 测试；**历史快照，不再同步**） | 查老批次的验收归属 |
 | [incident-2026-09-19-lost-commits.md](./archive/incident-2026-09-19-lost-commits.md) | 2026-09-19 仓库损坏事故存证与原 24 条提交清单 | 追溯该日历史重建、核对旧提交时 |
 | [code-review-2026-09-19.md](./archive/code-review-2026-09-19.md) | 2026-09-19 四路并行复审全文（`BUG-001`–`BUG-005` / `ADR-033` / `R4` / `T-003` 的来源） | 追溯审查发现与整改依据 |
 | [code-review-2026-09-25-overengineering.md](./archive/code-review-2026-09-25-overengineering.md) | 2026-09-25 全仓过度工程审查全文（`T-005`/`T-006` 的来源；**含豁免清单——下次审查前先读，避免对已排期半成品重复立案**） | 追溯审查发现与整改依据 |
@@ -132,15 +137,17 @@
 
 > P0（M0–M9 已交付范围）已全部落行；M10/M11 的 FR 随对应里程碑**首个产生需求的批次**发号后补行（M11-0 是前置重构、不产生 FR，故 FR-17xx 随 M11-1 发号；发号范围见 §3.1）。
 > `—（工程批次）` 行表示该批次不产生新需求，验收靠回归测试（TC-005 = tsc/lint/cargo test）。
-> 矩阵只列每行的**代表任务**；其余已完成任务的逐条关联见 [附录 A](#51-附录-a完成态任务索引矩阵未逐条展开的已完成任务)。
+> 矩阵只列每行的**代表任务**；M0–M9 与 R1 其余已完成任务的逐条关联见 [archive/completed-task-index.md](./archive/completed-task-index.md)（**历史快照，不再同步**；新任务由矩阵的 FR 行承担）。
 
 | FR / NFR | 规格 | 模块 / 文件 | 任务 | 验收 / 测试 | 状态 |
 | --- | --- | --- | --- | --- | --- |
 | **FR-310** 导入与信息展示 | DESIGN.md §3.1 | `services/tauri.ts` · `VideoPlayer`/`Timeline` | M1-1（夹具）· M1-2 · M1-3 | AC-311-1 · AC-312-1 · AC-313-1 · TC-010 · TC-004 | ✅ |
 | **FR-320** 剪切 | DESIGN.md §3.2 · FFMPEG.md §6.3① | `ffmpeg/command.rs` · `ffmpeg/probe.rs` · `VideoPlayer`/`Timeline` | M1-4 · M1-5 · M1-6 · M8-2 ·（M11-5 待） | AC-321-1/2 · AC-322-1 · AC-323-1 · AC-324-1 · AC-325-1 · TC-001 · TC-002 · TC-010 | ✅ |
+| **FR-326** 保留式裁剪（删除模式） | DESIGN.md §3.2 · UI.md §9.4 · `ADR-037` | `commands/pipeline.rs`（零改动，复用）· `components/Timeline` · `pages`/`utils`/`types` | M15-1 … M15-4 | AC-326-1 · TC-047 | 🔥 ⏳ 最高优先级待实施（`CAND-020` 晋升） |
 | **FR-330** 合并 | DESIGN.md §3.3 · FFMPEG.md §6.3② | `ffmpeg/command.rs` · `commands/*.rs` | M2-1 … M2-6 | AC-331-1 · AC-332-1/2 · AC-333-1 · TC-001 · TC-011 | ✅ |
 | **FR-340** 旋转 | DESIGN.md §3.4 · FFMPEG.md §6.3③ | `ffmpeg/command.rs` · `commands/*.rs` | M3-1 · M3-2 | AC-341-1/2 · AC-342-1 · TC-012 | ✅ |
 | **FR-350** 局部放大 | DESIGN.md §3.5 | `ffmpeg/command.rs` · `commands/*.rs` · `ClipTimeline`/`CropOverlay` | M3-3 · M3-4 · M3-5 · R1-4 | AC-351-1 · AC-352-1 · AC-353-1 · TC-012 · TC-004 | ✅ |
+| **FR-354** 放大结果的预览（双态） | DESIGN.md §3.5 · `ADR-035` | `ClipTimeline`/`CropOverlay` · `ProductPreview`/`TaskProgress`/`hooks` · `pages`/`utils`/`types` | M14-5 | AC-354-1 · TC-045 · TC-046 | ⏳ 待实施（M14） |
 | **FR-360** 任务队列与面板 | DESIGN.md §3.6 / §8 | `task/manager.rs` · `task/worker.rs` · `ProductPreview`/`TaskProgress`/`hooks` | M0-5 · M1-5 · M4-2 · M4-7 · R3-2/R3-3/R3-4（2026-09-26） | AC-360-1 · AC-361-1 · AC-362-1 · TC-015 · TC-004 | ✅ |
 | **FR-370** 代理预览 | DESIGN.md §3.7 | `ffmpeg/probe.rs` · `commands/*.rs` | M1-8 · R1-3 | AC-371-1 · AC-372-1 · TC-018 | ✅ |
 | **FR-380** 工作台流水线 | DESIGN.md §3.8 | `commands/pipeline.rs` · `ClipTimeline`/`CropOverlay` · `ProductPreview`/`TaskProgress`/`hooks` | M5-1 … M5-7 · M6-1 … M6-8 · M9-1 … M9-5 | AC-380-1 · TC-003 · TC-013 | ✅（原子 FR-381+ 随 M11） |
@@ -151,66 +158,10 @@
 | **NFR-012** 配置与错误处理 | DESIGN.md §12 · §13 | `history.rs`/`logger.rs` | M4-1 · M4-7 · M4-8 | TC-014 · TC-004 | ✅ |
 | **FR-9xx** 保活 / 深浅主题（待发号） | UI.md §9.1 · §9.2 · 决策 #24/#25 | `pages`/`utils`/`types` | M10-1 · M10-2 | TC-014（AC 随 M10 发号） | ⏸ 暂缓（决策 #32） |
 | **FR-17xx** 单轨时间线（§17.3 坐标与精度随 `M11-1` 发号：`FR-1730`~`FR-1735`——`FR-1735` 随 `M11-6`/`BUG-012` 修订为 `max(1帧, 0.05s)`；§17.5 撤销栈随 `M11-7` 发号：`FR-1736`/`FR-1737`；§17.4 菜单与快捷键随 `M11-8` 发号：`FR-1738`/`FR-1739`，见 [TIMELINE.md](./TIMELINE.md) §17.3/§17.5/§17.4） | TIMELINE.md §17 | `ClipTimeline`/`CropOverlay` · `ProductPreview`/`TaskProgress`/`hooks` | M11-0 ✅ … M11-8 ✅ · M11-9 ✅（帧预算真机半 ⏳）· M12 · M13 | TIMELINE.md §17.9 ①~⑥ · **TC-040**（撤销基线，`M11-0`）· **TC-041**（BUG-012 回归 + 修剪几何，`M11-6`）· **TC-042**（blockAtTime + 菜单/快捷键，`M11-8`）· **TC-043**（撤销预算计量 + 帧预算真机半 ⏳，`M11-9`）· 其余 TC 待建 | 🔄 进行中（`M11-0`–`M11-9` 已实施，帧预算真机半 ⏳） |
-| —（工程批次，无 FR） | PLAN「评审修复批次」「技术任务」· M7 | 多模块 | R1-1 … R1-5 ✅ · **R2-1 … R2-5 ✅** · R3-1 … R3-7（`R3-7` ✅ 提前实施）· **R4-1 … R4-9 ✅**（缺陷修复，见 [BUGS.md](./BUGS.md)；其中 `R4-8`/`R4-9` 收真机首跑与同族复查缺陷）· T-001 … T-006（`T-005`/`T-006` 为 2026-09-25 第三轮过度工程审查立项） | TC-005 · TC-001 – TC-004（回归）· **TC-019 – TC-029**（R4 配套回归）· TC-039/TC-040 | R1 ✅ / R4 ✅（9 条已实施，手工/真机半待跑）/ R3 🔜 部分（`R3-7` 已实施）/ **R2 ✅** / T 待 |
+| —（工程批次，无 FR） | PLAN「评审修复批次」「技术任务」· M7 | 多模块 | R1-1 … R1-5 ✅ · **R2-1 … R2-5 ✅** · R3-1 … R3-7（`R3-7` ✅ 提前实施）· **R4-1 … R4-9 ✅**（缺陷修复，见 [BUGS.md](./BUGS.md)；其中 `R4-8`/`R4-9` 收真机首跑与同族复查缺陷）· T-001 … T-006（`T-005`/`T-006` 为 2026-09-25 第三轮过度工程审查立项） | TC-005 · TC-001 – TC-004（回归）· **TC-019 – TC-029**（R4 配套回归）· TC-039/TC-040 | R1 ✅ / R4 ✅（9 条已实施，手工/真机半待跑）/ R3 ✅（`R3-1`–`R3-7` 全部完成，2026-09-26）/ **R2 ✅** / T 待 |
+| —（M14 交互完善批次；`FR-354` 另见上行） | PLAN「M14」· UI.md §9.2/§9.4/§9.5/§9.6/§9.8 · [BUGS.md](./BUGS.md)（`BUG-014`/`BUG-015`）· `ADR-035`/`ADR-036` | `pages`/`utils`/`types` · `ProductPreview`/`TaskProgress`/`hooks` · `ClipTimeline`/`CropOverlay` | M14-1 … M14-6 | AC-380-1 · **TC-044 · TC-045 · TC-046** | ⏳ 待实施（2026-09-28 立项，方案见 [plans/M14.md](./plans/M14.md)；内部顺序已被 `ADR-037` 改判） |
+| —（M15 保留式裁剪；`FR-326` 另见上行） | PLAN「M15」· [CANDIDATES.md](./CANDIDATES.md)（`CAND-020` 晋升）· `ADR-037` | `commands/pipeline.rs`（零改动，复用）· `components/Timeline` · `pages`/`utils`/`types` | M15-1 … M15-4 | AC-326-1 · **TC-047** | 🔥 ⏳ **最高优先级**待实施（2026-09-28 立项，方案见 [plans/M15.md](./plans/M15.md)） |
 
-
-### 5.1 附录 A：完成态任务索引（矩阵未逐条展开的已完成任务）
-
-> 用途：矩阵按 **FR 行**组织，只列每行的代表任务；本表按 **任务** 组织，补齐其余已完成任务的四段关联。
-> 范围：M0–M9 与 R1 中未出现在上方矩阵「任务」列的 **47 条**已完成任务。纯工程/体验批次标 `—（工程批次）`，靠回归测试保障。
-> 与本表的同步：新任务完成时**不进本表**（由上方矩阵的 FR 行承担）；本表只作为历史补齐的固定快照。
-
-| 任务 | 关联 FR / NFR | AC | 模块 / 文件 | 测试 |
-| --- | --- | --- | --- | --- |
-| M0-1 | —（基建） | — | `ProductPreview`/`TaskProgress`/`hooks` · `pages`/`utils`/`types` | TC-005 |
-| M0-2 | NFR-011 | — | 构建脚本（fetch-ffmpeg） | TC-016 |
-| M0-3 | NFR-011 | — | `history.rs`/`logger.rs` | TC-016 |
-| M0-6 | FR-9xx（待发号，UI.md §9.1） | 待发号 | `pages`/`utils`/`types` | TC-014 |
-| M0-7 | —（基建） | — | `services/tauri.ts` | TC-005 |
-| M0-8 | FR-360 · NFR-006 | AC-360-1 | `task/manager.rs` · `task/worker.rs` | TC-004 |
-| M1-7 | FR-320 | AC-321-1 | `VideoPlayer`/`Timeline` | TC-010 |
-| M1-9 | FR-324 · FR-325 | AC-324-1 · AC-325-1 | `VideoPlayer`/`Timeline` | TC-010 |
-| M1-10 | FR-320 | AC-321-1 | `VideoPlayer`/`Timeline` · `pages`/`utils`/`types` | TC-010 |
-| M1-11 | FR-360 | AC-360-1 | `ProductPreview`/`TaskProgress`/`hooks` | TC-015 |
-| M2-2 | FR-331 | AC-331-1 | `pages`/`utils`/`types` | TC-011 |
-| M2-3 | FR-332 | AC-332-1 · AC-332-2 | `ffmpeg/command.rs` | TC-001 |
-| M2-4 | FR-331 | AC-331-1 | `ProductPreview`/`TaskProgress`/`hooks` | TC-011 |
-| M2-5 | FR-333 | AC-333-1 | `ffmpeg/command.rs` | TC-001 |
-| M3-6 | FR-351 | AC-351-1 | `ClipTimeline`/`CropOverlay` | TC-012 |
-| M3-7 | FR-351 | AC-351-1 | `ffmpeg/command.rs` · `commands/*.rs` | TC-004 |
-| M3-8 | FR-322 | AC-322-1 | `ffmpeg/command.rs` | TC-002 |
-| M3-9 | NFR-010 | — | `ffmpeg/command.rs` · `ffmpeg/probe.rs` | TC-001 |
-| M4-3 | FR-320 | AC-321-1 | `ProductPreview`/`TaskProgress`/`hooks` | TC-017 |
-| M4-4 | —（已取消立项 → M6-8，决策 #20） | — | — | — |
-| M4-6 | —（工程·文档） | — | — | TC-005 |
-| M5-2 | FR-380 | AC-380-1 | `task/manager.rs` · `commands/pipeline.rs` | TC-003 |
-| M5-3 | FR-380 | AC-380-1 | `ClipTimeline`/`CropOverlay` | TC-013 |
-| M5-4 | FR-380 | AC-380-1 | `pages`/`utils`/`types` | TC-013 |
-| M5-5 | FR-380 | AC-380-1 | `tests/e2e.rs` | TC-003 |
-| M6-0 | FR-380 | AC-380-1 | `pages`/`utils`/`types` | TC-013 |
-| M6-2 | FR-380 | AC-380-1 | `ClipTimeline`/`CropOverlay` | TC-013 |
-| M6-3 | FR-380 | AC-380-1 | `ClipTimeline`/`CropOverlay` | TC-013 |
-| M6-4 | FR-380 | AC-380-1 | `ProductPreview`/`TaskProgress`/`hooks` | TC-013 |
-| M6-5 | FR-380 | AC-380-1 | `commands/pipeline.rs` | TC-003 |
-| M6-6 | FR-380 | AC-380-1 | `ProductPreview`/`TaskProgress`/`hooks` | TC-013 |
-| M6-7 | FR-380 | AC-380-1 | `tests/e2e.rs` | TC-013 |
-| M7-1 | —（体验修复） | — | `services/tauri.ts` | TC-010 |
-| M7-2 | —（体验修复） | — | `VideoPlayer`/`Timeline` · `ClipTimeline`/`CropOverlay` | TC-012 |
-| M7-3 | —（体验修复） | — | `ProductPreview`/`TaskProgress`/`hooks` | TC-011 |
-| M7-4 | FR-323 | AC-323-1 | `commands/*.rs` | TC-010 |
-| M7-5 | FR-360 | AC-360-1 | `ProductPreview`/`TaskProgress`/`hooks` | TC-015 |
-| M7-6 | —（体验修复，UI.md §9.4） | — | `VideoPlayer`/`Timeline` | TC-010 |
-| M7-7 | FR-311 | AC-311-1 | `commands/*.rs` · `services/tauri.ts` | TC-010 |
-| M7-8 | NFR-011 | — | NSIS 脚本 | TC-016 |
-| M7-9 | NFR-011 | — | `scripts/`（icon.svg + render-icon.mjs） | TC-016 |
-| M8-1 | FR-313 | AC-313-1 | `ffmpeg/probe.rs` | TC-004 |
-| M8-3 | NFR-006 | — | `tests/e2e.rs` | TC-001 |
-| M9-2 | FR-380 | AC-380-1 | `ClipTimeline`/`CropOverlay` | TC-013 |
-| M9-3 | FR-380（M11-1 承接升级） | AC-380-1 | `ClipTimeline`/`CropOverlay` | TC-013 |
-| M9-4 | FR-380（M11-6 承接升级） | AC-380-1 | `ClipTimeline`/`CropOverlay` | TC-013 |
-| R1-2 | —（工程修复） | — | `services/tauri.ts` | TC-005 |
-
-> 合计 47 条。
 
 ## 6. 命名空间细则
 
