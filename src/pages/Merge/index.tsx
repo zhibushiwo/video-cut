@@ -2,6 +2,7 @@ import { ArrowLeft, Film, GripVertical, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   checkMerge,
+  confirmDialog,
   fileExists,
   fileSrc,
   generateThumbnails,
@@ -14,6 +15,9 @@ import { moveAt } from "../../utils/array";
 import { audioSummary, videoSummary } from "../../utils/media";
 import { basename, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
 import { formatBytes } from "../../utils/time";
+
+/** 默认输出文件名（`M14-3` 会把它换成"按首个素材派生 + `ADR-033` 扩展名预判"） */
+const DEFAULT_OUTPUT_NAME = "merged.mp4";
 
 export default function MergePage({
   settings,
@@ -28,7 +32,7 @@ export default function MergePage({
   const [check, setCheck] = useState<MergeComparison | null>(null);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
-  const [outputName, setOutputName] = useState("merged.mp4");
+  const [outputName, setOutputName] = useState(DEFAULT_OUTPUT_NAME);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmNormalize, setConfirmNormalize] = useState(false);
@@ -118,6 +122,26 @@ export default function MergePage({
   const removeAt = (index: number) =>
     setFiles((prev) => prev.filter((_, i) => i !== index));
 
+  /**
+   * 清空列表（`M14-2`，UI.md §9.5）：有文件时二次确认；文件名回默认、缩略图与检测结果一并清，
+   * 落点 = 合并页空态（不跳页）。
+   */
+  const clearList = useCallback(async () => {
+    if (files.length > 0) {
+      const ok = await confirmDialog(
+        `清空列表将移除全部 ${files.length} 个文件，输出文件名回到默认。`,
+        "清空列表",
+      );
+      if (!ok) return;
+    }
+    setFiles([]);
+    setThumbs({});
+    setCheck(null);
+    setCheckError(null);
+    setConfirmNormalize(false);
+    setOutputName(DEFAULT_OUTPUT_NAME);
+  }, [files.length]);
+
   const reorder = (from: number, to: number) => {
     if (from === to) return;
     setFiles((prev) => moveAt(prev, from, to));
@@ -174,7 +198,17 @@ export default function MergePage({
         </button>
         <h1 className="text-sm font-semibold tracking-tight">合并</h1>
         {files.length > 0 && (
-          <span className="ml-auto text-xs text-mute">{files.length} 个视频</span>
+          <>
+            <span className="ml-auto text-xs text-mute">{files.length} 个视频</span>
+            {/* 清空列表（M14-2）：破坏性操作，有文件时二次确认 */}
+            <button
+              type="button"
+              onClick={() => void clearList()}
+              className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-warn hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+            >
+              清空列表
+            </button>
+          </>
         )}
       </header>
 

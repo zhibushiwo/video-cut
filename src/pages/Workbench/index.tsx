@@ -79,6 +79,9 @@ import {
 } from "./shared";
 import { SourceCards } from "./SourceCards";
 
+/** 默认输出文件名（`M14-3` 会把它换成"按首个素材派生 + `ADR-033` 扩展名预判"） */
+const DEFAULT_OUTPUT_NAME = "workbench.mp4";
+
 export default function WorkbenchPage({
   settings,
   env,
@@ -106,7 +109,7 @@ export default function WorkbenchPage({
   const [mode, setMode] = useState<PreviewMode>({ type: "product" });
   const [check, setCheck] = useState<PipelineCheck | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
-  const [outputName, setOutputName] = useState("workbench.mp4");
+  const [outputName, setOutputName] = useState(DEFAULT_OUTPUT_NAME);
   const [quality, setQuality] = useState<QualityPreset>(settings.quality);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -402,6 +405,35 @@ export default function WorkbenchPage({
     },
     [clips, applyRaw, clearUndoStack],
   );
+
+  /**
+   * 清空工程（`M14-2`，UI.md §9.8）：**始终二次确认**（破坏面最大）。
+   *
+   * 必须同时 `clearUndoStack()`——撤销栈快照里带着片段 id，清空后若还能 Ctrl+Z 就会"复活"已删内容
+   * （plans/M11.md §18.9 / `FR-1737` 的硬约束）。落点 = 空工程态（不跳页）。
+   */
+  const clearProject = useCallback(async () => {
+    const ok = await confirmDialog(
+      "清空工程将移除全部素材、片段与时间轴，并清空撤销历史（不可撤销）。",
+      "清空工程",
+    );
+    if (!ok) return;
+    setFiles([]);
+    applyRaw(() => ({ clips: [], timeline: [] }));
+    clearUndoStack();
+    setThumbs({});
+    setMode({ type: "product" });
+    setCheck(null);
+    setCheckError(null);
+    setSelectedClipId(null);
+    setSelectedSources(new Set());
+    setOutputName(DEFAULT_OUTPUT_NAME);
+    setPlayhead(0);
+    setPlaying(false);
+    setPlaybackRate(1);
+    setExtDrag(null);
+    setMenu(null);
+  }, [applyRaw, clearUndoStack]);
 
   // 片段起点帧缩略图（M6-8）：对有入点的片段取其入点帧，全段片段取 0s
   useEffect(() => {
@@ -1246,6 +1278,8 @@ export default function WorkbenchPage({
         exportDisabled={exportDisabled}
         exportTitle={timelineClips.length === 0 ? "请先剪出片段并加入时间轴" : undefined}
         onExport={() => void startExport()}
+        onClearProject={() => void clearProject()}
+        clearDisabled={files.length === 0 && clips.length === 0}
       />
 
       {menu && (

@@ -14,6 +14,8 @@ export function WorkbenchFooter({
   exportDisabled,
   exportTitle,
   onExport,
+  onClearProject,
+  clearDisabled,
 }: {
   checkSummary: string | null;
   outputDir: string;
@@ -26,10 +28,23 @@ export function WorkbenchFooter({
   exportDisabled: boolean;
   exportTitle?: string;
   onExport(): void;
+  /** 清空工程（M14-2）：破坏性操作，调用方负责**始终**二次确认 */
+  onClearProject(): void;
+  /** 空工程时置灰（没有可清的东西，避免弹一个无意义的确认框） */
+  clearDisabled?: boolean;
 }) {
   return (
     <footer className="shrink-0 border-t border-hairline px-4 py-3">
       <div className="flex items-center gap-3">
+        {/* 页脚左侧（UI.md §9.8）：清空工程 = 清素材 + 片段 + 时间轴 + 撤销栈 */}
+        <button
+          type="button"
+          onClick={onClearProject}
+          disabled={clearDisabled}
+          className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-warn hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          清空工程
+        </button>
         {checkSummary && (
           <span
             className={`shrink-0 text-xs ${

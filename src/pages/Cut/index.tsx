@@ -9,6 +9,7 @@ import { useHotkeys } from "../../hooks/useHotkeys";
 import { useProxyPreview } from "../../hooks/useProxyPreview";
 import {
   checkPipeline,
+  confirmDialog,
   fileExists,
   fileSrc,
   listKeyframes,
@@ -142,6 +143,34 @@ export default function CutPage({
     const path = await pickVideo();
     if (path) void loadFile(path);
   }, [loadFile]);
+
+  /** 未导出的操作产物（决定「重置」是否二次确认）：提取式片段或删除式标记任一存在 */
+  const hasWork = segments.length > 0 || marks.length > 0;
+
+  /**
+   * 重置（`M14-2`，UI.md §9.2）：**卸载当前文件、回到本页空态**（可再点「打开视频文件」），
+   * 并清掉全部 per-file 状态。有未导出产物时先二次确认（`confirmDialog` 与删除素材同实现）。
+   */
+  const resetAll = useCallback(async () => {
+    if (hasWork) {
+      const ok = await confirmDialog(
+        "重置将关闭当前视频，并清空已添加的片段与删除标记。",
+        "重置",
+      );
+      if (!ok) return;
+    }
+    playerRef.current?.pause();
+    setInputPath(null);
+    setInfo(null);
+    setKeyframes([]);
+    setSegments([]);
+    setMarks([]);
+    setSelection({ start: 0, end: 0 });
+    setCurrentTime(0);
+    setDuration(0);
+    setProbeError(null);
+    setError(null);
+  }, [hasWork]);
 
   const changeDir = useCallback(async () => {
     const dir = await pickDirectory();
@@ -429,6 +458,21 @@ export default function CutPage({
         <span className="min-w-0 flex-1 truncate text-right text-xs text-mute" title={inputPath}>
           {basename(inputPath)}
         </span>
+        {/* 换素材 / 重置（M14-2）：两个动作分开——一个选文件、一个是破坏性操作 */}
+        <button
+          type="button"
+          onClick={() => void openFile()}
+          className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+        >
+          打开其他视频
+        </button>
+        <button
+          type="button"
+          onClick={() => void resetAll()}
+          className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-warn hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+        >
+          重置
+        </button>
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">

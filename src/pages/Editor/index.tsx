@@ -5,6 +5,7 @@ import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlaye
 import { NO_ROTATE, RotateControls, type RotateState } from "../../components/RotateControls";
 import { useProxyPreview } from "../../hooks/useProxyPreview";
 import {
+  confirmDialog,
   fileExists,
   fileSrc,
   pickVideo,
@@ -80,6 +81,31 @@ export default function EditorPage({
     const path = await pickVideo();
     if (path) void loadFile(path);
   }, [loadFile]);
+
+  /** 未导出的操作产物（决定「重置」是否二次确认）：非恒等旋转 或 已框选区域 */
+  const hasWork =
+    tool === "rotate" ? rot.deg !== 0 || rot.hflip || rot.vflip : rect !== null;
+
+  /**
+   * 重置（`M14-2`，UI.md §9.2）：**卸载当前文件、回到本页空态**（可再点「打开视频文件」），
+   * 并把旋转 / 选区 / 质量档位复位——否则下一个文件会继承上一个的加工态。
+   */
+  const resetAll = useCallback(async () => {
+    if (hasWork) {
+      const what = tool === "rotate" ? "已做的旋转" : "已框选的区域";
+      const ok = await confirmDialog(`重置将关闭当前视频，并清空${what}。`, "重置");
+      if (!ok) return;
+    }
+    playerRef.current?.pause();
+    setInputPath(null);
+    setInfo(null);
+    setProbeError(null);
+    setError(null);
+    setRot(NO_ROTATE);
+    setRect(null);
+    setRotateTranscode(false);
+    setQuality(settings.quality);
+  }, [hasWork, tool, settings.quality]);
 
   // 拖拽导入：每次新的拖入都加载第一个文件（App 层原地分发，页面不跳转）
   const consumedInitialRef = useRef<string[] | null>(null);
@@ -191,7 +217,13 @@ export default function EditorPage({
 
   return (
     <div className="flex h-full flex-col">
-      <EditorHeader tool={tool} onBack={onBack} filePath={inputPath} />
+      <EditorHeader
+        tool={tool}
+        onBack={onBack}
+        filePath={inputPath}
+        onOpenOther={() => void openFile()}
+        onReset={() => void resetAll()}
+      />
       <div className="flex min-h-0 flex-1 flex-col items-center gap-4 overflow-y-auto p-4">
         {probeError ? (
           <p className="text-xs text-warn">{probeError}</p>
@@ -327,10 +359,16 @@ function EditorHeader({
   tool,
   onBack,
   filePath,
+  onOpenOther,
+  onReset,
 }: {
   tool: EditorTool;
   onBack: () => void;
   filePath?: string;
+  /** 换素材（M14-2）：与空态那个入口同一处理函数 */
+  onOpenOther?: () => void;
+  /** 重置（M14-2）：卸载文件回空态；确认规则见 UI.md §9.2 */
+  onReset?: () => void;
 }) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-hairline px-4">
@@ -346,9 +384,29 @@ function EditorHeader({
         {tool === "rotate" ? "旋转" : "局部放大"}
       </h1>
       {filePath && (
-        <span className="ml-auto min-w-0 truncate text-xs text-mute" title={filePath}>
-          {basename(filePath)}
-        </span>
+        <>
+          <span className="ml-auto min-w-0 truncate text-xs text-mute" title={filePath}>
+            {basename(filePath)}
+          </span>
+          {onOpenOther && (
+            <button
+              type="button"
+              onClick={onOpenOther}
+              className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+            >
+              打开其他视频
+            </button>
+          )}
+          {onReset && (
+            <button
+              type="button"
+              onClick={onReset}
+              className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-warn hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+            >
+              重置
+            </button>
+          )}
+        </>
       )}
     </header>
   );
