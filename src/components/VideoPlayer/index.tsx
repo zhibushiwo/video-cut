@@ -134,15 +134,28 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         if (v.paused || v.ended) stop();
         else start();
       };
+      /**
+       * 媒体**重新加载**（`src` 被换掉：代理就绪切源、换素材、重新 `load()`）会把 `paused`
+       * 置回 true，但**按规范不触发 `pause` 事件**——只靠 `onPause` 回写播放态的话，UI 会
+       * 一直以为还在播：按钮卡在「暂停」、且播放态为 true 会让上层"再按=暂停"彻底锁死
+       * （`BUG-018`：真机实测 代理任务完成切源后按钮永久停在「暂停」、画面不动）。
+       * 此处只同步播放态；位置不在这里上报——换源后上层通常会在 `loadedmetadata` 重新定位。
+       */
+      const onLoad = () => {
+        stop();
+        onPlayStateRef.current?.(false);
+      };
       v.addEventListener("play", onPlay);
       v.addEventListener("pause", onPause);
       v.addEventListener("seeked", onStop);
+      v.addEventListener("loadstart", onLoad);
       return () => {
         ticking = false;
         cancelAnimationFrame(rafRef.current);
         v.removeEventListener("play", onPlay);
         v.removeEventListener("pause", onPause);
         v.removeEventListener("seeked", onStop);
+        v.removeEventListener("loadstart", onLoad);
       };
     }, []);
 

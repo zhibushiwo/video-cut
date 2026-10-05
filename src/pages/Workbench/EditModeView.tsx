@@ -65,8 +65,7 @@ export function EditModeView({
       // 等 seek 落地：位置回到入点附近才起播；期间不参与越界判定
       if (Math.abs(t - (seg ? seg.start : 0)) <= 0.3) {
         pendingPlayRef.current = false;
-        playerRef.current?.play();
-        setPlaying(true);
+        playerRef.current?.play(); // 播放态由 play 事件回写（见 togglePlay 注释）
       }
       return;
     }
@@ -81,24 +80,28 @@ export function EditModeView({
     }
   };
 
+  /**
+   * 播放态**只由 `<video>` 的事件回写**（`VideoPlayer` 的 `onPlayStateChange`，见其
+   * `play`/`pause`/`loadstart` 三处监听）——不再在这里乐观地 `setPlaying(true/false)`。
+   * 乐观写会让按钮"抢跑"：`play()` 万一没真起来（被中断、换源重载），按钮已经翻成「暂停」，
+   * 用户看到的就是"按钮说在播、画面一动不动"（`BUG-018`）。
+   */
   const togglePlay = () => {
     if (playing) {
       playerRef.current?.pause();
-      setPlaying(false);
-    } else {
-      // 区间内预览：起播点在区间外（含播完暂停在出点）时先回到入点。
-      // 这一步**不能** seek 完立刻 play（见 pendingPlayRef 注释）：交给 handleTime 在
-      // seek 落地后起播。若 seek 迟迟不落地，标志会保持、playing 仍为 false，
-      // 用户再点一次走下面的直通分支即可自愈（不会卡死）。
-      if (seg && (current < seg.start - 0.02 || current >= seg.end - 0.02)) {
-        pendingPlayRef.current = true;
-        playerRef.current?.seek(seg.start);
-        setCurrent(seg.start);
-        return;
-      }
-      playerRef.current?.play();
-      setPlaying(true);
+      return;
     }
+    // 区间内预览：起播点在区间外（含播完暂停在出点）时先回到入点。
+    // 这一步**不能** seek 完立刻 play（见 pendingPlayRef 注释）：交给 handleTime 在
+    // seek 落地后起播。若 seek 迟迟不落地，标志会保持、playing 仍为 false，
+    // 用户再点一次走下面的直通分支即可自愈（不会卡死）。
+    if (seg && (current < seg.start - 0.02 || current >= seg.end - 0.02)) {
+      pendingPlayRef.current = true;
+      playerRef.current?.seek(seg.start);
+      setCurrent(seg.start);
+      return;
+    }
+    playerRef.current?.play();
   };
 
   // 快捷键（M4-3，片段加工）：走带共用块见 usePlaybackHotkeys（无页面专属键）
