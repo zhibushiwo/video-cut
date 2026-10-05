@@ -16,7 +16,7 @@
 | 类型检查 | `node_modules/.bin/tsc --noEmit`（或 `pnpm build`） | 前端类型与未使用变量（`noUnusedLocals`/`noUnusedParameters`） |
 | 静态检查 | `pnpm lint`（`eslint .`） | react-hooks 依赖、`@tauri-apps/*` 只允许 `services/` 内导入 |
 | 前端单测 | `pnpm test`（`vitest run`） | 命令层与工具层的**纯函数**单测（用例在 `src/**/*.test.ts`：`undo/commands`（TC-040/041） · `utils/`（`array` · `paths` · `time` · `perf` · `crop` TC-022/028 矩阵 · `media` TC-024 矩阵 · **`removal` TC-047 派生链**） · `components/ClipTimeline/geometry`）；受限环境用 `node node_modules/vitest/vitest.mjs run`；配置在 `vitest.config.ts`（node 环境，不含 DOM） |
-| 后端全量 | `cd src-tauri && cargo test` | **90 个单测 + 5 条 e2e**（Windows 计数：含 2 条 `#[cfg(windows)]` 同一性用例）；需要 sidecar 的用例（e2e 与 `commands::media` 的缩略图回归）在 sidecar 缺失时打印 skip 并通过 |
+| 后端全量 | `cd src-tauri && cargo test` | **90 个单测 + 6 条 e2e**（Windows 计数：含 2 条 `#[cfg(windows)]` 同一性用例）；需要 sidecar 的用例（e2e 与 `commands::media` 的缩略图回归）在 sidecar 缺失时打印 skip 并通过 |
 | 真实素材冒烟（可选，默认不跑） | `cd src-tauri && cargo test --test real_media_smoke -- --ignored --nocapture --test-threads=1` | `tests/real_media_smoke.rs` 8 条用例全部 `#[ignore]`（默认只编译）；按 `command.rs` 真实参数构建器打真实素材，约 3.5 分钟，缺 `video/` 素材自动跳过 |
 | 端到端应用 | `pnpm tauri dev` | 手测与 UI 验收 |
 | 真机 GUI 自动化 | 见 [gui-e2e/README.md](./gui-e2e/README.md) §2（沙箱关闭 + CDP 调试端口 + 驱动脚本） | 关键功能的端到端回归，断言"界面显示值 == 产物实测值"；用例见 §3.5 |
@@ -69,7 +69,7 @@
 | TC-017 | 快捷键 | 剪切页与工作台各模式：空格、←/→、Shift+←/→、I/O | AC 待发号（UI.md §9.4） |
 | TC-018 | 代理预览 | 不支持格式（AVI / 无 HEVC 扩展）自动走代理 + 提示条；关闭代理时仅提示不阻塞。**`BUG-006` 的回归**：素材取"容器不可播而编码可播"的组合（H.264 + yuv420p + AAC 装进 `.avi` / `.flv` / `.ts` / `.wmv`）——修复前这类素材不生成代理、预览黑屏 | AC-371-1 · AC-372-1 |
 | TC-046 | M14 交互完善批次（`M14-2`/`M14-3`/`M14-4`/`M14-5`/`M14-6`） | ① **重置/换素材**：剪切页做几段 → 「重置」二次确认 → 清空且**停在本页空态**（不跳页）、可再点「打开视频文件」；「打开其他视频」后旧的探测结果/关键帧/片段全部清掉；编辑页重置 → 旋转回恒等 + 选区清空 + 质量档位回设置值；合并页「清空列表」二次确认；工作台「清空工程」后 **Ctrl+Z 不复活已删片段**。② **默认命名**：合并页加两个素材 → 默认名 = `<首个文件名>_merged.<扩展名>`（一致组且源为 mkv 时为 `.mkv`，不一致组为 `.mp4`）；手动改过之后增删/排序**不再被覆盖**；同目录已有同名文件时不静默覆盖、自动加时间戳。③ **入点=当前帧**：剪切页「开始=当前帧」「结束=当前帧」与 `I`/`O` 键结果一致、越界被钳制到 0.1s 间隔内。④ **放大双态预览**：放大页与加工视图切到「预览态」→ 画面为裁切放大构图（与导出首帧同构图）、选区只读；切回「编辑态」选区保留且可拖；成品预览里带放大的片段**直接显示裁切画面**。⑤ **片段池**：卡片右下图标为"拖入时间轴"语义、能拖入轴；池内**拖不动排序**（预期行为，顺序只在时间轴） | AC-354-1 · 其余 AC 待发号（UI.md §9.2 · §9.4 · §9.5 · §9.6 · §9.8） |
-| TC-047 | M15 保留式裁剪（`M15-1`~`M15-4`） | **自动半（Vitest，`utils/removal.test.ts`）**：归一化删除区间（重叠 / 相邻 / 越界 / 负长度）、补集（删头 / 删尾 / 中间）、碎片吸收（< 0.05s 的保留段并回删除区间）、`nextKeyframeAtOrAfter`（命中 / 越界 / 空表）、**不动点迭代**（关键帧稀疏 + 两段删除夹一个极短保留段 → 结果不含低于下限的段）、三态门禁（`no-marks` / `no-keyframes` / `nothing-left`）、延伸量（标记终点恰在关键帧 ⇒ 延伸 0）。**手工半**：60s 夹具标记 1~3 段 → 列表显示"实际删除范围 + 延伸量" → 导出 → `ffprobe` 核对**成品时长 == Σ 保留段**、`-c copy` 无重编码、**删除区间零残留**（抽帧比对标记边界两侧）、成品结尾未被啃短；未标记 / 关键帧未就绪 / 全删光三态均禁用导出并给出原因 | AC-326-1（FR-326） |
+| TC-047 | M15 保留式裁剪（`M15-1`~`M15-4`） | **自动半（Vitest，`utils/removal.test.ts`）**：归一化删除区间（重叠 / 相邻 / 越界 / 负长度）、补集（删头 / 删尾 / 中间）、碎片吸收（< 0.05s 的保留段并回删除区间）、`nextKeyframeAtOrAfter`（命中 / 越界 / 空表）、**不动点迭代**（关键帧稀疏 + 两段删除夹一个极短保留段 → 结果不含低于下限的段）、三态门禁（`no-marks` / `no-keyframes` / `nothing-left`）、延伸量（标记终点恰在关键帧 ⇒ 延伸 0）、`actualRemovalOf`（并段后逐行映射）。**自动半（产物侧，cargo e2e `removal_keeps_copy_chain`）**：模拟派生结果（单源、多段、无变换、全 copy）下发的 item 形态 → 成品时长 == Σ 保留段、全帧可解码、**每段首帧与源对应时刻的帧逐字节一致**（删除区间零残留）。**手工半**：60s 夹具标记 1~3 段 → 列表显示"实际删除范围 + 延伸量" → 导出 → `ffprobe` 核对**成品时长 == Σ 保留段**、`-c copy` 无重编码、**删除区间零残留**（抽帧比对标记边界两侧）、成品结尾未被啃短；未标记 / 关键帧未就绪 / 全删光三态均禁用导出并给出原因 | AC-326-1（FR-326） |
 
 ### 3.3 真机 GUI 自动化的操作经验（复用；详细运行手册见 [gui-e2e/README.md](./gui-e2e/README.md) §2）
 
