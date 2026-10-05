@@ -1,8 +1,10 @@
 /**
- * ③ 片段池：池序 = 创建序（决策 #13，顺序只在时间轴上表达）。
- * 卡片点击=加工 · 「+」=加入轴末尾 · 拖手柄=入轴。R2-1 自 index.tsx 的池区块拆出。
+ * ③ 片段池：池序 = 创建序（**不提供池内排序**——顺序语义只在时间轴上表达，决策 #13；M14-6 复核维持）。
+ * 卡片点击=加工 · 「+」=加入轴末尾 · **拖右下角手柄 = 拖入时间轴**。
+ * 该手柄的图标与提示文案只表示"拖入时间轴"，**不得长得像排序手柄**——"池不排序"已被误报为缺陷一次（M14-6）。
+ * R2-1 自 index.tsx 的池区块拆出。
  */
-import { Film, GripVertical, Plus, X } from "lucide-react";
+import { ArrowRight, Film, Plus, X } from "lucide-react";
 import { fileSrc } from "../../services/tauri";
 import type { Clip, PipelineItemCheck } from "../../types";
 import { basename } from "../../utils/paths";
@@ -45,7 +47,7 @@ export function ClipPool({
         <span className="text-[11px] text-mute/60">
           {clips.length === 0
             ? "点素材卡剪出片段；顺序只在时间轴上表达"
-            : "点击卡片加工 · + 加入时间轴 · 拖手柄入轴"}
+            : "池内不排序（顺序只在时间轴上表达）；拖卡片到时间轴即可加入"}
         </span>
       </div>
       <div className="flex gap-2.5 overflow-x-auto pb-1">
@@ -145,7 +147,7 @@ export function ClipPool({
                   className="absolute bottom-1 right-1 cursor-grab touch-none rounded p-0.5 text-mute/60 hover:text-paper"
                   title="拖入时间轴"
                 >
-                  <GripVertical className="h-3.5 w-3.5" />
+                  <ArrowRight className="h-3.5 w-3.5" />
                 </span>
               </div>
             );
