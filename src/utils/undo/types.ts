@@ -25,13 +25,6 @@ export interface EditorDoc {
 /** 命令冻结的切片 = 文档状态（`EditorDoc` 将来若加旁路字段，命令层仍只切这部分） */
 export type DocSlices = Pick<EditorDoc, "clips" | "timeline">;
 
-/** 序列化形态（会话恢复 v1 不做，但 round-trip 一致性由单测锁住） */
-export interface CommandJSON {
-  label: string;
-  before: DocSlices;
-  after: DocSlices;
-}
-
 export interface TimelineCommand {
   /** 人可读标签（右键菜单「撤销：切割」用） */
   readonly label: string;
@@ -39,7 +32,6 @@ export interface TimelineCommand {
   readonly after: DocSlices;
   apply(doc: EditorDoc): EditorDoc;
   invert(doc: EditorDoc): EditorDoc;
-  toJSON(): CommandJSON;
 }
 
 /** 构建期上下文：builder 需要的外部事实（钳制用的源参数、id 分配） */

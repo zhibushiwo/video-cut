@@ -1,5 +1,6 @@
 /** 批量操作条（M6-8 = 原 M4-4）：全选 / 清除 / 各建全段片段 / 批量旋转。R2-1 自 index.tsx 拆出。 */
-import { RotateControls, type RotateState } from "../../components/RotateControls";
+import { RotateControls } from "../../components/RotateControls";
+import type { RotateState } from "../../types";
 import { fieldBtn } from "./shared";
 
 export function BatchBar({

@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { useTauriEvent } from "../../hooks/useTauriEvent";
 import { appendFrontendLog, fileSrc, generateProxy, onTaskStatus } from "../../services/tauri";
 import { beginFrameSampling, formatPerfLine, type PerfScene, type PerfSummary } from "../../utils/perf";
-import type { RotateState } from "../RotateControls";
+import type { RotateState } from "../../types";
 import { cropPreviewTransform } from "../../utils/crop";
 import { formatTime } from "../../utils/time";
 

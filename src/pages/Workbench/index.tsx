@@ -14,7 +14,7 @@ import ClipTimeline, { type TimelineClip } from "../../components/ClipTimeline";
 import { blockAtTime, PPS_MIN } from "../../components/ClipTimeline/geometry";
 import { ContextMenu, type MenuItem } from "../../components/ContextMenu";
 import ProductPreview, { type ProductEntry } from "../../components/ProductPreview";
-import { NO_ROTATE, type RotateState } from "../../components/RotateControls";
+import { NO_ROTATE } from "../../components/RotateControls";
 import { PLAYBACK_RATES } from "../../components/VideoPlayer";
 import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useHotkeys } from "../../hooks/useHotkeys";
@@ -40,6 +40,7 @@ import type {
   PipelineCheck,
   PipelineItem,
   QualityPreset,
+  RotateState,
 } from "../../types";
 import { moveAt } from "../../utils/array";
 import { cropToPx } from "../../utils/crop";

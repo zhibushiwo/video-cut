@@ -368,7 +368,6 @@ fn parse_video_stream(s: &Value) -> Result<VideoStreamInfo, String> {
             .or_else(|| s.get("r_frame_rate").and_then(parse_fraction))
             .unwrap_or(0.0),
         bitrate: num("bit_rate").map(|b| b as u64),
-        bit_depth: num("bits_per_raw_sample").map(|b| b as u32),
     })
 }
 

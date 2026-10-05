@@ -1,9 +1,6 @@
 import { RotateCcw, RotateCw } from "lucide-react";
 import type { RotateState } from "../../types";
 
-/** 旋转组合状态（0/90/180/270 + 独立翻转）——定义已收进共享模型 `types/`（M11-0），此处再导出保持既有 import 不变 */
-export type { RotateState };
-
 export const NO_ROTATE: RotateState = { deg: 0, hflip: false, vflip: false };
 
 /** 叠加式旋转按钮组：旋转与翻转任意组合，预览即所得（DESIGN §3.4、§9.8） */

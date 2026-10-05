@@ -394,7 +394,6 @@ pub struct VideoStreamInfo {
     pub width: u32,
     pub height: u32,
     pub pix_fmt: String,          // yuv420p / yuv420p10le ...
-    pub bit_depth: Option<u32>,   // 位深 8/10/12；Rust 已提供，前端 TS 类型暂未消费（见 HANDOFF「未决问题」）
     pub frame_rate: f64,
     pub bitrate: Option<u64>,
 }

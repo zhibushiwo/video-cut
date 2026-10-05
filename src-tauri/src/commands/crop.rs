@@ -12,28 +12,6 @@ use crate::task::manager::{Job, TaskContext, TauriEmitter};
 use crate::task::worker;
 use crate::{AppTasks, MediaInfo, QualityPreset};
 
-/// 校验并偶数对齐选区。返回 (x, y, w, h, out_w, out_h)。
-pub(crate) fn normalize_crop_rect(
-    info: &MediaInfo,
-    x: u32,
-    y: u32,
-    width: u32,
-    height: u32,
-    out_width: Option<u32>,
-    out_height: Option<u32>,
-) -> Result<(u32, u32, u32, u32, u32, u32), String> {
-    align_rect(
-        info.video.width,
-        info.video.height,
-        x,
-        y,
-        width,
-        height,
-        out_width,
-        out_height,
-    )
-}
-
 /// 选区校验核心（偶数对齐 + 越界检查），坐标系由调用方决定
 /// （源空间或工作台的显示空间）。
 pub(crate) fn align_rect(
@@ -82,7 +60,16 @@ pub async fn validate_crop_rect(
     out_height: Option<u32>,
 ) -> Result<(u32, u32, u32, u32, u32, u32), String> {
     let info = probe::probe_media(app, input).await?;
-    normalize_crop_rect(&info, x, y, width, height, out_width, out_height)
+    align_rect(
+        info.video.width,
+        info.video.height,
+        x,
+        y,
+        width,
+        height,
+        out_width,
+        out_height,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -178,35 +165,23 @@ pub fn submit_crop(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    fn info_1080p() -> MediaInfo {
-        let v = json!({
-            "streams": [{ "codec_name": "h264", "codec_type": "video",
-                "width": 1920, "height": 1080, "pix_fmt": "yuv420p", "avg_frame_rate": "30/1" }],
-            "format": { "format_name": "mp4", "duration": "10.0", "size": "1000" }
-        });
-        probe::parse_media_json(&v).unwrap()
-    }
 
     #[test]
     fn rect_aligns_to_even_and_keeps_defaults() {
-        let (x, y, w, h, ow, oh) =
-            normalize_crop_rect(&info_1080p(), 101, 201, 801, 601, None, None).unwrap();
+        let (x, y, w, h, ow, oh) = align_rect(1920, 1080, 101, 201, 801, 601, None, None).unwrap();
         assert_eq!((x, y, w, h), (100, 200, 800, 600));
         assert_eq!((ow, oh), (1920, 1080)); // 默认放大回源分辨率
     }
 
     #[test]
     fn rect_rejects_out_of_bounds() {
-        assert!(normalize_crop_rect(&info_1080p(), 1900, 0, 800, 600, None, None).is_err());
-        assert!(normalize_crop_rect(&info_1080p(), 0, 0, 0, 600, None, None).is_err());
+        assert!(align_rect(1920, 1080, 1900, 0, 800, 600, None, None).is_err());
+        assert!(align_rect(1920, 1080, 0, 0, 0, 600, None, None).is_err());
     }
 
     #[test]
     fn rect_accepts_custom_out_size() {
-        let (.., ow, oh) =
-            normalize_crop_rect(&info_1080p(), 0, 0, 800, 600, Some(1281), Some(721)).unwrap();
+        let (.., ow, oh) = align_rect(1920, 1080, 0, 0, 800, 600, Some(1281), Some(721)).unwrap();
         assert_eq!((ow, oh), (1280, 720));
     }
 }

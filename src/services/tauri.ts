@@ -173,9 +173,9 @@ export function revealInFolder(path: string): Promise<void> {
   return revealItemInDir(path);
 }
 
-/** 前端错误转发到日志文件（DESIGN §12.1，main.tsx 全局捕获后调用） */
+/** 前端日志转发到日志文件（DESIGN §12.1，main.tsx 全局捕获 + 性能埋点调用）；level 收窄为实际使用的两值 */
 export function appendFrontendLog(
-  level: "error" | "warn" | "info" | "debug",
+  level: "error" | "debug",
   message: string,
 ): Promise<void> {
   return invoke("append_frontend_log", { level, message });

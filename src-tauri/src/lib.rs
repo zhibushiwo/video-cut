@@ -57,7 +57,6 @@ pub struct VideoStreamInfo {
     pub pix_fmt: String,
     pub frame_rate: f64,
     pub bitrate: Option<u64>,
-    pub bit_depth: Option<u32>,
 }
 
 /// 音频流信息（DESIGN §7）。

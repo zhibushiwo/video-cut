@@ -8,10 +8,10 @@ import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlaye
 import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useProxyPreview } from "../../hooks/useProxyPreview";
 import { fileSrc } from "../../services/tauri";
-import type { Clip } from "../../types";
+import type { Clip, EditorToolTab } from "../../types";
 import { cropPreviewTransform, cropSizeText, cropToPx } from "../../utils/crop";
 import { formatTime } from "../../utils/time";
-import { displayedDims, fieldBtn, type ClipEdit, type EditorTab, type SourceFile } from "./shared";
+import { displayedDims, fieldBtn, type ClipEdit, type SourceFile } from "./shared";
 
 export function EditModeView({
   clip,
@@ -27,7 +27,7 @@ export function EditModeView({
   const info = source.info!;
   const { proxyPath, onError } = useProxyPreview(source.path, useProxy);
   const playerRef = useRef<VideoPlayerHandle>(null);
-  const [tab, setTab] = useState<EditorTab>("rotate");
+  const [tab, setTab] = useState<EditorToolTab>("rotate");
   /**
    * 放大预览双态（`FR-354` / `ADR-035`，`M14-5`）：编辑态 = 全画面 + 可拖选区框；
    * 预览态 = 套用 `crop → scale` 后的画面（与导出构图一致，选区框只读）。切换**不重置选区**。
@@ -144,7 +144,7 @@ export function EditModeView({
   /** 编辑态（可拖框、数值字段生效）：仅放大 tab 且不在预览态 */
   const cropEditing = tab === "crop" && !cropPreview;
 
-  const tabBtn = (t: EditorTab) =>
+  const tabBtn = (t: EditorToolTab) =>
     `flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-signal ${
       tab === t ? "bg-panel text-paper" : "text-mute hover:text-paper"
     }`;

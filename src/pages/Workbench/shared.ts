@@ -3,10 +3,8 @@
  * 在主页面、各视图组件与 hook 之间复用；**不含 React 组件、不含状态**。
  */
 import { Layers, RotateCw, Scissors, ZoomIn } from "lucide-react";
-import { NO_ROTATE, type RotateState } from "../../components/RotateControls";
-import type { Clip, MediaInfo, PageName } from "../../types";
-
-export type EditorTab = "rotate" | "crop";
+import { NO_ROTATE } from "../../components/RotateControls";
+import type { Clip, MediaInfo, PageName, RotateState } from "../../types";
 
 /** 素材：导入的源文件（§3.8 三层数据模型之一） */
 export interface SourceFile {

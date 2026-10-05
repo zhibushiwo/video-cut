@@ -1,5 +1,5 @@
 /**
- * 命令层与撤销栈的单测基线（TIMELINE.md §17.5 的 6 条 Clypra 清单 + 钳制域）。
+ * 命令层与撤销栈的单测基线（TIMELINE.md §17.5 的 5 条 Clypra 清单 + 钳制域）。
  *
  * 纯函数脱离 React：builder 只吃 `(doc, ctx)`，栈的规则在 `createUndoStack` 里，
  * 所以这里不需要 DOM、不需要渲染。
@@ -16,13 +16,12 @@ import {
   buildReorder,
   buildSplit,
   buildTrim,
-  commandFromJSON,
   exportSegmentOf,
   minSegSec,
   productDurationOf,
 } from "./commands";
 import { createUndoStack } from "./store";
-import type { BuildCtx, CommandBuilder, EditorDoc } from "./types";
+import { UNDO_LIMIT, type BuildCtx, type CommandBuilder, type EditorDoc } from "./types";
 
 const FPS = 25;
 /** 测试用源时长（秒） */
@@ -81,20 +80,7 @@ describe("撤销语义（TIMELINE.md §17.5 基线）", () => {
     expect(again.clips.map((c) => c.id)).toEqual(["n1", "n2"]);
   });
 
-  it("② toJSON → fromJSON round-trip 后 apply/invert 与原件等价", () => {
-    const d0 = docOf([clip("a", 2, 6), clip("b")], ["a", "b"]);
-    const cmd = buildTrim("a", "in", 3)(d0, ctx());
-    expect(cmd).not.toBeNull();
-
-    // 走一遍真实的序列化（不是共享引用）
-    const revived = commandFromJSON(JSON.parse(JSON.stringify(cmd!.toJSON())));
-    expect(revived.label).toBe(cmd!.label);
-    const applied = cmd!.apply(d0);
-    expect(revived.apply(d0)).toEqual(applied);
-    expect(revived.invert(applied)).toEqual(cmd!.invert(applied));
-  });
-
-  it("③ no-op 返回 null **且不入栈**：同 index 重排 / 落点等价 / 边缘切割 / 修剪到原值", () => {
+  it("② no-op 返回 null **且不入栈**：同 index 重排 / 落点等价 / 边缘切割 / 修剪到原值", () => {
     const d0 = docOf([clip("a"), clip("b")], ["a", "b"]);
     const c = ctx();
     const stack = createUndoStack();
@@ -117,7 +103,7 @@ describe("撤销语义（TIMELINE.md §17.5 基线）", () => {
     expect(stack.undoLabel).toBeNull();
   });
 
-  it("④ 手势取消：拖动中反复构建不入栈，只有提交那一次入栈", () => {
+  it("③ 手势取消：拖动中反复构建不入栈，只有提交那一次入栈", () => {
     const d0 = docOf([clip("a", 0, DUR)]);
     const snapshot = JSON.parse(JSON.stringify(d0)) as EditorDoc; // 深拷一份作对照
     const stack = createUndoStack();
@@ -137,7 +123,7 @@ describe("撤销语义（TIMELINE.md §17.5 基线）", () => {
     expect(stack.undoLabel).toBe("修剪入点");
   });
 
-  it("⑤ 连续两条命令撤销两次精确回到初始（先撤最近的那条）", () => {
+  it("④ 连续两条命令撤销两次精确回到初始（先撤最近的那条）", () => {
     const stack = createUndoStack();
     const c = ctx();
     const initial = docOf([clip("a"), clip("b")], ["a", "b"]);
@@ -158,7 +144,7 @@ describe("撤销语义（TIMELINE.md §17.5 基线）", () => {
     expect(stack.canRedo).toBe(true);
   });
 
-  it("⑥ 重做复现同一 id（id 在构建时分配并冻结进 after）", () => {
+  it("⑤ 重做复现同一 id（id 在构建时分配并冻结进 after）", () => {
     const stack = createUndoStack();
     const c = ctx();
     const d0 = docOf([]);
@@ -329,15 +315,17 @@ describe("栈规则（plans/M11.md §18.1）", () => {
     expect(stack.redo()).toBeNull();
   });
 
-  it("栈上限丢最旧", () => {
-    const stack = createUndoStack(3);
+  it("栈上限丢最旧（UNDO_LIMIT 条封顶）", () => {
+    const stack = createUndoStack();
     const c = ctx();
     let d: EditorDoc = docOf([clip("a")]);
-    for (const t of [1, 2, 3, 4, 5]) {
-      d = stack.execute(d, c, buildTrim("a", "in", t))!.apply(d);
+    // 入栈 UNDO_LIMIT + 1 条：创建 N 个片段（每条都产生变化），验证最旧被丢弃
+    const total = UNDO_LIMIT + 1;
+    for (let i = 0; i < total; i++) {
+      d = stack.execute(d, c, buildCreateClip(clip(`c${i}`)))!.apply(d);
     }
-    expect(stack.depth).toBe(3);
-    expect(stack.undoLabel).toBe("修剪入点");
+    expect(stack.depth).toBe(UNDO_LIMIT);
+    expect(stack.undoLabel).toBe("剪出片段");
 
     stack.clear();
     expect(stack.depth).toBe(0);

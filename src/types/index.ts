@@ -97,6 +97,9 @@ export interface Clip {
   lockRatio: boolean;
 }
 
+/** 编辑视图的工具页签（Editor 页的 `tool` 与工作台片段加工的 tab 共用，T-006 合一） */
+export type EditorToolTab = "rotate" | "crop";
+
 export type CutMode = "fast" | "precise";
 export type QualityPreset = "high" | "balanced" | "small";
 

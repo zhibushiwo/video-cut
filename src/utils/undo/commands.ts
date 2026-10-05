@@ -13,7 +13,6 @@ import { MIN_SEG_DURATION_SEC } from "../time";
 import type {
   BuildCtx,
   CommandBuilder,
-  CommandJSON,
   DocSlices,
   EditorDoc,
   TimelineCommand,
@@ -42,16 +41,7 @@ function command(label: string, before: DocSlices, after: DocSlices): TimelineCo
     after,
     apply: (doc) => ({ ...doc, ...after }),
     invert: (doc) => ({ ...doc, ...before }),
-    toJSON: () => ({ label, before, after }),
   };
-}
-
-/**
- * JSON → 命令。round-trip：`commandFromJSON(cmd.toJSON())` 与原命令在 apply/invert 上等价
- * （会话恢复 v1 不做，这里只把通路与一致性留出来并被单测覆盖）。
- */
-export function commandFromJSON(json: CommandJSON): TimelineCommand {
-  return command(json.label, json.before, json.after);
 }
 
 // ---------------------------------------------------------------- 工具

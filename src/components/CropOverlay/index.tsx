@@ -13,7 +13,8 @@
  * （统一走 `utils/pointerDrag` 的 `beginPointerDrag`）。
  */
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
-import { pxToCrop, type CropPx, type CropRect } from "../../utils/crop";
+import type { CropRect } from "../../types";
+import { pxToCrop, type CropPx } from "../../utils/crop";
 import { beginPointerDrag } from "../../utils/pointerDrag";
 
 interface CropSelectOptions {

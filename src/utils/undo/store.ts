@@ -37,9 +37,9 @@ export interface UndoCore {
 }
 
 /**
- * 纯命令栈（无 React）。`limit` 条封顶，溢出丢**最旧**。
+ * 纯命令栈（无 React）。`UNDO_LIMIT` 条封顶，溢出丢**最旧**。
  */
-export function createUndoStack(limit: number = UNDO_LIMIT): UndoCore {
+export function createUndoStack(): UndoCore {
   const past: TimelineCommand[] = [];
   const future: TimelineCommand[] = [];
   return {
@@ -64,7 +64,7 @@ export function createUndoStack(limit: number = UNDO_LIMIT): UndoCore {
       const cmd = builder(doc, ctx);
       if (!cmd) return null; // 无变化 → 不产生脏历史
       past.push(cmd);
-      if (past.length > limit) past.shift();
+      if (past.length > UNDO_LIMIT) past.shift();
       future.length = 0; // 新操作作废重做链
       return cmd;
     },
@@ -104,15 +104,14 @@ export interface UndoStackOptions {
   setDoc: Dispatch<SetStateAction<EditorDoc>>;
   /** 构建上下文；每次渲染重建，栈内以 ref 镜像，保证事件时读到最新（无 stale 闭包） */
   ctx: BuildCtx;
-  limit?: number;
 }
 
 /**
  * 工作台的撤销栈。**只在事件处理器里调用** `execute`（命令构建不进 render）。
  */
-export function useUndoStack({ doc, setDoc, ctx, limit }: UndoStackOptions): UndoStack {
+export function useUndoStack({ doc, setDoc, ctx }: UndoStackOptions): UndoStack {
   const coreRef = useRef<UndoCore | null>(null);
-  if (!coreRef.current) coreRef.current = createUndoStack(limit);
+  if (!coreRef.current) coreRef.current = createUndoStack();
   const core = coreRef.current;
 
   // docRef 是"事件时读到的最新文档"：渲染期同步一次，**每次写文档时也立即推进**（见 commit）。

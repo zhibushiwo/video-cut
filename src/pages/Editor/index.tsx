@@ -2,7 +2,7 @@ import { ArrowLeft, Film } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CropFields, CropOverlay } from "../../components/CropOverlay";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
-import { NO_ROTATE, RotateControls, type RotateState } from "../../components/RotateControls";
+import { NO_ROTATE, RotateControls } from "../../components/RotateControls";
 import { useProxyPreview } from "../../hooks/useProxyPreview";
 import {
   confirmDialog,
@@ -12,13 +12,18 @@ import {
   probeMedia,
   submitTask,
 } from "../../services/tauri";
-import type { AppSettings, MediaInfo, QualityPreset } from "../../types";
-import { cropPreviewTransform, cropSizeText, cropToPx, type CropRect } from "../../utils/crop";
+import type {
+  AppSettings,
+  CropRect,
+  EditorToolTab,
+  MediaInfo,
+  QualityPreset,
+  RotateState,
+} from "../../types";
+import { cropPreviewTransform, cropSizeText, cropToPx } from "../../utils/crop";
 import { needsProxy, wantsProxy } from "../../utils/media";
 import { basename, defaultOutputName, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
 import { QUALITY_LABELS } from "../../utils/quality";
-
-type EditorTool = "rotate" | "crop";
 
 export default function EditorPage({
   tool,
@@ -26,7 +31,7 @@ export default function EditorPage({
   onBack,
   initialFiles,
 }: {
-  tool: EditorTool;
+  tool: EditorToolTab;
   settings: AppSettings;
   onBack: () => void;
   initialFiles?: string[] | null;
@@ -401,7 +406,7 @@ function EditorHeader({
   onOpenOther,
   onReset,
 }: {
-  tool: EditorTool;
+  tool: EditorToolTab;
   onBack: () => void;
   filePath?: string;
   /** 换素材（M14-2）：与空态那个入口同一处理函数 */
