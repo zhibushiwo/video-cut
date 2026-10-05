@@ -16,6 +16,9 @@ export function WorkbenchFooter({
   onExport,
   onClearProject,
   clearDisabled,
+  previewPhase,
+  canRenderPreview,
+  onPreviewNow,
 }: {
   checkSummary: string | null;
   outputDir: string;
@@ -32,6 +35,12 @@ export function WorkbenchFooter({
   onClearProject(): void;
   /** 空工程时置灰（没有可清的东西，避免弹一个无意义的确认框） */
   clearDisabled?: boolean;
+  /** 渲染即预览的状态（M12-2）：idle / rendering / ready / failed */
+  previewPhase: "idle" | "rendering" | "ready" | "failed";
+  /** 「精确预览」是否可用（渲染中 / 无片段时置灰） */
+  canRenderPreview: boolean;
+  /** 手动发起一次真实成品渲染（含重编码的时间线不会自动渲染） */
+  onPreviewNow(): void;
 }) {
   return (
     <footer className="shrink-0 border-t border-hairline px-4 py-3">
@@ -90,6 +99,31 @@ export function WorkbenchFooter({
             {error}
           </span>
         )}
+        {/* 渲染即预览（M12-2）：状态 + 手动触发。含重编码的时间线不自动渲染，
+            这里由用户显式发起一次"精确预览"（FR-1761） */}
+        {previewPhase === "rendering" && (
+          <span className="shrink-0 text-xs text-mute">渲染预览中…</span>
+        )}
+        {previewPhase === "ready" && (
+          <span
+            className="shrink-0 text-xs text-signal"
+            title="预览区正在播放真实成品文件（本地缓存）"
+          >
+            渲染预览就绪
+          </span>
+        )}
+        {previewPhase === "failed" && (
+          <span className="shrink-0 text-xs text-warn">渲染预览失败，已回退近似预览</span>
+        )}
+        <button
+          type="button"
+          disabled={!canRenderPreview}
+          onClick={onPreviewNow}
+          title="立即渲染真实成品用于预览（含重编码的时间线不会自动渲染）"
+          className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          精确预览
+        </button>
         <button
           type="button"
           disabled={exportDisabled}

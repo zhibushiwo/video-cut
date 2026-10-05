@@ -18,6 +18,7 @@ import { NO_ROTATE, type RotateState } from "../../components/RotateControls";
 import { PLAYBACK_RATES } from "../../components/VideoPlayer";
 import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useHotkeys } from "../../hooks/useHotkeys";
+import { usePreviewRender } from "../../hooks/usePreviewRender";
 import {
   appendFrontendLog,
   checkPipeline,
@@ -742,6 +743,16 @@ export default function WorkbenchPage({
     };
   }, [payload, allProbed, hasProbeError, trimPreviewSeg]);
 
+  // 渲染即预览（M12-2）：纯无损时间线编辑停顿 ~1.5s 后自动渲染真实成品；
+  // 含重编码 / 渲染失败 → 回退虚拟连播（页脚「精确预览」可手动发起）
+  const preview = usePreviewRender({
+    hasEntries: timelineClips.length > 0,
+    allLossless: check?.allLossless === true,
+    items: payload,
+    quality,
+    encoder: settings.encoder === "auto" ? null : settings.encoder,
+  });
+
   // 输出位置：默认输出目录优先，否则跟随首个源文件目录（DESIGN §12）
   const firstSourcePath = timelineClips[0]
     ? clipSource(timelineClips[0])?.path
@@ -1170,6 +1181,14 @@ export default function WorkbenchPage({
                       scrollElRef={timelineScrollRef}
                       ppsRef={ppsRef}
                       playbackRate={playbackRate}
+                      renderedSrc={preview.renderedSrc}
+                      fallbackHint={
+                        preview.phase === "failed"
+                          ? "渲染预览失败，已回退近似预览（可在页脚点「精确预览」重试）；导出以 FFmpeg 实际输出为准"
+                          : check && !check.allLossless
+                            ? "时间线含重编码片段，已回退近似预览（可点页脚「精确预览」渲染真实成品）"
+                            : undefined
+                      }
                     />
                   ))}
                 {mode.type === "cut" &&
@@ -1304,6 +1323,9 @@ export default function WorkbenchPage({
         exportDisabled={exportDisabled}
         exportTitle={timelineClips.length === 0 ? "请先剪出片段并加入时间轴" : undefined}
         onExport={() => void startExport()}
+        previewPhase={preview.phase}
+        canRenderPreview={preview.canRenderNow}
+        onPreviewNow={preview.renderNow}
         onClearProject={() => void clearProject()}
         clearDisabled={files.length === 0 && clips.length === 0}
       />

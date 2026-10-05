@@ -55,6 +55,13 @@ interface ProductPreviewProps {
   /** 播放倍率（M11-8 K/L 走带，复用 M7-6 档位 0.5/1/1.5/2；默认 1）。
    *  新媒体加载会把 playbackRate 重置回 1，故除 effect 外还要在 onLoadedMetadata 补挂 */
   playbackRate: number;
+  /**
+   * **渲染即预览**（M12-2）：非空时播放这个**真实成品文件**（单文件分支），
+   * 不再走双槽虚拟连播。播放头 = 视频自身时间，无需"成品内↔源内"映射。
+   */
+  renderedSrc?: string | null;
+  /** 回退虚拟连播时的提示文案（含重编码 / 渲染失败），由父层给 */
+  fallbackHint?: string;
 }
 
 type Slot = "a" | "b";
@@ -71,6 +78,8 @@ export default function ProductPreview({
   scrollElRef,
   ppsRef,
   playbackRate,
+  renderedSrc = null,
+  fallbackHint,
 }: ProductPreviewProps) {
   const [segIdx, setSegIdx] = useState(0);
   const [slot, setSlot] = useState<Slot>("a");
@@ -325,7 +334,87 @@ export default function ProductPreview({
     cbsRef.current.onPlayhead(0);
   }, [entries]);
 
-  const totalDuration = entries.reduce((s, e) => s + (e.srcEnd - e.srcStart), 0);
+  // ---------- 渲染即预览（M12-2）：真实成品**单文件**播放 ----------
+  // 成品是一个连续 mp4，播放头 = 视频时间，不需要源内映射；复用同一套 playheadRef
+  // 直写 DOM / 进度条 / 播放按钮契约（与双槽分支保持一致的手感）。
+  const renderedActive = renderedSrc !== null && renderedSrc !== "";
+  const renderedVideoRef = useRef<HTMLVideoElement>(null);
+  const [renderedMeta, setRenderedMeta] = useState<{
+    w: number;
+    h: number;
+    dur: number;
+  } | null>(null);
+
+  // 换源即回落：新成品就绪前不播旧文件，并把播放头与进度条归零
+  useEffect(() => {
+    if (!renderedActive) return;
+    setRenderedMeta(null);
+    playheadRef.current = 0;
+    cbsRef.current.onPlayhead(0);
+    if (progressRef.current) progressRef.current.value = "0";
+  }, [renderedActive, renderedSrc, playheadRef]);
+
+  // 播放/暂停跟随（单文件分支）
+  useEffect(() => {
+    if (!renderedActive) return;
+    const v = renderedVideoRef.current;
+    if (!v) return;
+    if (playing) void v.play();
+    else v.pause();
+  }, [renderedActive, playing, renderedSrc]);
+
+  // 外部 seek（时间轴点击 / 进度条）：成品时间即视频时间
+  useEffect(() => {
+    if (!renderedActive || !seekRequest) return;
+    const v = renderedVideoRef.current;
+    if (!v) return;
+    const dur = v.duration;
+    const t =
+      Number.isFinite(dur) && dur > 0
+        ? Math.min(Math.max(0, seekRequest.t), dur)
+        : seekRequest.t;
+    v.currentTime = t;
+    cbsRef.current.onPlayhead(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderedActive, seekRequest?.nonce]);
+
+  // rAF 驱动播放头（与虚拟连播同一条"ref + DOM 直写、0 setState"的渲染路径）
+  useEffect(() => {
+    if (!renderedActive || !playing) return;
+    let alive = true;
+    let raf = 0;
+    const tick = () => {
+      if (!alive) return;
+      const v = renderedVideoRef.current;
+      if (v && !v.paused) {
+        const t = v.currentTime;
+        playheadRef.current = t;
+        const ph = playheadElRef.current;
+        if (ph) ph.style.transform = `translateX(${t * ppsRef.current}px)`;
+        if (!draggingRef.current && progressRef.current) {
+          progressRef.current.value = String(t);
+        }
+        const sc = scrollElRef.current;
+        if (sc) {
+          const x = t * ppsRef.current;
+          if (x > sc.scrollLeft + 0.9 * sc.clientWidth) {
+            sc.scrollLeft = x - 0.1 * sc.clientWidth;
+          }
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      alive = false;
+      cancelAnimationFrame(raf);
+    };
+  }, [renderedActive, playing, playheadRef, playheadElRef, scrollElRef, ppsRef]);
+
+  // 单文件分支的时长来自成品文件自身；虚拟连播用片段时长之和
+  const totalDuration = renderedActive
+    ? (renderedMeta?.dur ?? 0)
+    : entries.reduce((s, e) => s + (e.srcEnd - e.srcStart), 0);
   const entry = entries[segIdx];
 
   // 进度条离散同步（tick 管播放中的每帧；seek/段切换/结束/暂停走这里）
@@ -335,13 +424,18 @@ export default function ProductPreview({
     }
   }, [playhead, totalDuration]);
 
-  if (entries.length === 0 || !entry) {
+  if (!renderedActive && (entries.length === 0 || !entry)) {
     return (
       <div className="flex h-full w-full items-center justify-center text-sm text-mute">
         时间轴为空——先从片段池把片段加入时间轴
       </div>
     );
   }
+
+  // 舞台宽高比：单文件分支取成品**实际分辨率**（元数据未就绪时给 16:9 占位）
+  const stage = renderedActive
+    ? { w: renderedMeta?.w ?? 16, h: renderedMeta?.h ?? 9 }
+    : { w: entry?.dims.w ?? 16, h: entry?.dims.h ?? 9 };
 
   const slotRender = (name: Slot) => {
     const idx = slotContent[name];
@@ -420,13 +514,43 @@ export default function ProductPreview({
         <div
           className="relative"
           style={{
-            aspectRatio: `${entry.dims.w} / ${entry.dims.h}`,
+            aspectRatio: `${stage.w} / ${stage.h}`,
             height: "100%",
             maxWidth: "100%",
           }}
         >
-          {slotRender("a")}
-          {slotRender("b")}
+          {renderedActive ? (
+            /* 渲染即预览（M12-2）：真实成品单文件——一块 <video>，无源内映射 */
+            <video
+              ref={renderedVideoRef}
+              src={fileSrc(renderedSrc ?? "")}
+              preload="auto"
+              playsInline
+              className="h-full w-full bg-black"
+              onLoadedMetadata={() => {
+                const v = renderedVideoRef.current;
+                if (!v) return;
+                setRenderedMeta({ w: v.videoWidth, h: v.videoHeight, dur: v.duration });
+                // 元数据就绪时若已在播放态，补一次 play（与双槽分支同一个坑）
+                if (playingRef.current) void v.play();
+              }}
+              onPause={() => {
+                // 外部暂停（如页面隐藏保活）同步回播放状态；本分支没有"离场槽"，
+                // 故不需要 BUG-014 那套 slotRef 身份判定
+                cbsRef.current.onPlayingChange(false);
+              }}
+              onEnded={() => {
+                const v = renderedVideoRef.current;
+                cbsRef.current.onPlayingChange(false);
+                cbsRef.current.onPlayhead(v ? v.duration : totalDuration);
+              }}
+            />
+          ) : (
+            <>
+              {slotRender("a")}
+              {slotRender("b")}
+            </>
+          )}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">
@@ -467,7 +591,10 @@ export default function ProductPreview({
         </span>
       </div>
       <p className="shrink-0 text-center text-[10px] text-mute/60">
-        近似预览：片段边界可能有 ±1 帧误差与短暂切换停顿；导出以 FFmpeg 实际输出为准
+        {renderedActive
+          ? "渲染预览：正在播放真实成品文件（本地缓存）；导出以 FFmpeg 实际输出为准"
+          : (fallbackHint ??
+            "近似预览：片段边界可能有 ±1 帧误差与短暂切换停顿；导出以 FFmpeg 实际输出为准")}
       </p>
     </div>
   );
