@@ -1,7 +1,28 @@
 import { RotateCcw, RotateCw } from "lucide-react";
+import type { CSSProperties } from "react";
 import type { RotateState } from "../../types";
 
 export const NO_ROTATE: RotateState = { deg: 0, hflip: false, vflip: false };
+
+/**
+ * 旋转舞台内层样式（T-005 收敛 EditModeView / ProductPreview 两份同构）：
+ * 四分之一旋转交换宽高铺满容器 + 平移居中 + rotate/scale 变换。
+ * `dims` 传**源**宽高（显示空间 = 源画面经此变换）。
+ */
+export function displayedStageStyle(
+  dims: { w: number; h: number },
+  rot: RotateState,
+): CSSProperties {
+  const quarter = rot.deg === 90 || rot.deg === 270;
+  return {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    width: quarter ? `${(dims.h / dims.w) * 100}%` : "100%",
+    height: quarter ? `${(dims.w / dims.h) * 100}%` : "100%",
+    transform: `translate(-50%, -50%) rotate(${rot.deg}deg) scaleX(${rot.hflip ? -1 : 1}) scaleY(${rot.vflip ? -1 : 1})`,
+  };
+}
 
 /** 叠加式旋转按钮组：旋转与翻转任意组合，预览即所得（DESIGN §3.4、§9.8） */
 export function RotateControls({

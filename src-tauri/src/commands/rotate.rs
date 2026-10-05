@@ -46,11 +46,7 @@ pub fn submit_rotate(
         ffprobe,
     } = super::prepare_output(&out, &output)?;
 
-    let in_name = Path::new(&input)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(&input)
-        .to_string();
+    let in_name = super::file_name(&input).to_string();
     // 半成品与成品**共用同一容器扩展名**（ADR-033 ④；ffmpeg 靠扩展名推断封装）+ 提交级令牌
     let part = out_dir.join(format!("{out_name}.part.{token}.{container_ext}"));
 

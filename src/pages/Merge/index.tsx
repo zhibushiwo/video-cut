@@ -1,19 +1,22 @@
-import { ArrowLeft, Film, GripVertical, Plus, X } from "lucide-react";
+import { Film, GripVertical, Plus, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   checkMerge,
   confirmDialog,
-  fileExists,
   fileSrc,
-  generateThumbnails,
   pickVideos,
   submitTask,
+  submitToUniqueTarget,
 } from "../../services/tauri";
 import type { AppSettings, MergeComparison } from "../../types";
 import { useDragSort } from "../../hooks/useDragSort";
+import { useThumbnails } from "../../hooks/useThumbnails";
+import { useConsumeInitialFiles } from "../../hooks/useConsumeInitialFiles";
+import { EmptyImport } from "../../components/EmptyImport";
+import { PageHeader } from "../../components/PageHeader";
 import { moveAt } from "../../utils/array";
 import { audioSummary, videoSummary } from "../../utils/media";
-import { basename, defaultOutputName, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
+import { basename, defaultOutputName, resolveOutputDir } from "../../utils/paths";
 import { formatBytes } from "../../utils/time";
 
 /** 默认输出文件名（`M14-3` 会把它换成"按首个素材派生 + `ADR-033` 扩展名预判"） */
@@ -36,26 +39,24 @@ export default function MergePage({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmNormalize, setConfirmNormalize] = useState(false);
-  const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  // 素材首帧缩略图（T-005 收敛进 hooks/useThumbnails）
+  const { thumbs, clearThumbs } = useThumbnails(files);
   // 拖拽导入：每次新的拖入都追加（App 层原地分发，页面不跳转）
-  const consumedInitialRef = useRef<string[] | null>(null);
 
   // 输出位置：默认输出目录优先，否则跟随首个源文件目录（DESIGN §12）
   const outputDir = files[0]
     ? resolveOutputDir(files[0], settings.defaultOutputDir)
     : "";
 
-  useEffect(() => {
-    if (!initialFiles || initialFiles === consumedInitialRef.current) return;
-    consumedInitialRef.current = initialFiles;
+  useConsumeInitialFiles(initialFiles, (fs) => {
     setFiles((prev) => {
       const next = [...prev];
-      for (const p of initialFiles) {
+      for (const p of fs) {
         if (!next.includes(p)) next.push(p);
       }
       return next;
     });
-  }, [initialFiles]);
+  });
 
   // 列表变化 → 重新检测（≥2 个文件时）
   useEffect(() => {
@@ -80,27 +81,6 @@ export default function MergePage({
       })
       .finally(() => {
         if (alive) setChecking(false);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [files]);
-
-  // 列表变化 → 批量取首帧缩略图（缓存命中时接近即时）
-  useEffect(() => {
-    if (files.length === 0) return;
-    let alive = true;
-    generateThumbnails(files)
-      .then((list) => {
-        if (!alive) return;
-        setThumbs((prev) => {
-          const next = { ...prev };
-          for (const t of list) next[t.input] = t.thumbPath;
-          return next;
-        });
-      })
-      .catch(() => {
-        /* 缩略图失败不阻塞，行内显示占位图标 */
       });
     return () => {
       alive = false;
@@ -153,13 +133,13 @@ export default function MergePage({
       if (!ok) return;
     }
     setFiles([]);
-    setThumbs({});
+    clearThumbs();
     setCheck(null);
     setCheckError(null);
     setConfirmNormalize(false);
     // 文件名回默认由上面的派生 effect 负责（files 变空 ⇒ 复位 + 清 nameDirty）
     nameDirtyRef.current = false;
-  }, [files.length]);
+  }, [files.length, clearThumbs]);
 
   const reorder = (from: number, to: number) => {
     if (from === to) return;
@@ -173,16 +153,10 @@ export default function MergePage({
     setSubmitting(true);
     setError(null);
     try {
-      const dir = outputDir.replace(/[\\/]+$/, "");
-      const name = outputName.trim();
       // 同名才追加时间戳（DESIGN 决策 #19）：目标已存在时自动改名防覆盖
-      const target = await resolveUniqueTarget(dir, name, fileExists);
-      await submitTask({
-        type: "merge",
-        inputs: files,
-        output: target,
-        forceTranscode: force,
-      });
+      await submitToUniqueTarget(outputDir, outputName, (target) =>
+        submitTask({ type: "merge", inputs: files, output: target, forceTranscode: force }),
+      );
     } catch (err) {
       setError(String(err));
     } finally {
@@ -206,44 +180,34 @@ export default function MergePage({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-hairline px-4">
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="返回工作台"
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </button>
-        <h1 className="text-sm font-semibold tracking-tight">合并</h1>
-        {files.length > 0 && (
-          <>
-            <span className="ml-auto text-xs text-mute">{files.length} 个视频</span>
-            {/* 清空列表（M14-2）：破坏性操作，有文件时二次确认 */}
-            <button
-              type="button"
-              onClick={() => void clearList()}
-              className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-warn hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-            >
-              清空列表
-            </button>
-          </>
-        )}
-      </header>
+      <PageHeader
+        title="合并"
+        onBack={onBack}
+        right={
+          files.length > 0 ? (
+            <>
+              <span className="ml-auto text-xs text-mute">{files.length} 个视频</span>
+              {/* 清空列表（M14-2）：破坏性操作，有文件时二次确认 */}
+              <button
+                type="button"
+                onClick={() => void clearList()}
+                className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-warn hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+              >
+                清空列表
+              </button>
+            </>
+          ) : undefined
+        }
+      />
 
       <div className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col gap-3 overflow-y-auto p-4">
         {files.length === 0 ? (
-          <button
-            type="button"
-            onClick={() => void addFiles()}
-            className="group flex h-64 w-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-hairline transition-colors hover:border-signal/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-          >
-            <Plus className="h-8 w-8 text-mute transition-colors group-hover:text-signal" strokeWidth={1.5} />
-            <span className="text-sm text-mute transition-colors group-hover:text-paper">
-              添加视频文件
-            </span>
-            <span className="text-xs text-mute/70">参数一致时可无损拼接，秒级完成</span>
-          </button>
+          <EmptyImport
+            onOpen={() => void addFiles()}
+            icon={Plus}
+            label="添加视频文件"
+            hint="参数一致时可无损拼接，秒级完成"
+          />
         ) : (
           <>
             <div ref={listRef} className="divide-y divide-hairline rounded-md border border-hairline">

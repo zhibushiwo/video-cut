@@ -2,8 +2,9 @@
  * 历史记录页（DESIGN §9.10 / M4-2）：终态任务列表，点产物重新定位输出文件。
  * 数据由 Rust 侧任务终态落盘（history.json），页面只读。
  */
-import { ArrowLeft, Clock, FolderOpen, Trash2 } from "lucide-react";
+import { Clock, FolderOpen, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { PageHeader } from "../../components/PageHeader";
 import {
   clearHistory,
   confirmDialog,
@@ -123,28 +124,25 @@ export default function HistoryPage({ onBack }: { onBack: () => void }) {
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-hairline px-4">
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="返回工作台"
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </button>
-        <h1 className="text-sm font-semibold tracking-tight">历史记录</h1>
-        <span className="min-w-0 flex-1" />
-        {entries !== null && entries.length > 0 && (
-          <button
-            type="button"
-            onClick={() => void clearAll()}
-            className="flex items-center gap-1.5 rounded-md border border-hairline px-2.5 py-1.5 text-xs text-mute transition-colors hover:border-warn/50 hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-warn"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-            清空记录
-          </button>
-        )}
-      </header>
+      <PageHeader
+        title="历史记录"
+        onBack={onBack}
+        right={
+          <>
+            <span className="min-w-0 flex-1" />
+            {entries !== null && entries.length > 0 && (
+              <button
+                type="button"
+                onClick={() => void clearAll()}
+                className="flex items-center gap-1.5 rounded-md border border-hairline px-2.5 py-1.5 text-xs text-mute transition-colors hover:border-warn/50 hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-warn"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                清空记录
+              </button>
+            )}
+          </>
+        }
+      />
 
       <div className="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-4">
         {error && <p className="text-xs text-warn">{error}</p>}

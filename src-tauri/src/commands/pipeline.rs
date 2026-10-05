@@ -2,13 +2,12 @@
 //! （DESIGN §3.8、§6.3⑨⑩）。
 
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
-use super::{PreparedOutput, ProgressThrottle};
+use super::{file_name, PreparedOutput, ProgressThrottle};
 use crate::ffmpeg::command;
 use crate::ffmpeg::probe::{self, MergeFileFacts};
 use crate::task::manager::{Job, TaskContext, TauriEmitter};
@@ -16,20 +15,8 @@ use crate::task::worker;
 use crate::{AppTasks, CropRect, MediaInfo, PipelineItem, QualityPreset};
 
 use super::crop::align_rect;
-use super::fnv1a;
 use super::merge::diff_pair;
 use super::valid_segment_span;
-
-/// 提交级递增序号：拼进临时文件名，防止同名输出的并发任务互写半成品（DESIGN §8.2）。
-static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
-
-pub(crate) fn temp_token(seed: &str) -> String {
-    format!(
-        "{:016x}-{:04x}",
-        fnv1a(seed.as_bytes()),
-        (TEMP_SEQ.fetch_add(1, Ordering::Relaxed) & 0xffff) as u32
-    )
-}
 
 /// 计划输入：只携带与处理方式判定有关的字段（纯函数可单测）。
 pub(crate) struct PlanInput {
@@ -421,31 +408,23 @@ pub fn submit_pipeline(
                     .map_err(|e| format!("{}：{e}", file_name(src)))?,
             );
         }
-        let n_norm: usize = (1..n)
+        let base = &inter_facts[0];
+        // 单遍收集需归一化的下标（T-005：原 n_norm 先用 diff_pair 全量数一遍、主循环对每项再算一遍）
+        let to_normalize: Vec<usize> = (1..n)
             .filter(|&i| {
                 !diff_pair(
                     "",
-                    &inter_facts[0].info,
-                    &inter_facts[0].video_time_base,
+                    &base.info,
+                    &base.video_time_base,
                     &inter_facts[i].info,
                     &inter_facts[i].video_time_base,
                 )
                 .is_empty()
             })
-            .count();
-        let base = &inter_facts[0];
+            .collect();
+        let n_norm = to_normalize.len();
         let mut norm_done = 0usize;
-        for i in 1..n {
-            let diffs = diff_pair(
-                &format!("第 {} 个片段", i + 1),
-                &base.info,
-                &base.video_time_base,
-                &inter_facts[i].info,
-                &inter_facts[i].video_time_base,
-            );
-            if diffs.is_empty() {
-                continue;
-            }
+        for i in to_normalize {
             if ctx.is_cancelled() {
                 cleanup(&temps);
                 return Err("已取消".into());
@@ -570,13 +549,6 @@ fn plan_inputs(items: &[PipelineItem], facts: &[MergeFileFacts]) -> Vec<PlanInpu
             has_crop: it.crop.is_some(),
         })
         .collect()
-}
-
-fn file_name(p: &str) -> &str {
-    Path::new(p)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(p)
 }
 
 #[cfg(test)]

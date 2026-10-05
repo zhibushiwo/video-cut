@@ -1,16 +1,16 @@
 /** ① 片段加工模式（预览区三态）：旋转 / 显示空间放大（裁剪叠加层贴显示空间外层盒，坐标即所见即所得）。
  *  R2-1 自 index.tsx 迁出；R2-2 走带键收敛进 hooks/usePlaybackHotkeys、代理预览收敛进 hooks/useProxyPreview。 */
-import { useRef, useState, type CSSProperties } from "react";
+import { useRef, useState } from "react";
 import { RotateCw, ZoomIn } from "lucide-react";
 import { CropBox, CropFields, useCropSelect } from "../../components/CropOverlay";
-import { RotateControls } from "../../components/RotateControls";
+import { displayedStageStyle, RotateControls } from "../../components/RotateControls";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
 import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useProxyPreview } from "../../hooks/useProxyPreview";
 import { fileSrc } from "../../services/tauri";
 import type { Clip, EditorToolTab } from "../../types";
 import { cropPreviewTransform, cropSizeText, cropToPx } from "../../utils/crop";
-import { formatTime } from "../../utils/time";
+import { formatTime, frameStepOf } from "../../utils/time";
 import { displayedDims, fieldBtn, type ClipEdit, type SourceFile } from "./shared";
 
 export function EditModeView({
@@ -105,7 +105,7 @@ export function EditModeView({
   };
 
   // 快捷键（M4-3，片段加工）：走带共用块见 usePlaybackHotkeys（无页面专属键）
-  const frameStep = info.video.frameRate > 0 ? 1 / info.video.frameRate : 1 / 30;
+  const frameStep = frameStepOf(info.video.frameRate);
   // 键盘走带同样以区间为界（否则 ←/→ 仍能走到区间外，与刻度自相矛盾）
   usePlaybackHotkeys({
     currentTime: toRel(current),
@@ -120,15 +120,7 @@ export function EditModeView({
   });
 
   const dims = displayedDims(info, clip.rot);
-  const quarter = clip.rot.deg === 90 || clip.rot.deg === 270;
-  const innerStyle: CSSProperties = {
-    position: "absolute",
-    left: "50%",
-    top: "50%",
-    width: quarter ? `${(dims.h / dims.w) * 100}%` : "100%",
-    height: quarter ? `${(dims.w / dims.h) * 100}%` : "100%",
-    transform: `translate(-50%, -50%) rotate(${clip.rot.deg}deg) scaleX(${clip.rot.hflip ? -1 : 1}) scaleY(${clip.rot.vflip ? -1 : 1})`,
-  };
+  const innerStyle = displayedStageStyle(dims, clip.rot);
 
   // ---------- 放大：显示空间框选 / 移动（R1-4：与编辑器页共用 components/CropOverlay） ----------
   const stageRef = useRef<HTMLDivElement>(null);

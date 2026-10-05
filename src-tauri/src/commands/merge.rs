@@ -6,7 +6,7 @@ use std::sync::Arc;
 use serde::Serialize;
 use tauri::{AppHandle, State};
 
-use super::{PreparedOutput, ProgressThrottle};
+use super::{file_name, PreparedOutput, ProgressThrottle};
 use crate::ffmpeg::command;
 use crate::ffmpeg::probe::{self, MergeFileFacts};
 use crate::task::manager::{Job, TaskContext, TauriEmitter};
@@ -334,13 +334,6 @@ pub fn submit_merge(
     Ok(state
         .0
         .submit(Arc::new(TauriEmitter(app)), "merge", &label, job))
-}
-
-fn file_name(p: &str) -> &str {
-    Path::new(p)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(p)
 }
 
 #[cfg(test)]

@@ -11,7 +11,11 @@ use crate::ffmpeg::command;
 
 use std::cell::Cell;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
+
+/// 提交级递增序号：拼进临时文件名，防止同名输出的并发任务互写半成品（DESIGN §8.2）。
+static TEMP_SEQ: AtomicU64 = AtomicU64::new(0);
 
 /// FNV-1a 64：为字符串生成稳定哈希（代理缓存 / 临时文件命名，跨进程一致）。
 pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
@@ -26,6 +30,25 @@ pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
 /// 源文件大小；元数据读不到按 0 处理（预检跳过，交给 ffmpeg 自行失败）。
 pub(crate) fn file_size(p: &str) -> u64 {
     std::fs::metadata(p).map(|m| m.len()).unwrap_or(0)
+}
+
+/// 路径 → 末段文件名；不是有效路径时原样返回（任务 label 用）。
+/// 唯一实现（T-005 收敛：原 merge/pipeline/cut 各一份具名 + rotate/crop/media 内联链）。
+pub(crate) fn file_name(p: &str) -> &str {
+    Path::new(p)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(p)
+}
+
+/// 提交级临时令牌（T-005 自 pipeline.rs 上收——mod.rs 的 prepare_output 反向引用子模块）：
+/// FNV-1a 内容签名 + 递增序号，防并发任务同名互写。
+pub(crate) fn temp_token(seed: &str) -> String {
+    format!(
+        "{:016x}-{:04x}",
+        fnv1a(seed.as_bytes()),
+        (TEMP_SEQ.fetch_add(1, Ordering::Relaxed) & 0xffff) as u32
+    )
 }
 
 /// 片段区间的提交期校验（cut / pipeline 共用，DESIGN §8.2 前置）：起点非负且跨度
@@ -89,7 +112,7 @@ pub(crate) fn prepare_output(
     Ok(PreparedOutput {
         out_dir,
         out_name,
-        token: pipeline::temp_token(token_seed),
+        token: temp_token(token_seed),
         ffmpeg: command::resolve_sidecar("ffmpeg")?,
         ffprobe: command::resolve_sidecar("ffprobe")?,
     })
@@ -101,7 +124,7 @@ pub(crate) fn prepare_output(
 /// 旧预览由作业体开头按令牌清理（见 `pipeline.rs`），不会与并发中的新任务互写。
 pub(crate) fn prepare_preview_output(dir: &Path, seed: &str) -> Result<PreparedOutput, String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("无法创建预览目录：{e}"))?;
-    let token = pipeline::temp_token(seed);
+    let token = temp_token(seed);
     Ok(PreparedOutput {
         out_dir: dir.to_path_buf(),
         out_name: format!("{token}.mp4"),

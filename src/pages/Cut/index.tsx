@@ -1,9 +1,12 @@
-import { ArrowLeft, Film } from "lucide-react";
+import { Film } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RemovalList, SegmentList, type RemovalRow } from "../../components/CutEditor";
+import { EmptyImport } from "../../components/EmptyImport";
+import { PageHeader } from "../../components/PageHeader";
 import { TimeField } from "../../components/TimeField";
 import Timeline, { type Selection } from "../../components/Timeline";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
+import { useConsumeInitialFiles } from "../../hooks/useConsumeInitialFiles";
 import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useHotkeys } from "../../hooks/useHotkeys";
 import { useProxyPreview } from "../../hooks/useProxyPreview";
@@ -34,6 +37,7 @@ import {
   formatBitrate,
   formatBytes,
   formatTime,
+  frameStepOf,
   realCutStart,
   realStartDiffers,
 } from "../../utils/time";
@@ -136,12 +140,9 @@ export default function CutPage({
   }, []);
 
   // 拖拽导入：每次新的拖入都加载第一个文件（页面不跳转，App 层原地分发）
-  const consumedInitialRef = useRef<string[] | null>(null);
-  useEffect(() => {
-    if (!initialFiles || initialFiles === consumedInitialRef.current) return;
-    consumedInitialRef.current = initialFiles;
-    if (initialFiles[0]) void loadFile(initialFiles[0]);
-  }, [initialFiles, loadFile]);
+  useConsumeInitialFiles(initialFiles, (fs) => {
+    if (fs[0]) void loadFile(fs[0]);
+  });
 
   const openFile = useCallback(async () => {
     const path = await pickVideo();
@@ -207,8 +208,7 @@ export default function CutPage({
 
   // ---------- 快捷键（M4-3 / §9.4）：走带共用块见 usePlaybackHotkeys；
   // 页面专属：I/O 设入/出点 · Delete 删最近添加的片段 ----------
-  const frameStep =
-    info?.video.frameRate && info.video.frameRate > 0 ? 1 / info.video.frameRate : 1 / 30;
+  const frameStep = frameStepOf(info?.video.frameRate ?? 0);
   usePlaybackHotkeys({
     currentTime,
     maxT: duration || currentTime,
@@ -427,29 +427,15 @@ export default function CutPage({
   if (!inputPath) {
     return (
       <div className="flex h-full flex-col">
-        <header className="flex h-14 shrink-0 items-center gap-3 border-b border-hairline px-4">
-          <button
-            type="button"
-            onClick={onBack}
-            aria-label="返回工作台"
-            className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-          >
-            <ArrowLeft className="h-4 w-4" />
-          </button>
-          <h1 className="text-sm font-semibold tracking-tight">剪切</h1>
-        </header>
+        <PageHeader title="剪切" onBack={onBack} />
         <div className="flex flex-1 items-center justify-center p-6">
-          <button
-            type="button"
-            onClick={() => void openFile()}
-            className="group flex h-64 w-full max-w-xl flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-hairline transition-colors hover:border-signal/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-          >
-            <Film className="h-8 w-8 text-mute transition-colors group-hover:text-signal" strokeWidth={1.5} />
-            <span className="text-sm text-mute transition-colors group-hover:text-paper">
-              打开视频文件
-            </span>
-            <span className="text-xs text-mute/70">MP4 / MOV / MKV / AVI / WebM / M4V / TS</span>
-          </button>
+          <EmptyImport
+            onOpen={() => void openFile()}
+            icon={Film}
+            label="打开视频文件"
+            hint="MP4 / MOV / MKV / AVI / WebM / M4V / TS"
+            maxWidth="max-w-xl"
+          />
         </div>
         {probeError && (
           <p className="px-6 pb-4 text-center text-xs text-warn">{probeError}</p>
@@ -461,31 +447,28 @@ export default function CutPage({
   // ---------- 已打开：编辑视图 ----------
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-hairline px-4">
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="返回工作台"
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </button>
-        <h1 className="text-sm font-semibold tracking-tight">剪切</h1>
-        <span className="min-w-0 flex-1 truncate text-right text-xs text-mute" title={inputPath}>
-          {basename(inputPath)}
-        </span>
-        {/* 换素材 / 重置（M14-2）：两个动作分开——一个选文件、一个是破坏性操作 */}
-        <button type="button" onClick={() => void openFile()} className={SECONDARY_BTN}>
-          打开其他视频
-        </button>
-        <button
-          type="button"
-          onClick={() => void resetAll()}
-          className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-warn hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-        >
-          重置
-        </button>
-      </header>
+      <PageHeader
+        title="剪切"
+        onBack={onBack}
+        right={
+          <>
+            <span className="min-w-0 flex-1 truncate text-right text-xs text-mute" title={inputPath}>
+              {basename(inputPath)}
+            </span>
+            {/* 换素材 / 重置（M14-2）：两个动作分开——一个选文件、一个是破坏性操作 */}
+            <button type="button" onClick={() => void openFile()} className={SECONDARY_BTN}>
+              打开其他视频
+            </button>
+            <button
+              type="button"
+              onClick={() => void resetAll()}
+              className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-warn hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+            >
+              重置
+            </button>
+          </>
+        }
+      />
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
         {probeError ? (

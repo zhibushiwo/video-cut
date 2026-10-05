@@ -16,20 +16,22 @@ import { ContextMenu, type MenuItem } from "../../components/ContextMenu";
 import ProductPreview, { type ProductEntry } from "../../components/ProductPreview";
 import { NO_ROTATE } from "../../components/RotateControls";
 import { PLAYBACK_RATES } from "../../components/VideoPlayer";
+import { useConsumeInitialFiles } from "../../hooks/useConsumeInitialFiles";
 import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
+import { useThumbnails } from "../../hooks/useThumbnails";
+import { EmptyImport } from "../../components/EmptyImport";
 import { useHotkeys } from "../../hooks/useHotkeys";
 import { usePreviewRender } from "../../hooks/usePreviewRender";
 import {
   appendFrontendLog,
   checkPipeline,
   confirmDialog,
-  fileExists,
   generateClipThumbnails,
-  generateThumbnails,
   listKeyframes,
   pickVideos,
   probeMedia,
   submitTask,
+  submitToUniqueTarget,
 } from "../../services/tauri";
 import type {
   AppSettings,
@@ -45,9 +47,9 @@ import type {
 import { moveAt } from "../../utils/array";
 import { cropToPx } from "../../utils/crop";
 import { wantsProxy } from "../../utils/media";
-import { basename, resolveOutputDir, resolveUniqueTarget, defaultOutputName } from "../../utils/paths";
+import { basename, resolveOutputDir, defaultOutputName } from "../../utils/paths";
 import { createSpanRecorder, formatPerfLine } from "../../utils/perf";
-import { formatTime } from "../../utils/time";
+import { DEFAULT_FPS, formatTime } from "../../utils/time";
 import {
   buildAppendToTimeline,
   buildComposite,
@@ -58,7 +60,6 @@ import {
   buildRemoveFromTimeline,
   buildSplit,
   buildTrim,
-  DEFAULT_FPS,
   exportSegmentOf,
   productDurationOf,
   type TrimEdge,
@@ -107,7 +108,8 @@ export default function WorkbenchPage({
    */
   const [doc, setDoc] = useState<EditorDoc>({ clips: [], timeline: [] });
   const { clips, timeline } = doc;
-  const [thumbs, setThumbs] = useState<Record<string, string>>({});
+  // 素材首帧缩略图（T-005 收敛进 hooks/useThumbnails）
+  const { thumbs, clearThumbs } = useThumbnails(files.map((f) => f.path));
   const [mode, setMode] = useState<PreviewMode>({ type: "product" });
   const [check, setCheck] = useState<PipelineCheck | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
@@ -335,38 +337,12 @@ export default function WorkbenchPage({
   }, []);
 
   // 拖拽导入：每次新的拖入都追加（App 层原地分发；addFiles 内部去重）
-  const consumedInitialRef = useRef<string[] | null>(null);
-  useEffect(() => {
-    if (!initialFiles || initialFiles === consumedInitialRef.current) return;
-    consumedInitialRef.current = initialFiles;
-    void addFiles(initialFiles);
-  }, [initialFiles, addFiles]);
+  useConsumeInitialFiles(initialFiles, (fs) => void addFiles(fs));
 
   const openFiles = useCallback(async () => {
     const picked = await pickVideos();
     if (picked.length > 0) void addFiles(picked);
   }, [addFiles]);
-
-  // 素材缩略图（缓存命中时接近即时）
-  useEffect(() => {
-    if (files.length === 0) return;
-    let alive = true;
-    generateThumbnails(files.map((f) => f.path))
-      .then((list) => {
-        if (!alive) return;
-        setThumbs((prev) => {
-          const next = { ...prev };
-          for (const t of list) next[t.input] = t.thumbPath;
-          return next;
-        });
-      })
-      .catch(() => {
-        /* 缩略图失败不阻塞 */
-      });
-    return () => {
-      alive = false;
-    };
-  }, [files]);
 
   // ---------- 素材操作 ----------
   const reorderSources = useCallback((from: number, to: number) => {
@@ -425,7 +401,7 @@ export default function WorkbenchPage({
     setFiles([]);
     applyRaw(() => ({ clips: [], timeline: [] }));
     clearUndoStack();
-    setThumbs({});
+    clearThumbs();
     setMode({ type: "product" });
     setCheck(null);
     setCheckError(null);
@@ -438,7 +414,7 @@ export default function WorkbenchPage({
     setPlaybackRate(1);
     setExtDrag(null);
     setMenu(null);
-  }, [applyRaw, clearUndoStack]);
+  }, [applyRaw, clearUndoStack, clearThumbs]);
 
   // 片段起点帧缩略图（M6-8）：对有入点的片段取其入点帧，全段片段取 0s
   useEffect(() => {
@@ -787,17 +763,16 @@ export default function WorkbenchPage({
     setSubmitting(true);
     setError(null);
     try {
-      const dir = outputDir.replace(/[\\/]+$/, "");
-      const name = outputName.trim();
       // 同名才追加时间戳（DESIGN 决策 #19）：目标已存在时自动改名防覆盖
-      const target = await resolveUniqueTarget(dir, name, fileExists);
-      await submitTask({
-        type: "pipeline",
-        items: payload,
-        output: target,
-        quality,
-        encoder: settings.encoder === "auto" ? null : settings.encoder,
-      });
+      await submitToUniqueTarget(outputDir, outputName, (target) =>
+        submitTask({
+          type: "pipeline",
+          items: payload,
+          output: target,
+          quality,
+          encoder: settings.encoder === "auto" ? null : settings.encoder,
+        }),
+      );
     } catch (err) {
       setError(String(err));
     } finally {
@@ -1111,19 +1086,12 @@ export default function WorkbenchPage({
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
         {files.length === 0 ? (
-          <button
-            type="button"
-            onClick={() => void openFiles()}
-            className="group flex h-64 w-full flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-hairline transition-colors hover:border-signal/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-          >
-            <Sparkles className="h-8 w-8 text-mute transition-colors group-hover:text-signal" strokeWidth={1.5} />
-            <span className="text-sm text-mute transition-colors group-hover:text-paper">
-              添加视频素材
-            </span>
-            <span className="text-xs text-mute/70">
-              每个素材可剪出多个片段，片段支持旋转/放大加工，最后在时间轴上编排合成
-            </span>
-          </button>
+          <EmptyImport
+            onOpen={() => void openFiles()}
+            icon={Sparkles}
+            label="添加视频素材"
+            hint="每个素材可剪出多个片段，片段支持旋转/放大加工，最后在时间轴上编排合成"
+          />
         ) : (
           <>
             {/* ① 预览区（三态复用） */}

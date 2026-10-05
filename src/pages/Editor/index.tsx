@@ -1,8 +1,11 @@
-import { ArrowLeft, Film } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Film } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 import { CropFields, CropOverlay } from "../../components/CropOverlay";
+import { EmptyImport } from "../../components/EmptyImport";
+import { PageHeader } from "../../components/PageHeader";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
 import { NO_ROTATE, RotateControls } from "../../components/RotateControls";
+import { useConsumeInitialFiles } from "../../hooks/useConsumeInitialFiles";
 import { useProxyPreview } from "../../hooks/useProxyPreview";
 import {
   confirmDialog,
@@ -120,12 +123,9 @@ export default function EditorPage({
   }, [hasWork, tool, settings.quality]);
 
   // 拖拽导入：每次新的拖入都加载第一个文件（App 层原地分发，页面不跳转）
-  const consumedInitialRef = useRef<string[] | null>(null);
-  useEffect(() => {
-    if (!initialFiles || initialFiles === consumedInitialRef.current) return;
-    consumedInitialRef.current = initialFiles;
-    if (initialFiles[0]) void loadFile(initialFiles[0]);
-  }, [initialFiles, loadFile]);
+  useConsumeInitialFiles(initialFiles, (fs) => {
+    if (fs[0]) void loadFile(fs[0]);
+  });
 
   const pxRect = (r: CropRect) =>
     info ? cropToPx(r, { w: info.video.width, h: info.video.height }) : null;
@@ -192,19 +192,13 @@ export default function EditorPage({
       <div className="flex h-full flex-col">
         <EditorHeader tool={tool} onBack={onBack} />
         <div className="flex flex-1 items-center justify-center p-6">
-          <button
-            type="button"
-            onClick={() => void openFile()}
-            className="group flex h-64 w-full max-w-xl flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-hairline transition-colors hover:border-signal/50 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-          >
-            <Film className="h-8 w-8 text-mute transition-colors group-hover:text-signal" strokeWidth={1.5} />
-            <span className="text-sm text-mute transition-colors group-hover:text-paper">
-              打开视频文件
-            </span>
-            <span className="text-xs text-mute/70">
-              {tool === "rotate" ? "默认仅修改方向元数据，秒级无损" : "框选区域，裁切后放大输出"}
-            </span>
-          </button>
+          <EmptyImport
+            onOpen={() => void openFile()}
+            icon={Film}
+            label="打开视频文件"
+            hint={tool === "rotate" ? "默认仅修改方向元数据，秒级无损" : "框选区域，裁切后放大输出"}
+            maxWidth="max-w-xl"
+          />
         </div>
         {probeError && <p className="px-6 pb-4 text-center text-xs text-warn">{probeError}</p>}
       </div>
@@ -415,43 +409,36 @@ function EditorHeader({
   onReset?: () => void;
 }) {
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-hairline px-4">
-      <button
-        type="button"
-        onClick={onBack}
-        aria-label="返回工作台"
-        className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-      >
-        <ArrowLeft className="h-4 w-4" />
-      </button>
-      <h1 className="text-sm font-semibold tracking-tight">
-        {tool === "rotate" ? "旋转" : "局部放大"}
-      </h1>
-      {filePath && (
-        <>
-          <span className="ml-auto min-w-0 truncate text-xs text-mute" title={filePath}>
-            {basename(filePath)}
-          </span>
-          {onOpenOther && (
-            <button
-              type="button"
-              onClick={onOpenOther}
-              className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-            >
-              打开其他视频
-            </button>
-          )}
-          {onReset && (
-            <button
-              type="button"
-              onClick={onReset}
-              className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-warn hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-            >
-              重置
-            </button>
-          )}
-        </>
-      )}
-    </header>
+    <PageHeader
+      title={tool === "rotate" ? "旋转" : "局部放大"}
+      onBack={onBack}
+      right={
+        filePath ? (
+          <>
+            <span className="ml-auto min-w-0 truncate text-xs text-mute" title={filePath}>
+              {basename(filePath)}
+            </span>
+            {onOpenOther && (
+              <button
+                type="button"
+                onClick={onOpenOther}
+                className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+              >
+                打开其他视频
+              </button>
+            )}
+            {onReset && (
+              <button
+                type="button"
+                onClick={onReset}
+                className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-warn hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+              >
+                重置
+              </button>
+            )}
+          </>
+        ) : undefined
+      }
+    />
   );
 }

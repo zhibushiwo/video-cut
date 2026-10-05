@@ -26,6 +26,7 @@ import type {
   TaskStatusPayload,
   VideoTask,
 } from "../types";
+import { resolveUniqueTarget } from "../utils/paths";
 
 /** 支持 Open/保存的容器扩展名（DESIGN §10 处理范围） */
 export const VIDEO_EXTENSIONS = [
@@ -76,6 +77,21 @@ export function listKeyframes(input: string): Promise<number[]> {
 
 export function submitTask(task: VideoTask): Promise<string> {
   return invoke("submit_task", { task });
+}
+
+/**
+ * 防覆盖提交链（T-005 收敛 Merge / Workbench 两份同构）：输出目录尾斜杠规整 →
+ * 同名才追加时间戳（决策 #19，`resolveUniqueTarget`）→ 调用方给定的提交动作
+ * （拿到防覆盖后的最终目标路径）。错误原样上抛，由调用方 `setError` 展示。
+ */
+export async function submitToUniqueTarget(
+  outputDir: string,
+  outputName: string,
+  submit: (target: string) => Promise<string>,
+): Promise<void> {
+  const dir = outputDir.replace(/[\\/]+$/, "");
+  const target = await resolveUniqueTarget(dir, outputName.trim(), fileExists);
+  await submit(target);
 }
 
 export function cancelTask(taskId: string): Promise<boolean> {

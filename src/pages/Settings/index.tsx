@@ -3,7 +3,8 @@
  * 二期新增：主题色预设、任务浮层自动关闭、缓存管理、重置全部设置、关于区。
  */
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, FolderOpen, X } from "lucide-react";
+import { PageHeader } from "../../components/PageHeader";
+import { FolderOpen, X } from "lucide-react";
 import type { ReactNode } from "react";
 import {
   cacheUsage,
@@ -140,17 +141,7 @@ export default function SettingsPage({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-hairline px-4">
-        <button
-          type="button"
-          onClick={onBack}
-          aria-label="返回工作台"
-          className="flex h-8 w-8 items-center justify-center rounded-md border border-hairline text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </button>
-        <h1 className="text-sm font-semibold tracking-tight">设置</h1>
-      </header>
+      <PageHeader title="设置" onBack={onBack} />
 
       <div className="mx-auto w-full max-w-2xl divide-y divide-hairline overflow-y-auto p-4">
         <Row

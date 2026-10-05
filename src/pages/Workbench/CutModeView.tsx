@@ -8,7 +8,7 @@ import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useHotkeys } from "../../hooks/useHotkeys";
 import { useProxyPreview } from "../../hooks/useProxyPreview";
 import { fileSrc, listKeyframes } from "../../services/tauri";
-import { MIN_SEG_DURATION_SEC, formatTime } from "../../utils/time";
+import { MIN_SEG_DURATION_SEC, formatTime, frameStepOf } from "../../utils/time";
 import { fieldBtn, type SourceFile } from "./shared";
 
 export function CutModeView({
@@ -57,7 +57,7 @@ export function CutModeView({
   };
 
   // 快捷键（M4-3，源剪切）：走带共用块见 usePlaybackHotkeys；页面专属：I/O 设入/出点
-  const frameStep = info.video.frameRate > 0 ? 1 / info.video.frameRate : 1 / 30;
+  const frameStep = frameStepOf(info.video.frameRate);
   usePlaybackHotkeys({
     currentTime: current,
     maxT: info.durationSec,

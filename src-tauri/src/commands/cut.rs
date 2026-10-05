@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use tauri::{AppHandle, State};
 
-use super::ProgressThrottle;
+use super::{file_name, ProgressThrottle};
 use crate::ffmpeg::{command, probe};
 use crate::task::manager::{Job, TaskContext, TauriEmitter};
 use crate::task::worker;
@@ -128,7 +128,7 @@ fn submit_cut(
 
     let items: Vec<CutItem> = {
         // 提交级令牌：同名输出的并发任务不再互写半成品（DESIGN §8.2）
-        let token = super::pipeline::temp_token(&input);
+        let token = super::temp_token(&input);
         // 同名才追加时间戳（DESIGN §8.3 / 决策 #19）：上次导出的分片还在时不静默覆盖
         let ts = chrono::Local::now().format("%Y%m%d_%H%M%S");
         let part_name = |i: usize| -> String {
@@ -188,7 +188,7 @@ fn submit_cut(
         // 精确模式：优先设置中锁定的编码器，否则按源像素格式自动探测（10bit → HEVC 路径）
         let encoder = if precise {
             let facts = probe::probe_merge_facts_sync(&ffprobe, &job_input)
-                .map_err(|e| format!("{}：{e}", in_name_of(&job_input)))?;
+                .map_err(|e| format!("{}：{e}", file_name(&job_input)))?;
             Some(command::effective_encoder(
                 locked_encoder.as_deref(),
                 &facts.info.video.pix_fmt,
@@ -246,11 +246,4 @@ fn submit_cut(
     Ok(state
         .0
         .submit(Arc::new(TauriEmitter(app)), "cut", &label, job))
-}
-
-fn in_name_of(p: &str) -> &str {
-    Path::new(p)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(p)
 }

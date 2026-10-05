@@ -10,7 +10,7 @@ use crate::ffmpeg::command;
 use crate::ffmpeg::probe;
 use crate::task::manager::{Job, TaskContext, TauriEmitter};
 use crate::task::worker;
-use crate::{AppTasks, MediaInfo, QualityPreset};
+use crate::{AppTasks, QualityPreset};
 
 /// 选区校验核心（偶数对齐 + 越界检查），坐标系由调用方决定
 /// （源空间或工作台的显示空间）。
@@ -101,11 +101,7 @@ pub fn submit_crop(
         ffprobe,
     } = super::prepare_output(&out, &output)?;
 
-    let in_name = Path::new(&input)
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or(&input)
-        .to_string();
+    let in_name = super::file_name(&input).to_string();
     // 半成品与成品**共用同一容器扩展名**（ADR-033 ④）+ 提交级令牌，防并发任务互写
     let part = out_dir.join(format!("{out_name}.part.{token}.{container_ext}"));
 

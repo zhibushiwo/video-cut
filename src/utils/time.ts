@@ -8,6 +8,19 @@
  */
 export const MIN_SEG_DURATION_SEC = 0.05;
 
+/**
+ * 兜底帧率（fps 缺失 / 未探测 / 非正时的统一取值）：帧步长（[`frameStepOf`]）、
+ * 命令层钳制粒度（`utils/undo/commands.ts::minSegSec`）、总帧数时间码共用同一来源。
+ * （T-005 收敛：原 undo 层私有 `DEFAULT_FPS` 上提至此。）
+ */
+export const DEFAULT_FPS = 30;
+
+/** 逐帧步长（秒）：Shift+←/→ 一步 1/fps；fps 缺失/非正按 [`DEFAULT_FPS`]。
+ *  （T-005 收敛：Cut / CutModeView / EditModeView 三份同款三元表达式。） */
+export function frameStepOf(frameRate: number): number {
+  return frameRate > 0 ? 1 / frameRate : 1 / DEFAULT_FPS;
+}
+
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }

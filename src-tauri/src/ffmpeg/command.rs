@@ -11,12 +11,10 @@ use crate::{EnvironmentInfo, QualityPreset};
 
 // ---------- 二进制定位 ----------
 
-/// 同步解析 sidecar 二进制路径，与 Tauri sidecar 约定一致：
-/// 主程序同目录 + `{name}-{target-triple}.exe`（tauri-build 在构建时复制到该位置）。
-/// 任务作业线程使用（异步命令则走 shell 插件 API）。
 /// 同步解析 sidecar 二进制路径，与 tauri-plugin-shell 行为一致：
 /// 主程序同目录 + `{name}.exe`（tauri-build 复制 sidecar 时会去掉 target-triple 后缀，
 /// 开发与打包后的运行目录布局相同）；cargo test 的测试二进制位于 deps/，需上溯一级。
+/// 任务作业线程使用（异步命令则走 shell 插件 API）。
 pub fn resolve_sidecar(name: &str) -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| format!("无法定位程序目录：{e}"))?;
     let mut dir = exe
@@ -117,11 +115,9 @@ fn fmt_seek(sec: f64) -> String {
     format!("{:.6}", sec.max(0.0) + 1e-6)
 }
 
-/// 极速剪切（stream copy，DESIGN §6.3①）。
-///
-/// `-ss` 在 `-i` 前（输入侧 seek，落点=≤start 的关键帧，格式化见 [`fmt_seek`]）；
-/// `-t` 用时长避免时间基准歧义；`-map 0` 保留全部流；`-avoid_negative_ts make_zero` 修正时间戳。
-pub fn cut_args(start_sec: f64, duration_sec: f64, input: &str, output: &str) -> Vec<String> {
+/// 所有 ffmpeg 命令的公共参数头（T-005 收敛，10 个构建器逐字共用）：
+/// 静默日志；进度只走 `-progress pipe:1`（红线：禁止解析 stderr）；200ms 统计周期。
+fn base_args() -> Vec<String> {
     [
         "-hide_banner",
         "-nostats",
@@ -131,61 +127,73 @@ pub fn cut_args(start_sec: f64, duration_sec: f64, input: &str, output: &str) ->
         "pipe:1",
         "-stats_period",
         "0.2",
-        "-ss",
-        &fmt_seek(start_sec),
-        "-i",
-        input,
-        "-t",
-        &fmt_sec(duration_sec),
-        "-map",
-        "0",
-        "-c",
-        "copy",
-        "-avoid_negative_ts",
-        "make_zero",
-        "-y",
-        output,
     ]
     .iter()
     .map(|s| s.to_string())
     .collect()
 }
 
+/// 极速剪切（stream copy，DESIGN §6.3①）。
+///
+/// `-ss` 在 `-i` 前（输入侧 seek，落点=≤start 的关键帧，格式化见 [`fmt_seek`]）；
+/// `-t` 用时长避免时间基准歧义；`-map 0` 保留全部流；`-avoid_negative_ts make_zero` 修正时间戳。
+pub fn cut_args(start_sec: f64, duration_sec: f64, input: &str, output: &str) -> Vec<String> {
+    let mut args = base_args();
+    args.extend(
+        [
+            "-ss",
+            &fmt_seek(start_sec),
+            "-i",
+            input,
+            "-t",
+            &fmt_sec(duration_sec),
+            "-map",
+            "0",
+            "-c",
+            "copy",
+            "-avoid_negative_ts",
+            "make_zero",
+            "-y",
+            output,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<String>>(),
+    );
+    args
+}
+
 /// 代理预览生成（DESIGN §6.3⑧）：720p 上限（不放大）、H.264 + AAC、yuv420p。
 pub fn proxy_args(input: &str, output: &str) -> Vec<String> {
-    [
-        "-hide_banner",
-        "-nostats",
-        "-loglevel",
-        "error",
-        "-progress",
-        "pipe:1",
-        "-stats_period",
-        "0.2",
-        "-i",
-        input,
-        "-map",
-        "0:v:0",
-        "-map",
-        "0:a:0?",
-        "-vf",
-        "scale=-2:min(720\\,ih),format=yuv420p",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "23",
-        "-c:a",
-        "aac",
-        "-b:a",
-        "128k",
-        "-y",
-        output,
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
+    let mut args = base_args();
+    args.extend(
+        [
+            "-i",
+            input,
+            "-map",
+            "0:v:0",
+            "-map",
+            "0:a:0?",
+            "-vf",
+            "scale=-2:min(720\\,ih),format=yuv420p",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "23",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-y",
+            output,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<String>>(),
+    );
+    args
 }
 
 /// 解析 ffprobe 的 time_base 字符串（"1/60000"）为 mp4 timescale（60000）。
@@ -214,21 +222,8 @@ pub fn normalize_args(
     output: &str,
 ) -> Vec<String> {
     let vf = format!("scale={width}:{height}:flags=lanczos,fps={fps:.3},format={pix_fmt}");
-    let mut args: Vec<String> = [
-        "-hide_banner",
-        "-nostats",
-        "-loglevel",
-        "error",
-        "-progress",
-        "pipe:1",
-        "-stats_period",
-        "0.2",
-        "-i",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
-    args.push(input.into());
+    let mut args = base_args();
+    args.extend(["-i".into(), input.into()]);
     args.extend([
         "-map".into(),
         "0:v:0".into(),
@@ -263,33 +258,17 @@ pub fn concat_list_content(paths: &[String]) -> String {
 
 /// 无损合并（concat demuxer + stream copy，DESIGN §6.3③）。
 pub fn concat_args(list_file: &str, output: &str) -> Vec<String> {
-    [
-        "-hide_banner",
-        "-nostats",
-        "-loglevel",
-        "error",
-        "-progress",
-        "pipe:1",
-        "-stats_period",
-        "0.2",
-        "-f",
-        "concat",
-        "-safe",
-        "0",
-        "-fflags",
-        "+genpts",
-        "-i",
-        list_file,
-        "-map",
-        "0",
-        "-c",
-        "copy",
-        "-y",
-        output,
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
+    let mut args = base_args();
+    args.extend(
+        [
+            "-f", "concat", "-safe", "0", "-fflags", "+genpts", "-i", list_file, "-map", "0", "-c",
+            "copy", "-y", output,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<String>>(),
+    );
+    args
 }
 
 /// 缩略图提取：取指定时间处一帧，缩到 160px 宽（合并列表用 ~1s；片段起点帧用片段入点，M6-8）。
@@ -422,18 +401,8 @@ pub fn rotate_remux_args_deg(
     input: &str,
     output: &str,
 ) -> Vec<String> {
-    let mut args: Vec<String> = vec![
-        "-hide_banner".into(),
-        "-nostats".into(),
-        "-loglevel".into(),
-        "error".into(),
-        "-progress".into(),
-        "pipe:1".into(),
-        "-stats_period".into(),
-        "0.2".into(),
-        "-display_rotation".into(),
-        display_deg.to_string(),
-    ];
+    let mut args = base_args();
+    args.extend(["-display_rotation".into(), display_deg.to_string()]);
     if hflip {
         args.push("-display_hflip".into());
     }
@@ -489,22 +458,15 @@ pub fn rotate_transcode_args(
     quality: QualityPreset,
 ) -> Vec<String> {
     let vf = transform_filter(delta_deg, hflip, vflip);
-    let mut args: Vec<String> = vec![
-        "-hide_banner".into(),
-        "-nostats".into(),
-        "-loglevel".into(),
-        "error".into(),
-        "-progress".into(),
-        "pipe:1".into(),
-        "-stats_period".into(),
-        "0.2".into(),
+    let mut args = base_args();
+    args.extend([
         "-i".into(),
         input.into(),
         "-map".into(),
         "0:v:0".into(),
         "-map".into(),
         "0:a?".into(),
-    ];
+    ]);
     if !vf.is_empty() {
         args.extend(["-vf".into(), vf]);
     }
@@ -530,15 +492,8 @@ pub fn crop_zoom_args(
     output: &str,
 ) -> Vec<String> {
     let vf = format!("crop={width}:{height}:{x}:{y},scale={out_width}:{out_height}:flags=lanczos");
-    let mut args: Vec<String> = vec![
-        "-hide_banner".into(),
-        "-nostats".into(),
-        "-loglevel".into(),
-        "error".into(),
-        "-progress".into(),
-        "pipe:1".into(),
-        "-stats_period".into(),
-        "0.2".into(),
+    let mut args = base_args();
+    args.extend([
         "-i".into(),
         input.into(),
         "-map".into(),
@@ -549,7 +504,7 @@ pub fn crop_zoom_args(
         vf,
         "-c:v".into(),
         encoder.into(),
-    ];
+    ]);
     args.extend(encoder_quality_args(encoder, quality));
     args.extend(["-c:a".into(), "copy".into(), "-y".into(), output.into()]);
     args
@@ -567,15 +522,8 @@ pub fn precise_cut_args(
     encoder: &str,
     quality: QualityPreset,
 ) -> Vec<String> {
-    let mut args: Vec<String> = vec![
-        "-hide_banner".into(),
-        "-nostats".into(),
-        "-loglevel".into(),
-        "error".into(),
-        "-progress".into(),
-        "pipe:1".into(),
-        "-stats_period".into(),
-        "0.2".into(),
+    let mut args = base_args();
+    args.extend([
         "-i".into(),
         input.into(),
         "-ss".into(),
@@ -588,7 +536,7 @@ pub fn precise_cut_args(
         "0:a?".into(),
         "-c:v".into(),
         encoder.into(),
-    ];
+    ]);
     args.extend(encoder_quality_args(encoder, quality));
     args.extend(["-c:a".into(), "copy".into(), "-y".into(), output.into()]);
     args
@@ -607,21 +555,8 @@ pub fn pipeline_copy_args(
     input: &str,
     output: &str,
 ) -> Vec<String> {
-    let mut args: Vec<String> = [
-        "-hide_banner",
-        "-nostats",
-        "-loglevel",
-        "error",
-        "-progress",
-        "pipe:1",
-        "-stats_period",
-        "0.2",
-        "-display_rotation",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
-    args.push(display_deg.to_string());
+    let mut args = base_args();
+    args.extend(["-display_rotation".into(), display_deg.to_string()]);
     if hflip {
         args.push("-display_hflip".into());
     }
@@ -666,22 +601,13 @@ pub fn pipeline_transcode_args(
     input: &str,
     output: &str,
 ) -> Vec<String> {
-    let mut args: Vec<String> = [
-        "-hide_banner",
-        "-nostats",
-        "-loglevel",
-        "error",
-        "-progress",
-        "pipe:1",
-        "-stats_period",
-        "0.2",
-        "-display_rotation",
-        "0",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect();
-    args.extend(["-i".into(), input.into()]);
+    let mut args = base_args();
+    args.extend([
+        "-display_rotation".into(),
+        "0".into(),
+        "-i".into(),
+        input.into(),
+    ]);
     if let Some((start, dur)) = segment {
         args.extend(["-ss".into(), fmt_sec(start), "-t".into(), fmt_sec(dur)]);
     }
@@ -890,14 +816,41 @@ mod tests {
 
     #[test]
     fn normalize_args_builds_filter_chain() {
+        // 精确序列断言（T-005 补强：原弱断言放过过丢 "-i" 的回归，靠 e2e 才抓到）
         let args = normalize_args("in.mkv", 1920, 1080, 29.97, "yuv420p", 0, "out.mp4");
-        let vf_pos = args.iter().position(|a| a == "-vf").unwrap();
         assert_eq!(
-            args[vf_pos + 1],
-            "scale=1920:1080:flags=lanczos,fps=29.970,format=yuv420p"
+            args,
+            [
+                "-hide_banner",
+                "-nostats",
+                "-loglevel",
+                "error",
+                "-progress",
+                "pipe:1",
+                "-stats_period",
+                "0.2",
+                "-i",
+                "in.mkv",
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a:0?",
+                "-vf",
+                "scale=1920:1080:flags=lanczos,fps=29.970,format=yuv420p",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "medium",
+                "-crf",
+                "20",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-y",
+                "out.mp4",
+            ]
         );
-        assert!(args.iter().any(|a| a == "libx264"));
-        assert!(args.iter().any(|a| a == "192k"));
         assert!(!args.contains(&"-video_track_timescale".to_string()));
         // 指定 timescale 时写入对齐参数
         let args = normalize_args("in.mkv", 1920, 1080, 29.97, "yuv420p", 60000, "out.mp4");

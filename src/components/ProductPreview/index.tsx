@@ -10,10 +10,11 @@
  * - 代理沿用：需要代理的源按路径生成/缓存，播放用代理
  * - 已知限制（UI 明示）：片段边界 ±1 帧级误差与切换停顿，导出以 FFmpeg 输出为准
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTauriEvent } from "../../hooks/useTauriEvent";
 import { appendFrontendLog, fileSrc, generateProxy, onTaskStatus } from "../../services/tauri";
 import { beginFrameSampling, formatPerfLine, type PerfScene, type PerfSummary } from "../../utils/perf";
+import { displayedStageStyle } from "../RotateControls";
 import type { RotateState } from "../../types";
 import { cropPreviewTransform } from "../../utils/crop";
 import { formatTime } from "../../utils/time";
@@ -460,15 +461,7 @@ export default function ProductPreview({
     if (idx === null) return null;
     const e = entries[idx];
     if (!e) return null;
-    const q = e.rot.deg === 90 || e.rot.deg === 270;
-    const inner: CSSProperties = {
-      position: "absolute",
-      left: "50%",
-      top: "50%",
-      width: q ? `${(e.dims.h / e.dims.w) * 100}%` : "100%",
-      height: q ? `${(e.dims.w / e.dims.h) * 100}%` : "100%",
-      transform: `translate(-50%, -50%) rotate(${e.rot.deg}deg) scaleX(${e.rot.hflip ? -1 : 1}) scaleY(${e.rot.vflip ? -1 : 1})`,
-    };
+    const inner = displayedStageStyle(e.dims, e.rot);
     const cropT = cropPreviewTransform(e.crop);
     return (
       <div

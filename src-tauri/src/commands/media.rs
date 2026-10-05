@@ -333,13 +333,7 @@ pub fn generate_proxy(
     // 半成品保留真实扩展名（.part.mp4），否则 ffmpeg 无法推断封装格式
     let part = PathBuf::from(format!("{}.part.mp4", output.display()));
     let job_output = output.clone();
-    let label = format!(
-        "生成预览代理 {}",
-        std::path::Path::new(&input)
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or(&input)
-    );
+    let label = format!("生成预览代理 {}", super::file_name(&input));
 
     let job_input = input.clone();
     let job_cache_dir = cache_dir.clone();
@@ -425,37 +419,21 @@ fn generate_thumbnails_sync(
 ///
 /// 边界：**整批都失败**时返回空的 `Ok(vec![])`（日志里有 N 条 warn）——前端目前只显示占位图，
 /// 用户看不到文字提示；这与修复前的 `Err` 等价（前端同样静默 `catch`），已登记待定（见 HANDOFF 未决问题表）。
-///
-/// 注：本函数与 `generate_clip_thumbs_sync` 现在结构几乎逐行同构（只有缓存键与产物结构不同），
-/// 收敛留给重复收敛批次 `R2-2`（并入 M11-0），此处不合并。
 fn generate_file_thumbs_sync(
     cache_dir: &std::path::Path,
     ffmpeg: &std::path::Path,
     inputs: &[String],
 ) -> Result<Vec<FileThumbnail>, String> {
-    let mut out = Vec::with_capacity(inputs.len());
-    for input in inputs {
-        let path = cache_dir.join(format!("{:016x}.jpg", fnv1a(input.as_bytes())));
-        if !path.exists() {
-            let mut cmd = std::process::Command::new(ffmpeg);
-            command::spawn_hidden(&mut cmd);
-            let status = cmd
-                .args(command::thumbnail_args(input, 1.0, &path.to_string_lossy()))
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-                .map_err(|e| format!("无法启动 ffmpeg：{e}"))?;
-            if !status.success() || !path.exists() {
-                log::warn!("缩略图生成失败，跳过该张：{}", input);
-                continue; // 单个失败跳过，不拖累整批（BUG-005）
-            }
-        }
-        out.push(FileThumbnail {
-            input: input.clone(),
+    let items: Vec<(String, String, f64)> =
+        inputs.iter().map(|i| (i.clone(), i.clone(), 1.0)).collect();
+    let thumbs = generate_thumbs_sync(cache_dir, ffmpeg, &items)?;
+    Ok(thumbs
+        .into_iter()
+        .map(|(i, path)| FileThumbnail {
+            input: inputs[i].clone(),
             thumb_path: path_to_string(&path),
-        });
-    }
-    Ok(out)
+        })
+        .collect())
 }
 
 /// 片段起点帧缩略图请求（M6-8）：源路径 + 取帧时间。
@@ -498,17 +476,46 @@ fn generate_clip_thumbs_sync(
     std::fs::create_dir_all(&cache_dir).map_err(|e| format!("无法创建缓存目录：{e}"))?;
     let ffmpeg = command::resolve_sidecar("ffmpeg")?;
 
-    let mut out = Vec::with_capacity(requests.len());
-    for r in requests {
-        let key = format!("{}@{:.2}", r.input, r.time_sec);
+    let items: Vec<(String, String, f64)> = requests
+        .iter()
+        .map(|r| {
+            (
+                format!("{}@{:.2}", r.input, r.time_sec),
+                r.input.clone(),
+                r.time_sec,
+            )
+        })
+        .collect();
+    let thumbs = generate_thumbs_sync(&cache_dir, &ffmpeg, &items)?;
+    Ok(thumbs
+        .into_iter()
+        .map(|(i, path)| ClipThumbnail {
+            input: requests[i].input.clone(),
+            time_sec: requests[i].time_sec,
+            thumb_path: path_to_string(&path),
+        })
+        .collect())
+}
+
+/// 缩略图批处理的公共内核（T-005 合并原 `generate_file_thumbs_sync` / `generate_clip_thumbs_sync`
+/// 双胞胎，两者只差缓存键与产物结构）：逐项 seek 抽帧，缓存命中即时返回，
+/// 单张失败跳过不拖累整批（`BUG-005`）。`items` = `(缓存键, 源路径, 取帧时间)`，
+/// 返回 `(items 下标, 缓存路径)`，由两个入口薄壳映射成各自的产物结构。
+fn generate_thumbs_sync(
+    cache_dir: &std::path::Path,
+    ffmpeg: &std::path::Path,
+    items: &[(String, String, f64)],
+) -> Result<Vec<(usize, std::path::PathBuf)>, String> {
+    let mut out = Vec::with_capacity(items.len());
+    for (idx, (key, input, start_sec)) in items.iter().enumerate() {
         let path = cache_dir.join(format!("{:016x}.jpg", fnv1a(key.as_bytes())));
         if !path.exists() {
-            let mut cmd = std::process::Command::new(&ffmpeg);
+            let mut cmd = std::process::Command::new(ffmpeg);
             command::spawn_hidden(&mut cmd);
             let status = cmd
                 .args(command::thumbnail_args(
-                    &r.input,
-                    r.time_sec,
+                    input,
+                    *start_sec,
                     &path.to_string_lossy(),
                 ))
                 .stdout(std::process::Stdio::null())
@@ -516,20 +523,11 @@ fn generate_clip_thumbs_sync(
                 .status()
                 .map_err(|e| format!("无法启动 ffmpeg：{e}"))?;
             if !status.success() || !path.exists() {
-                // 单个失败跳过，不拖累整批（与文件缩略图同口径，见 `BUG-005`）
-                log::warn!(
-                    "片段缩略图生成失败，跳过该张：{}@{:.2}s",
-                    r.input,
-                    r.time_sec
-                );
-                continue;
+                log::warn!("缩略图生成失败，跳过该张：{key}");
+                continue; // 单个失败跳过，不拖累整批（BUG-005）
             }
         }
-        out.push(ClipThumbnail {
-            input: r.input.clone(),
-            time_sec: r.time_sec,
-            thumb_path: path_to_string(&path),
-        });
+        out.push((idx, path));
     }
     Ok(out)
 }
