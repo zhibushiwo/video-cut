@@ -313,6 +313,97 @@ fn assert_container(fx: &Fixtures, p: &Path, want: &str) {
     );
 }
 
+/// 抽单帧为 raw RGB24 字节（`-ss t` 输入侧 seek + 只取 1 帧）。
+///
+/// 用途：`removal_keeps_copy_chain` 的**零残留**断言——copy 产物某一段的首帧，必须与源在
+/// 对应时刻的帧**逐字节一致**（同一段码流解出来的像素是确定的，故可用字节相等判定"内容出处"）。
+fn frame_bytes(fx: &Fixtures, p: &Path, t: f64) -> Vec<u8> {
+    let out = Command::new(&fx.ffmpeg)
+        .args(["-v", "error", "-ss", &format!("{t:.3}"), "-i"])
+        .arg(p)
+        .args(["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"])
+        .output()
+        .expect("启动 ffmpeg 失败");
+    assert!(
+        out.status.success(),
+        "抽帧失败（{} @ {t:.3}s）：{}",
+        p.display(),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!out.stdout.is_empty(), "抽帧为空：{}", p.display());
+    out.stdout
+}
+
+/// 链路 5（`M15` / `TC-047` 自动半的产物侧）：**保留式裁剪**下发的 item 形态——
+/// **单源、多段、无变换、全程 copy** → concat 成一个文件。
+///
+/// 派生链本身（补集 / 碎片吸收 / 向上吸附 / 不动点迭代 / 三态门禁）由 `src/utils/removal.test.ts`
+/// 覆盖；这里锁的是它**下发给后端的那一步**：成品时长 == Σ 保留段、全帧可解码、
+/// **删除区间零残留**（每段首帧与源在对应时刻的帧逐字节一致——第 2 段必须从 2.0s 起，
+/// 而不是残留了 1.0~2.0s 的垃圾；第 3 段必须从 4.0s 起，而不是 3.5s）。
+#[test]
+fn removal_keeps_copy_chain() {
+    let Some(fx) = setup() else {
+        eprintln!("skip: 未找到 sidecar ffmpeg/ffprobe（先运行 scripts/fetch-ffmpeg.ps1）");
+        return;
+    };
+    // 场景：标记删除 [1.0, 2.0] 与 [3.5, 5.0]；60s 源的 g=30（1s 一格关键帧）⇒ 第二个标记的
+    // 终点向上吸附到 4.0 ⇒ 实际删除 [3.5, 4.0] ⇒ 保留段 [0,1) [2,3.5) [4,6)，合计 4.5s。
+    let keeps = [(0.0, 1.0), (2.0, 3.5), (4.0, 6.0)];
+    let mut segs = Vec::new();
+    for (i, (start, end)) in keeps.iter().enumerate() {
+        let seg = fx.dir.join(format!("e2e_keep{}.mp4", i + 1));
+        run_ffmpeg(
+            fx,
+            // 注意 `pipeline_copy_args` 的第二元是**时长**（生产侧 `pipeline.rs` 同样做
+            // `end − start` 的换算），不是终点
+            &cmd::pipeline_copy_args(
+                Some((*start, *end - *start)),
+                0,
+                false,
+                false,
+                &s(&fx.src_a),
+                &s(&seg),
+            ),
+            &format!("保留段 {} copy", i + 1),
+        );
+        assert_duration(fx, &seg, end - start, 0.3);
+        assert_decodable(fx, &seg);
+        segs.push(seg);
+    }
+
+    let final_out = fx.dir.join("e2e_trimmed.mp4");
+    let list = fx.dir.join("e2e_trimmed_concat.txt");
+    let paths: Vec<String> = segs.iter().map(|p| s(p)).collect();
+    std::fs::write(&list, cmd::concat_list_content(&paths)).unwrap();
+    run_ffmpeg(
+        fx,
+        &cmd::concat_args(&s(&list), &s(&final_out)),
+        "保留段 concat",
+    );
+
+    let want: f64 = keeps.iter().map(|(a, b)| b - a).sum();
+    assert_duration(fx, &final_out, want, 0.5);
+    assert_decodable(fx, &final_out);
+
+    // 零残留：每段首帧 == 源在对应时刻的帧（第 1 段从 0 起，故只查后两段）
+    for (seg, t) in [(&segs[1], 2.0), (&segs[2], 4.0)] {
+        let head = frame_bytes(fx, seg, 0.0);
+        let at_src = frame_bytes(fx, &fx.src_a, t);
+        assert_eq!(
+            head.len(),
+            at_src.len(),
+            "{} 首帧与源 {t}s 帧尺寸不一致",
+            seg.display()
+        );
+        assert!(
+            head == at_src,
+            "{} 的首帧必须来自源的 {t}s（删除区间零残留）",
+            seg.display()
+        );
+    }
+}
+
 /// 输出容器/扩展名口径（`TC-029` / `ADR-033`）：**名字必须与封装一致**——
 /// copy 类跟随源容器、重编码类固定 mp4，用户给错扩展名时以**封装**为准校正。
 #[test]
