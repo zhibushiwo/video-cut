@@ -231,7 +231,7 @@ pub(crate) fn sweep_preview_dir(dir: &Path, keep_token: &str) {
 /// `preview = true` 是**渲染即预览**（M12-2，TIMELINE.md §17.6）：忽略 `output`，产物改写
 /// `<app_cache_dir>/preview/<令牌>.mp4`；任务以 **internal + 低优先级 + 同源单例** 提交
 /// ——不进历史与任务面板、不抢导出并发位、新编辑取代旧预览。
-pub fn submit_pipeline(
+pub async fn submit_pipeline(
     app: AppHandle,
     state: &State<'_, AppTasks>,
     items: Vec<PipelineItem>,
@@ -252,6 +252,22 @@ pub fn submit_pipeline(
                 return Err(format!("{} 的剪切区间无效", file_name(&it.input)));
             }
         }
+    }
+    // 提交期裁剪越界预检（T-003，与 CropZoom 的 validate_crop_rect 同口径）：带裁剪的片段
+    // 必然走重编码路径（plan_items 规则 A），按与作业体同一套 facts+plan 重算显示空间矩形
+    // 并校验——非法选区提交期即报错，不再等任务排队、前序片段跑完后才在作业体内失败。
+    // 探测走进程内 LRU 缓存：checkPipeline 已探过同一文件时近乎零成本。
+    for it in &items {
+        let Some(r) = it.crop else { continue };
+        let facts = probe::probe_merge_facts(&app, &it.input)
+            .await
+            .map_err(|e| format!("{}：{e}", file_name(&it.input)))?;
+        let plan = &plan_items(&plan_inputs(
+            std::slice::from_ref(it),
+            std::slice::from_ref(&facts),
+        ))[0];
+        display_crop_rect(&facts.info, plan.bake_deg, r, it.out_width, it.out_height)
+            .map_err(|e| format!("{}：{e}", file_name(&it.input)))?;
     }
     // 输出不得落在任一输入上（同一性比较走 fs::same_path 的归一化，见 R3-7）。
     // preview 忽略用户给的 `output`，同一性检查改由作业体对**真实产物路径**做（见下）。

@@ -22,10 +22,15 @@ export function useTauriEvent(subscribe: () => Promise<Unsubscribe>) {
   useEffect(() => {
     let alive = true;
     let unlisten: Unsubscribe | undefined;
-    void ref.current().then((f) => {
-      if (alive) unlisten = f;
-      else f();
-    });
+    void ref
+      .current()
+      .then((f) => {
+        if (alive) unlisten = f;
+        else f();
+      })
+      .catch(() => {
+        /* 订阅失败（后端未就绪等）不作为未处理拒绝上抛；事件缺失由调用方兜底 */
+      });
     return () => {
       alive = false;
       unlisten?.();

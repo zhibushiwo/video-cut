@@ -54,10 +54,14 @@ export function useProxyPreview(
 
   const onError = useCallback(() => {
     if (fallbackOnVideoError && !proxyPath && !taskIdRef.current) {
-      void generateProxy(path).then((s) => {
-        if (s.taskId) taskIdRef.current = s.taskId;
-        else setProxyPath(s.proxyPath);
-      });
+      void generateProxy(path)
+        .then((s) => {
+          if (s.taskId) taskIdRef.current = s.taskId;
+          else setProxyPath(s.proxyPath);
+        })
+        .catch(() => {
+          /* 兜底代理失败不阻塞播放（下一次 onError 不再触发，行为与既有口径一致） */
+        });
     }
   }, [fallbackOnVideoError, proxyPath, path]);
 

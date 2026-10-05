@@ -75,6 +75,7 @@ pub async fn submit_task(
             preview,
         } => {
             super::pipeline::submit_pipeline(app, &state, items, output, quality, encoder, preview)
+                .await
         }
     }
 }

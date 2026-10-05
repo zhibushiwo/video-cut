@@ -291,8 +291,17 @@ impl Shared {
             }
             _ => {}
         }
-        if let Some(cb) = self.on_terminal.lock().as_ref() {
+        // 回调必须在**锁外**执行（T-003）：旧写法 `if let Some(cb) = self.on_terminal.lock().as_ref()`
+        // 的临时 MutexGuard 会持锁到块尾，回调内任何再触 on_terminal 的路径（再次
+        // record_terminal / set_on_terminal）都会自死锁——parking_lot 的 Mutex 不可重入。
+        // take 出来调用后放回；若回调期间被 set_on_terminal 覆盖则不回写（后来者优先）。
+        let cb = self.on_terminal.lock().take();
+        if let Some(cb) = cb {
             cb(handle);
+            let mut slot = self.on_terminal.lock();
+            if slot.is_none() {
+                *slot = Some(cb);
+            }
         }
     }
 }
@@ -714,6 +723,25 @@ mod tests {
             assert!(start.elapsed() < timeout, "任务未在时限内结束");
             std::thread::sleep(Duration::from_millis(20));
         }
+    }
+
+    #[test]
+    fn terminal_callback_runs_outside_on_terminal_lock() {
+        // T-003：终态回调必须在**锁外**执行。旧实现 `if let` 的临时 MutexGuard 持锁到块尾，
+        // 回调内再触 on_terminal 的任何路径（这里用 set_on_terminal 复现）即自死锁
+        // （parking_lot 不可重入）。用通道 + 超时把"死锁挂起"转成确定失败。
+        let mgr = Arc::new(TaskManager::new(1));
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let cb_mgr = mgr.clone();
+        mgr.set_on_terminal(Box::new(move |_handle| {
+            cb_mgr.set_on_terminal(Box::new(|_| {})); // 持锁执行 → 自死锁 → 消息永不送达
+            let _ = tx.send(());
+        }));
+        let sink = Arc::new(CollectSink::default());
+        let id = mgr.submit(sink, "test", "锁外回调", Box::new(|_ctx| Ok(())));
+        wait_terminal(&mgr, &[&id], Duration::from_secs(5));
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("终态回调未在时限内完成（疑似在持锁状态下自死锁）");
     }
 
     #[test]
