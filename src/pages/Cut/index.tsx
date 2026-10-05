@@ -46,6 +46,10 @@ import {
  */
 type CutTab = "extract" | "remove";
 
+/** 页内次级按钮样式（与工作台 `shared.ts::fieldBtn` 同形；本页自用，不跨页引 Workbench 的模块） */
+const SECONDARY_BTN =
+  "shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal";
+
 /** 成品名：`<源文件名去扩展名>_trimmed<源扩展名>`（`ADR-033`：全 copy ⇒ 跟随源容器；M15-3 收口预判与防覆盖） */
 function removalOutputName(inputPath: string): string {
   const base = basename(inputPath);
@@ -183,6 +187,24 @@ export default function CutPage({
     setCurrentTime(t);
   }, []);
 
+  /**
+   * 入/出点钳制（`M14-4`）：**按钮「开始/结束=当前帧」、`I`/`O` 快捷键、两个数字输入框
+   * 共用这同一条规则**——不再各自复制表达式（与工作台源剪切视图的 `commitStart`/`commitEnd`
+   * 同款结构，见 `Workbench/CutModeView`）。
+   */
+  const commitStart = useCallback((t: number) => {
+    setSelection((s) => ({ start: Math.min(Math.max(0, t), s.end - 0.1), end: s.end }));
+  }, []);
+  const commitEnd = useCallback(
+    (t: number) => {
+      setSelection((s) => ({
+        start: s.start,
+        end: Math.min(Math.max(t, s.start + 0.1), duration || t),
+      }));
+    },
+    [duration],
+  );
+
   // ---------- 快捷键（M4-3 / §9.4）：走带共用块见 usePlaybackHotkeys；
   // 页面专属：I/O 设入/出点 · Delete 删最近添加的片段 ----------
   const frameStep =
@@ -202,17 +224,11 @@ export default function CutPage({
   });
   useHotkeys((e) => {
     if (e.code === "KeyI" && !e.repeat) {
-      setSelection((s) => ({
-        start: Math.min(Math.max(0, currentTime), s.end - 0.1),
-        end: s.end,
-      }));
+      commitStart(currentTime);
       return;
     }
     if (e.code === "KeyO" && !e.repeat) {
-      setSelection((s) => ({
-        start: s.start,
-        end: Math.min(Math.max(currentTime, s.start + 0.1), duration || currentTime),
-      }));
+      commitEnd(currentTime);
       return;
     }
     if ((e.key === "Delete" || e.key === "Backspace") && !e.repeat) {
@@ -459,11 +475,7 @@ export default function CutPage({
           {basename(inputPath)}
         </span>
         {/* 换素材 / 重置（M14-2）：两个动作分开——一个选文件、一个是破坏性操作 */}
-        <button
-          type="button"
-          onClick={() => void openFile()}
-          className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-        >
+        <button type="button" onClick={() => void openFile()} className={SECONDARY_BTN}>
           打开其他视频
         </button>
         <button
@@ -556,26 +568,23 @@ export default function CutPage({
                   删除片段
                 </button>
               </div>
-              <TimeField
-                label="开始"
-                value={selection.start}
-                onCommit={(t) =>
-                  setSelection((s) => ({
-                    start: Math.min(Math.max(0, t), s.end - 0.1),
-                    end: s.end,
-                  }))
-                }
-              />
-              <TimeField
-                label="结束"
-                value={selection.end}
-                onCommit={(t) =>
-                  setSelection((s) => ({
-                    start: s.start,
-                    end: Math.min(Math.max(t, s.start + 0.1), duration || t),
-                  }))
-                }
-              />
+              <TimeField label="开始" value={selection.start} onCommit={commitStart} />
+              <TimeField label="结束" value={selection.end} onCommit={commitEnd} />
+              {/* 开始/结束=当前帧（M14-4）：与 I/O 键、数字输入共用同一条钳制回调 */}
+              <button
+                type="button"
+                onClick={() => commitStart(currentTime)}
+                className={`${SECONDARY_BTN} mb-0.5`}
+              >
+                开始=当前帧
+              </button>
+              <button
+                type="button"
+                onClick={() => commitEnd(currentTime)}
+                className={`${SECONDARY_BTN} mb-0.5`}
+              >
+                结束=当前帧
+              </button>
               {removeMode ? (
                 <button
                   type="button"
