@@ -1,4 +1,4 @@
-# 用例：工作台流水线与任务系统（TC-037 – TC-038、TC-044）
+# 用例：工作台流水线与任务系统（TC-037 – TC-038、TC-044、TC-048）
 
 > 运行前置、驱动方式与断言口径见 [README.md](./README.md) §2–§4。
 > 覆盖规格：[DESIGN.md](../DESIGN.md) §3.6（任务队列）· §3.8（工作台流水线）；[FFMPEG.md](../FFMPEG.md) §6.3⑨⑩。
@@ -97,3 +97,37 @@
 - 断言优先读 **`<video>` 元素状态 + 按钮文案**，它们比读数可靠（读数是 M11-3 的**离散镜像**，播放中本就不更新）。
 - 想抓"谁没调 `play`"，可运行时包一层 `HTMLMediaElement.prototype.play/pause` 记录调用与 `Error().stack`——本次正是靠它把 `onPause` 的误判钉死的。
 - `value` 原生 setter + `input` 事件能改受控 range；但**文本输入框**用合成事件改不动 React state（提交时仍是旧值），改文本字段要走真实键鼠（`cdp.js mouse/key/type`）并**先 focus**。
+
+---
+
+## TC-048 渲染即预览（`M12-2`）
+
+- **覆盖**：`FR-1760`（自动渲染真实成品并播放）· `FR-1761`（回退与手动精确预览）· `FR-1762`（任务隔离与缓存）
+- **夹具**：`video/merge_test_a.mp4` + `video/merge_test_b.mp4`（同参数，可无损 concat）
+- **前置**：按 [README.md](./README.md) §2.2 起应用（dev 构建 + CDP）；每步驱动前先 `{"focus":"video-cut"}`
+- **缓存目录**：`%LOCALAPPDATA%\com.hippo.video-cut\cache\preview\`（`app_cache_dir`）
+
+### 步骤
+
+1. 工作台加两个夹具 → 各剪一段（**不加旋转/放大/裁剪**）→ 时间轴 2 段，页脚检测汇总应为 **✓ 全程无损**。
+2. 停手约 2s（`waitFor` 页脚出现「渲染预览中…」→「渲染预览就绪」，超时按 15s 给）。
+3. 断言预览区**只有一个 `<video>`** 且其 `src` 指向 `cache/preview/*.mp4`（不是源文件）：
+   `[...document.querySelectorAll("video")].length === 1` 且 `src.includes("/preview/")`。
+4. 播放一次：跨片段边界**不停顿**（本用例只有 2 段，重点看第 1 段末尾不回落「播放」）；播到末尾正常停止。
+5. 编辑时间轴（`C` 切割 / 拖动块重排）→ 观察旧 preview 文件被取代：`cache/preview/` 下**只剩一个** `.mp4`（`read_dir` 计数），且预览在新渲染就绪后继续可播。
+6. **重编码回退**：给某片段加旋转（非恒等）→ 页脚汇总变 ⚠ → 断言**不出现**「渲染预览中…」，预览区回到双 `<video>` 虚拟连播，提示条写明"含重编码片段，已回退近似预览"。
+7. **手动精确预览**：点页脚「精确预览」→ 出现「渲染预览中…」→ 就绪后预览区回到单文件分支。
+8. **任务隔离**：全程断言任务面板（`TaskProgress`）**行数不因预览变化**；同时手动点「合成导出」→ 导出正常完成且**恰好一条**历史记录（预览不产生历史）。
+9. **缓存**：设置页缓存统计的「渲染预览」占用 > 0；点「清理缓存」后回 0，且 `cache/preview/` 为空。
+
+### 断言（量化）
+
+- 预览 `<video>` 的 `src` **命中缓存目录**（而非任何源文件路径）。
+- 预览产物的 `format.duration` == 各片段时长之和（±0.5s，可用 `ffprobe` 复核缓存文件）。
+- 跨片段边界处**播放按钮恒为「暂停」**（不得回落到「播放」）。
+- 预览渲染期间**任务面板无新增行**；历史条数不增加。
+- `cache/preview/` 里 `.mp4` 数量恒为 **1**（新编辑取代旧文件）。
+
+### 现状
+
+⏳ **真机半待跑**（实现 2026-10-05 落地）。**自动半已就绪**：`previewRender` 9 条 Vitest（无损才自动渲染 / 同签名不重复提交 / 同签名失败不自动重试 / 签名一变立刻回落）· `task/manager.rs` 7 条单测（优先级优先挑选、低优先级不饿死、同 key 复用、异 key 取代、取代后新登记存活、排队中取代不跑作业体、internal 的 pipeline 任务不进 snapshot）· e2e `preview_pipeline_full_chain`（copy+重编码 → normalize → concat 落预览目录，断言时长/可解码/容器 mp4）· `pipeline.rs` 单测 `sweep_preview_dir_keeps_only_current_token`（只留当前令牌）。

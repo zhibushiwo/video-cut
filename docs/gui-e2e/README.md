@@ -80,7 +80,7 @@ FP=src-tauri/target/debug/ffprobe.exe
 | --- | --- | --- |
 | TC-030 · TC-031 · TC-032 · TC-033 | [cases-import-cut.md](./cases-import-cut.md) | 导入与探测 · 极速剪切（含关键帧吸附）· 精确剪切 · 多片段与命名 |
 | TC-034 · TC-035 · TC-036 | [cases-merge-rotate-zoom.md](./cases-merge-rotate-zoom.md) | 合并（一致性检测/无损拼接/自动统一）· 旋转（元数据/重编码）· 局部放大 |
-| TC-037 · TC-038 · TC-044 | [cases-workbench-task.md](./cases-workbench-task.md) | 工作台多片段合成导出 · 任务面板与取消/历史落盘 · 成品连播跨片段边界（`BUG-014` 回归） |
+| TC-037 · TC-038 · TC-044 · TC-048 | [cases-workbench-task.md](./cases-workbench-task.md) | 工作台多片段合成导出 · 任务面板与取消/历史落盘 · 成品连播跨片段边界（`BUG-014` 回归）· 渲染即预览（M12-2） |
 
 ## 4. 断言口径（统一，勿各写各的）
 
