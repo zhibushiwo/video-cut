@@ -51,8 +51,25 @@ export function EditModeView({
   /** 区间内相对时间 → 源内时间（钳在区间内，拖不到外面） */
   const toSrc = (rel: number) => rangeStart + Math.min(Math.max(0, rel), rangeLen);
 
+  /**
+   * 「起播回退」待办（`BUG-017`）：`seek()` 是异步的，若 seek 回入点后**立刻** `play()`，
+   * 播放器仍会先用**旧位置**（恰好停在出点）上报一次 → 命中下面的越界判定 → 刚起播就被
+   * 自己按停（表现为"进度条回到原点、按钮没变、视频不动"，从中间剪的段因 seek 慢而稳定复现）。
+   * 故改成：置此标志 + seek 回入点，等 `onTime` 报出**已落回入点附近**再真正 `play()`。
+   */
+  const pendingPlayRef = useRef(false);
+
   const handleTime = (t: number) => {
     setCurrent(t);
+    if (pendingPlayRef.current) {
+      // 等 seek 落地：位置回到入点附近才起播；期间不参与越界判定
+      if (Math.abs(t - (seg ? seg.start : 0)) <= 0.3) {
+        pendingPlayRef.current = false;
+        playerRef.current?.play();
+        setPlaying(true);
+      }
+      return;
+    }
     // 仅播放中触发：暂停态拖动进度越过出点不打断（再按播放会先回入点）
     if (seg && playing && t >= seg.end) {
       if (loop) {
@@ -69,10 +86,15 @@ export function EditModeView({
       playerRef.current?.pause();
       setPlaying(false);
     } else {
-      // 区间内预览：起播点在区间外（含播完暂停在出点）时先回到入点
+      // 区间内预览：起播点在区间外（含播完暂停在出点）时先回到入点。
+      // 这一步**不能** seek 完立刻 play（见 pendingPlayRef 注释）：交给 handleTime 在
+      // seek 落地后起播。若 seek 迟迟不落地，标志会保持、playing 仍为 false，
+      // 用户再点一次走下面的直通分支即可自愈（不会卡死）。
       if (seg && (current < seg.start - 0.02 || current >= seg.end - 0.02)) {
+        pendingPlayRef.current = true;
         playerRef.current?.seek(seg.start);
         setCurrent(seg.start);
+        return;
       }
       playerRef.current?.play();
       setPlaying(true);
@@ -191,12 +213,14 @@ export function EditModeView({
           <button type="button" onClick={togglePlay} className={fieldBtn}>
             {playing ? "暂停" : "播放"}
           </button>
-          {/* 刻度 = 片段区间（`BUG-016`）：`toRel`/`toSrc` 负责与源内时间互转并钳在区间内 */}
+          {/* 刻度 = 片段区间（`BUG-016`）：`toRel`/`toSrc` 负责与源内时间互转并钳在区间内。
+              `step="any"`（`BUG-017`）：片段长度（如 3.017）通常不是 0.05 的整数倍，用固定 step
+              会把取值吸附到网格上（3.017→3.00），播到出点时拇指就**差一小截到不了最右端**。 */}
           <input
             type="range"
             min={0}
             max={rangeLen}
-            step={0.05}
+            step="any"
             value={toRel(current)}
             onChange={(e) => {
               const t = toSrc(Number(e.target.value));
