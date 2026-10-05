@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTauriEvent } from "./useTauriEvent";
-import { cancelTask, onTaskStatus, submitTask } from "../services/tauri";
+import { appendFrontendLog, cancelTask, onTaskStatus, submitTask } from "../services/tauri";
 import type { PipelineItem, QualityPreset } from "../types";
 import { decidePreview } from "../utils/previewRender";
 
@@ -101,13 +101,30 @@ export function usePreviewRender(opts: {
     onTaskStatus((p) => {
       const tid = taskIdRef.current;
       const k = taskKeyRef.current;
-      if (!tid || p.taskId !== tid) return; // 旧任务的事件一律忽略
-      taskIdRef.current = null;
+      // 诊断留痕（M12-2）：真机曾出现"任务在日志里完成、前端却停在渲染中"。这里**无条件**
+      // 记录每个终态事件（含 id 比对），下一跑可直接判定：事件到底没到、还是 id 没匹配上。
+      // 排查完请连同本段一起删除（见 gui-e2e `TC-048`）。
+      if (p.status !== "pending" && p.status !== "running") {
+        void appendFrontendLog(
+          "debug",
+          `[preview] 终态事件 pid=${p.taskId} tid=${tid ?? "null"} match=${p.taskId === tid} status=${p.status} outputs=${p.outputs.length} key=${String(k).slice(0, 16)}`,
+        );
+      }
+      if (!tid || p.taskId !== tid) return; // 旧任务 / 别人的事件一律忽略
+      // 只有真正"落地"的分支才清 taskIdRef——否则一旦落到没分支的情形会永久卡死，
+      // 且后续重复事件也再匹配不上（taskIdRef 已清空）
       if (p.status === "completed" && p.outputs[0]) {
+        taskIdRef.current = null;
         setRenderedSrc(p.outputs[0]);
         setReadyKey(k);
         setPhase("ready");
+      } else if (p.status === "completed") {
+        // 完成但没带产物：按失败处理，避免停在"渲染中"
+        taskIdRef.current = null;
+        setPhase("failed");
+        setFailedKey(k);
       } else if (p.status === "failed" || p.status === "cancelled") {
+        taskIdRef.current = null;
         setPhase("failed");
         setFailedKey(k);
       }
