@@ -276,6 +276,7 @@ for (const [file, rows] of SCANNED) {
   const PLANNED = new Set([
     'docs/REVIEW.md',        // INDEX §6.2 升级口子：评审成常规流程时才建
     'docs/archive/bugs.md',  // BUGS.md §5：首次归档 verified 条目时按需创建
+    'src/hooks/usePreviewRender.ts', // M12-2c：渲染即预览的 hook；M12-2a 先落方案文档时会引用到它
   ]);
   const PREFIX = /^(src|src-tauri|scripts|docs|public|video)\//;
   let total = 0;

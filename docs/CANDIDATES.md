@@ -61,7 +61,7 @@
 | # | 候选 | 说明 | 量级 | 状态 |
 | --- | --- | --- | --- | --- |
 | CAND-014（原 B14） | ~~核心链路 e2e 自动化~~ → M8 已实现 | 用夹具真实跑「剪切→合并→pipeline」断言输出时长/可解码；防重构回归的保险（落地形式见 FFMPEG.md §6.6 / 决策 #23） | 中 | accepted |
-| CAND-015（原 B15） | 评审遗留 P2 收尾 | 调度线程 panic 加固、16bit 高位深判定、**asset scope 收窄 + CSP（公开发布前必做）**、check_pipeline facts 缓存（已并入 M12-2）、expand_video_inputs 条数上限（明细见 [PLAN.md](./PLAN.md) 评审修复批次 R3） | 中 | evaluating |
+| CAND-015（原 B15） | 评审遗留 P2 收尾 | 调度线程 panic 加固、16bit 高位深判定、**asset scope 收窄 + CSP（公开发布前必做）**、~~check_pipeline facts 缓存~~（**M12-2 复查后关闭**：已由 probe LRU 覆盖，见 [TIMELINE.md](./TIMELINE.md) §17.7）、expand_video_inputs 条数上限（明细见 [PLAN.md](./PLAN.md) 评审修复批次 R3） | 中 | evaluating |
 | CAND-016（原 B16） | README 截图 | 界面稳定后补功能截图 | 小 | idea |
 
 ### 不做（记录避免反复讨论，状态 = `rejected`）

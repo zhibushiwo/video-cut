@@ -5,9 +5,9 @@
 > **读时机**：任何改动前的上位规格；新会话先读本文（地图见 [INDEX.md](./INDEX.md)）。
 > **写规则**：行为规格变化就地改本文并同步对应 FR/AC（一条一行）；实现级方案进 `plans/`，进度进 [PLAN.md](./PLAN.md)，决策进 [DECISIONS.md](./DECISIONS.md)。
 > **关联**：[INDEX.md](./INDEX.md)（地图与 ID 规范） · [../AGENTS.md](../AGENTS.md)（工程红线） · 下位：FFMPEG / UI / TIMELINE / plans
-> **最后更新**：2026-09-28（§3.2 新增 `FR-326`/`AC-326-1` 保留式裁剪（删除模式，`CAND-020` 晋升 / `ADR-037`）——含"删除起点精确、终点向上对齐关键帧"的边界口径；同日 §3.5 新增 `FR-354`/`AC-354-1` 放大结果的双态预览、§3.8 成品预览收紧为"画面即裁切结果"（`BUG-015` 依据）、§8.3 合并/工作台默认命名口径（`ADR-035`/`ADR-036`，方案见 [plans/M14.md](./plans/M14.md)）；此前 2026-09-25：§7 `TaskStatus` 删除无构造点的 `Probing` 变体（R2-5））
+> **最后更新**：2026-10-05（**M12-2 渲染即预览**：§7 `Pipeline` 加 `preview` 字段、§8.2 补"低优先级（proxy/preview）优先挑选不抢占"与"同源单例 `submit_internal_singleton`（新编辑取代旧任务）"、历史落盘改为**按 internal 跳过**；§6 命令表的 `cache_usage`/`clear_cache` 纳入 `preview/`。规格 `FR-1760`~`FR-1762` 在 [TIMELINE.md](./TIMELINE.md) §17.6/§17.9，方案见 [plans/M12.md](./plans/M12.md)）；2026-09-28（§3.2 新增 `FR-326`/`AC-326-1` 保留式裁剪（删除模式，`CAND-020` 晋升 / `ADR-037`）——含"删除起点精确、终点向上对齐关键帧"的边界口径；同日 §3.5 新增 `FR-354`/`AC-354-1` 放大结果的双态预览、§3.8 成品预览收紧为"画面即裁切结果"（`BUG-015` 依据）、§8.3 合并/工作台默认命名口径（`ADR-035`/`ADR-036`，方案见 [plans/M14.md](./plans/M14.md)）；此前 2026-09-25：§7 `TaskStatus` 删除无构造点的 `Probing` 变体（R2-5））
 
-> 状态：M0–M9 已实现（M4-5 实机冒烟、M6-7 e2e 与 M7/M9 验收归用户手测）；M10（保活+深浅主题）已立项**暂缓**（决策 #32）；M11–M13（单轨装配时间线）——`M11` 实施全部完成（`M11-0`–`M11-9` ✅，帧预算真机半 ⏳ 待用户发起）；行为规格见 [TIMELINE.md](./TIMELINE.md)、实施方案见 [plans/M11.md](./plans/M11.md)；`M12`/`M13` 待实施。**M14（交互完善批次）已立项**（2026-09-28，用户六条反馈：页面重置/换素材 · 默认命名 · 入出点快捷键按钮 · 放大双态预览 · 片段池手柄语义 · 连播缺陷），方案见 [plans/M14.md](./plans/M14.md)、任务见 [PLAN.md](./PLAN.md)。**M15（保留式裁剪）已立项并列为最高优先级**（2026-09-28，`CAND-020` 晋升），方案见 [plans/M15.md](./plans/M15.md)。
+> 状态：M0–M9 已实现（M4-5 实机冒烟、M6-7 e2e 与 M7/M9 验收归用户手测）；M10（保活+深浅主题）已立项**暂缓**（决策 #32）；M11–M13（单轨装配时间线）——`M11` 实施全部完成（`M11-0`–`M11-9` ✅，帧预算真机半 ⏳ 待用户发起）；行为规格见 [TIMELINE.md](./TIMELINE.md)、实施方案见 [plans/M11.md](./plans/M11.md)；**`M12` 实施中**（`M12-2` 渲染即预览，规格 `FR-1760`~`FR-1762`，方案见 [plans/M12.md](./plans/M12.md)）、`M12-1`/`M12-3` 与 `M13` 待实施。**M14（交互完善批次）已立项**（2026-09-28，用户六条反馈：页面重置/换素材 · 默认命名 · 入出点快捷键按钮 · 放大双态预览 · 片段池手柄语义 · 连播缺陷），方案见 [plans/M14.md](./plans/M14.md)、任务见 [PLAN.md](./PLAN.md)。**M15（保留式裁剪）已立项并列为最高优先级**（2026-09-28，`CAND-020` 晋升），方案见 [plans/M15.md](./plans/M15.md)。
 >
 > **章节号沿用拆分前的编号**（§6 / §9 / §14–§18 已迁出主规格：§6 → FFMPEG.md，§9 → UI.md，§14 已并入 PLAN.md，§15 → DECISIONS.md（决策），§16 → CANDIDATES.md（候选池），§17 → TIMELINE.md（时间线行为规格），§18 → plans/M11.md（M11 实施方案）），故本文编号不连续——以旧引用对照为准。引用格式：同文件写 `§N`，跨文件写 `文件名 §N`。
 >
@@ -348,7 +348,7 @@ src-tauri/src/
 | `check_merge` / `check_pipeline` | 合并/工作台导出前检测（参数一致性 + 无损判定） | `inputs` / `items: Vec<PipelineItem>` | `MergeComparison` / `PipelineCheck` |
 | `expand_video_inputs` | 拖入目录递归展开为视频文件列表（M7-7，≤8 层、跳过隐藏项、排序） | `paths: Vec<String>` | `Vec<String>` |
 | `file_exists` | 导出前同名检测（M7-4，决定是否追加时间戳） | `path: String` | `bool` |
-| `cache_usage` / `clear_cache` | 缓存占用统计 / 一键清理（M4-8，含代理与缩略图，占用文件跳过并计数） | — | `CacheUsage` / `CacheClearResult` |
+| `cache_usage` / `clear_cache` | 缓存占用统计 / 一键清理（M4-8 含代理与缩略图；**M12-2 起含渲染预览** `preview/`，占用文件跳过并计数） | — | `CacheUsage` / `CacheClearResult` |
 | `append_frontend_log` | 前端错误转发落盘（M4-7，失败静默防循环） | `level: String, message: String` | — |
 | `open_log_dir` | 打开日志目录（任务面板入口，plugin-opener） | — | — |
 | `list_history` / `clear_history` | 任务历史读取 / 清空（M4-2） | — | `Vec<HistoryEntry>` / — |
@@ -439,12 +439,13 @@ pub enum VideoTask {
     Rotate { input: String, rotate_deg: i32, hflip: bool, vflip: bool, output: String, transcode: bool, quality: QualityPreset, encoder: Option<String> },
     CropZoom { input: String, x: u32, y: u32, width: u32, height: u32, out_width: Option<u32>, out_height: Option<u32>, quality: QualityPreset, output: String, encoder: Option<String> },
     // 工作台流水线：逐片段处理 → 定向统一 → concat（§3.8）
-    Pipeline { items: Vec<PipelineItem>, output: String, quality: QualityPreset, encoder: Option<String> },
+    // preview = 渲染即预览（M12-2）：输出改写到 app_cache_dir/preview、任务 internal（不进历史与面板）、
+    // 低优先级排队；`output` 在 preview 模式下被忽略（由后端按令牌生成缓存路径）。见 TIMELINE.md §17.6
+    Pipeline { items: Vec<PipelineItem>, output: String, quality: QualityPreset, encoder: Option<String>, preview: bool },
 }
 
 // 各变体的 `encoder` = 设置中锁定的编码器（M4-1）；None = 按位深自动探测（UI.md §9.9）。
 // 除 Merge 外的四类都带此字段——Merge 的“自动统一”硬编码 libx264（范围见 UI.md §9.9）。
-// 待 M12-2 追加：Pipeline 增加 `preview: bool`（渲染即预览，输出到缓存目录，见 TIMELINE.md §17.6）。
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -500,12 +501,12 @@ Pending ──▶ Running ──▶ Completed
 
 ### 8.2 实现要点（manager.rs / worker.rs）
 
-- **任务实体与标识**：运行中 = `TaskHandle`（进程内）/ 对外快照 = `TaskSnapshot` / 终态落盘 = `HistoryEntry`（结构见 §7）；实例标识 = `taskId`（`t<毫秒十六进制><两位序号>`，如 `t18f3a2b5c01`），类型维度 = `kind` 白名单（`cut`/`merge`/`rotate`/`crop_zoom`/`pipeline`，内部另有 `proxy`）；文档层不为它设独立命名空间。
+- **任务实体与标识**：运行中 = `TaskHandle`（进程内）/ 对外快照 = `TaskSnapshot` / 终态落盘 = `HistoryEntry`（结构见 §7）；实例标识 = `taskId`（`t<毫秒十六进制><两位序号>`，如 `t18f3a2b5c01`），类型维度 = `kind` 白名单（`cut`/`merge`/`rotate`/`crop_zoom`/`pipeline`，内部另有 `proxy`）；文档层不为它设独立命名空间。**渲染即预览（M12-2）沿用 `pipeline` 这个 kind、以 internal 标记区分**——故历史落盘必须**按 internal 跳过**，不能只看 kind 白名单。
 - `TaskManager` 持有 `Mutex<HashMap<TaskId, TaskHandle>>` + pending 队列，通过 `tauri::State` 注入；任务句柄存子进程 PID + 取消信号。**锁统一 = `parking_lot`**（R3-6，全仓 `Mutex`/`Condvar`）：不中毒 ⇒ 不再有「裸 unwrap / into_inner / 静默吞」三种中毒策略并存的问题，作业体 panic（R4-1 隔离）也不会把锁永久毒化
-- **内部任务提交入口（`submit_internal`，R3-2/R3-3）**：内部任务（当前唯一用户 = 代理生成）经此提交，带两重语义——① **kind + key 去重**：同 `(kind, dedup_key)` 已有活动任务时不重复提交、直接复用既有 `taskId`（前端事件订阅天然共享），登记表 `(kind, key) → taskId` 由 TaskManager 持有、在任务终态（完成/失败/取消，含排队中被取消）统一回收——调用方不再自建 HashMap 簿记 + cleanup 钩子；② **面板与关闭守卫不可见**：internal 任务不进 `list_tasks`（任务面板补元数据、关闭窗口确认均不可见），但 task-status / task-progress 事件照常派发（代理完成切换画面的订阅方依赖它），payload 带 `internal` 标记供前端过滤展示。
+- **内部任务提交入口（`submit_internal`，R3-2/R3-3）**：内部任务（当前唯一用户 = 代理生成）经此提交，带两重语义——① **kind + key 去重**：同 `(kind, dedup_key)` 已有活动任务时不重复提交、直接复用既有 `taskId`（前端事件订阅天然共享），登记表 `(kind, key) → taskId` 由 TaskManager 持有、在任务终态（完成/失败/取消，含排队中被取消）统一回收——调用方不再自建 HashMap 簿记 + cleanup 钩子；② **面板与关闭守卫不可见**：internal 任务不进 `list_tasks`（任务面板补元数据、关闭窗口确认均不可见），但 task-status / task-progress 事件照常派发（代理完成切换画面的订阅方依赖它），payload 带 `internal` 标记供前端过滤展示。**M12-2 扩展**：① **低优先级**——内部任务（`proxy` / 渲染即预览）入队时标低优先级，调度**优先挑选普通任务**，只有没有普通任务待跑时才启动低优先级，且**不抢占**（已在跑的任务不被中断；低优先级可能被持续饿死，属刻意取舍）；② **同源单例（`submit_internal_singleton`）**——渲染即预览要求"**新编辑取代旧任务**"（这与 `submit_internal` 的"复用既有任务"相反），故新增入口：同 `(kind, key)` 且仍活动则复用既有 `taskId`（React StrictMode 双提交幂等），key 变化则**在同一临界区内**取消旧任务、改登新 key 并入队。
 - **取消**：向子进程发 kill（Windows 下 kill 即终止），随后**删除该任务已产生的 `.part` 半成品**；任务内最后一个子进程退出后状态置 Cancelled
 - **半成品保护**（NFR-007）：所有输出先写 `<name>.part.<令牌>.<扩展名>`（令牌 = `temp_token`，防同名输出并发互写；保留真实扩展名供 ffmpeg 推断封装格式），ffmpeg 正常退出后 rename 为最终文件名——保证输出目录永远没有"看起来完整实际损坏"的文件。**唯一例外**：代理预览写 `<hash>.part.mp4`（无令牌，输出名本身已按源路径 hash 唯一）
-- **并发控制**（NFR-006）：全局并发上限 **2**（stream copy 是 IO 密集，重编码是 CPU/GPU 密集，统一限 2 足够；代理生成任务优先级最低，排队尾）
+- **并发控制**（NFR-006）：全局并发上限 **2**（stream copy 是 IO 密集，重编码是 CPU/GPU 密集，统一限 2 足够）；**优先级**——代理生成与渲染即预览为**低优先级**，调度优先挑选普通任务（用户导出/加工），低优先级只在其后启动且不抢占（M12-2，见上条）
 - **磁盘空间预检**（NFR-008，B2/M8 推广到全部输出型任务）：检查在**任务作业线程内**执行（运行时而非提交时——排队期间磁盘状态可能变化）；空间不足直接 Failed 并提示，不再编码中途失败留半成品。估算规则（公共函数 `require_disk_space`，cut/rotate/crop/merge/pipeline/proxy 共用）：
 
   | 任务 | 估算 |
