@@ -5,7 +5,7 @@
 > **读时机**：要真机跑一遍关键功能时；改动剪切/合并/旋转/放大/工作台导出后做交付前验证时；排查"界面说的和产物不一致"时。
 > **写规则**：新增用例先在 TESTING.md §3.5 登记 TC 号与一句话覆盖，再在本目录补步骤与断言；**用例号不复用**；断言必须落到**可比对的量化值**（时长/流数/编码/分辨率/pts），禁止只写"能正常播放"。
 > **关联**：[INDEX.md](../INDEX.md)（ID 与地图） · [TESTING.md](../TESTING.md)（TC 清单、夹具、回归组） · 上位 [DESIGN.md](../DESIGN.md)（AC） · [BUGS.md](../BUGS.md)（缺陷） · 工具技能 `windows-computer-use`
-> **最后更新**：2026-09-21（回填 TC-030/TC-031 的修复与复验结果）
+> **最后更新**：2026-10-05（新增 TC-044 成品连播跨片段边界：步骤 / 断言 / 修复前后证据 / 复现要点——`BUG-014` 回归，根因见 [BUGS.md](../BUGS.md)）
 
 ---
 
@@ -80,7 +80,7 @@ FP=src-tauri/target/debug/ffprobe.exe
 | --- | --- | --- |
 | TC-030 · TC-031 · TC-032 · TC-033 | [cases-import-cut.md](./cases-import-cut.md) | 导入与探测 · 极速剪切（含关键帧吸附）· 精确剪切 · 多片段与命名 |
 | TC-034 · TC-035 · TC-036 | [cases-merge-rotate-zoom.md](./cases-merge-rotate-zoom.md) | 合并（一致性检测/无损拼接/自动统一）· 旋转（元数据/重编码）· 局部放大 |
-| TC-037 · TC-038 | [cases-workbench-task.md](./cases-workbench-task.md) | 工作台多片段合成导出 · 任务面板与取消/历史落盘 |
+| TC-037 · TC-038 · TC-044 | [cases-workbench-task.md](./cases-workbench-task.md) | 工作台多片段合成导出 · 任务面板与取消/历史落盘 · 成品连播跨片段边界（`BUG-014` 回归） |
 
 ## 4. 断言口径（统一，勿各写各的）
 

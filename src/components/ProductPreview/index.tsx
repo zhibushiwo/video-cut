@@ -378,8 +378,11 @@ export default function ProductPreview({
               playsInline
               className="h-full w-full bg-black"
               onPause={() => {
-                // 外部暂停（如页面隐藏保活）同步回播放状态（M10-1）；位置也落进离散镜像
-                if (name === slot) {
+                // 外部暂停（如页面隐藏保活）同步回播放状态（M10-1）；位置也落进离散镜像。
+                // 身份判定必须读 slotRef（switchTo 内同步更新），不能用 slot state：switchTo 会
+                // pause 离场槽，其 pause 事件到达时 React state 可能还没跟上 → 把"自己停离场槽"
+                // 误判成"外部暂停"，playing 被置 false，连播在片段边界停住（BUG-014）
+                if (name === slotRef.current) {
                   cbsRef.current.onPlayingChange(false);
                   syncDiscreteFromVideo();
                 }
@@ -392,10 +395,10 @@ export default function ProductPreview({
                   pendingSeekRef.current[name] = null;
                 }
                 if (v) v.playbackRate = rateRef.current; // 新媒体加载重置倍率 → 补挂（M11-8）
-                if (name === slot && playingRef.current) void v?.play();
+                if (name === slotRef.current && playingRef.current) void v?.play();
               }}
               onEnded={() => {
-                if (name !== slot) return;
+                if (name !== slotRef.current) return;
                 const next = segIdxRef.current + 1;
                 const es = entriesRef.current;
                 const ne = es[next];
