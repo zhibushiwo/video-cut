@@ -115,6 +115,12 @@ export default function ProductPreview({
   // 倍率 ref：onLoadedMetadata（新媒体加载重置 playbackRate）与槽切换时补挂用
   const rateRef = useRef(playbackRate);
   rateRef.current = playbackRate;
+  /**
+   * 渲染即预览（M12-2）是否生效：为真时预览区只有**一个成品文件** `<video>`，
+   * 双槽虚拟连播整体停用。**必须在此处（所有 effect 之前）求值**——下面的 seek / 播放
+   * effect 都要把它放进 deps 数组，而 deps 是在渲染期求值的。
+   */
+  const renderedActive = renderedSrc !== null && renderedSrc !== "";
   // 双槽都挂（预载槽播下一段时沿用同一倍率）；槽切换换活动元素后再补一次
   useEffect(() => {
     for (const v of [videoA.current, videoB.current]) if (v) v.playbackRate = playbackRate;
@@ -229,17 +235,23 @@ export default function ProductPreview({
     [switchTo],
   );
 
-  // 外部 seek 请求（时间轴点击 / 进入页面同步播放头）
+  // 外部 seek 请求（时间轴点击 / 进入页面同步播放头）。
+  // **渲染即预览时直接跳过**：那条路走双槽映射（`seekInternal` 会切槽、改 slot 状态），
+  // 而渲染态下双槽根本没挂载——渲染态自己的 seek 请求由下面的单文件 effect 处理。
   useEffect(() => {
-    if (!seekRequest) return;
+    if (renderedActive || !seekRequest) return;
     seekInternal(seekRequest.t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [seekRequest?.nonce]);
+  }, [renderedActive, seekRequest?.nonce]);
 
   // 播放/暂停跟随活动槽；播放→暂停的沿把实时位置落进离散镜像（§18.4：暂停时读数与
   // 进度条要对齐实际位置）。用沿触发避免"暂停中切槽"（跨段 seek 的 switchTo）误报位置。
   const prevPlayingRef = useRef(false);
+  // `renderedActive` 必须在 deps 里：渲染态下 videoA/videoB 未挂载（本 effect 早退），
+  // 从渲染态**切回虚拟连播**时若不重跑，新挂载的双槽拿不到 play()，rAF tick 又因
+  // `v.paused` 空转 → 播放头冻住（与 BUG-014 同形的死锁）。
   useEffect(() => {
+    if (renderedActive) return;
     const v = slot === "a" ? videoA.current : videoB.current;
     if (!v) return;
     if (playing) void v.play();
@@ -248,7 +260,7 @@ export default function ProductPreview({
       if (prevPlayingRef.current) syncDiscreteFromVideo();
     }
     prevPlayingRef.current = playing;
-  }, [playing, slot, syncDiscreteFromVideo]);
+  }, [playing, slot, renderedActive, syncDiscreteFromVideo]);
 
   // rAF 驱动播放头；越界切下一段 / 结尾停止
   useEffect(() => {
@@ -337,7 +349,6 @@ export default function ProductPreview({
   // ---------- 渲染即预览（M12-2）：真实成品**单文件**播放 ----------
   // 成品是一个连续 mp4，播放头 = 视频时间，不需要源内映射；复用同一套 playheadRef
   // 直写 DOM / 进度条 / 播放按钮契约（与双槽分支保持一致的手感）。
-  const renderedActive = renderedSrc !== null && renderedSrc !== "";
   const renderedVideoRef = useRef<HTMLVideoElement>(null);
   const [renderedMeta, setRenderedMeta] = useState<{
     w: number;
@@ -362,6 +373,13 @@ export default function ProductPreview({
     if (playing) void v.play();
     else v.pause();
   }, [renderedActive, playing, renderedSrc]);
+
+  // 倍率也要挂到成品文件上（K/L 走带）：否则控制条显示「1.5×」而实速仍是 1×
+  useEffect(() => {
+    if (!renderedActive) return;
+    const v = renderedVideoRef.current;
+    if (v) v.playbackRate = playbackRate;
+  }, [renderedActive, renderedSrc, playbackRate]);
 
   // 外部 seek（时间轴点击 / 进度条）：成品时间即视频时间
   useEffect(() => {
@@ -531,6 +549,8 @@ export default function ProductPreview({
                 const v = renderedVideoRef.current;
                 if (!v) return;
                 setRenderedMeta({ w: v.videoWidth, h: v.videoHeight, dur: v.duration });
+                // 新媒体加载会把 playbackRate 重置回 1 → 补挂（与双槽分支同一个坑）
+                v.playbackRate = rateRef.current;
                 // 元数据就绪时若已在播放态，补一次 play（与双槽分支同一个坑）
                 if (playingRef.current) void v.play();
               }}
