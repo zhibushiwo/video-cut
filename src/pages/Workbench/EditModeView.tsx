@@ -38,6 +38,18 @@ export function EditModeView({
   // 片段区间内预览（M9-5）：越过出点自动暂停；循环 = 回到入点继续播
   const [loop, setLoop] = useState(false);
   const seg = clip.seg;
+  /**
+   * 区间内预览的**时间刻度**（`BUG-016` / UI.md §9.8）：进度条、时间读数与键盘走带
+   * 一律以**片段区间**为准，不是整源——此前刻度按整源画，用户选了个 5 秒的片段却看到
+   * 30 秒的条，而且能拖到区间外再被"弹回"入点。`seg = null`（全段片段）时退化为整源。
+   */
+  const rangeStart = seg ? seg.start : 0;
+  const rangeEnd = seg ? seg.end : info.durationSec;
+  const rangeLen = Math.max(0, rangeEnd - rangeStart);
+  /** 源内时间 → 区间内相对时间（0..rangeLen） */
+  const toRel = (t: number) => Math.min(Math.max(0, t - rangeStart), rangeLen);
+  /** 区间内相对时间 → 源内时间（钳在区间内，拖不到外面） */
+  const toSrc = (rel: number) => rangeStart + Math.min(Math.max(0, rel), rangeLen);
 
   const handleTime = (t: number) => {
     setCurrent(t);
@@ -69,12 +81,14 @@ export function EditModeView({
 
   // 快捷键（M4-3，片段加工）：走带共用块见 usePlaybackHotkeys（无页面专属键）
   const frameStep = info.video.frameRate > 0 ? 1 / info.video.frameRate : 1 / 30;
+  // 键盘走带同样以区间为界（否则 ←/→ 仍能走到区间外，与刻度自相矛盾）
   usePlaybackHotkeys({
-    currentTime: current,
-    maxT: info.durationSec,
+    currentTime: toRel(current),
+    maxT: rangeLen,
     frameStep,
     onTogglePlay: togglePlay,
-    onSeek: (t) => {
+    onSeek: (rel) => {
+      const t = toSrc(rel);
       playerRef.current?.seek(t);
       setCurrent(t);
     },
@@ -177,18 +191,23 @@ export function EditModeView({
           <button type="button" onClick={togglePlay} className={fieldBtn}>
             {playing ? "暂停" : "播放"}
           </button>
+          {/* 刻度 = 片段区间（`BUG-016`）：`toRel`/`toSrc` 负责与源内时间互转并钳在区间内 */}
           <input
             type="range"
             min={0}
-            max={info.durationSec}
+            max={rangeLen}
             step={0.05}
-            value={Math.min(current, info.durationSec)}
-            onChange={(e) => playerRef.current?.seek(Number(e.target.value))}
+            value={toRel(current)}
+            onChange={(e) => {
+              const t = toSrc(Number(e.target.value));
+              playerRef.current?.seek(t);
+              setCurrent(t);
+            }}
             aria-label="播放进度"
             className="h-1 min-w-0 flex-1 cursor-pointer accent-signal"
           />
           <span className="shrink-0 font-mono text-[10px] text-mute">
-            {formatTime(current, false)} / {formatTime(info.durationSec, false)}
+            {formatTime(toRel(current), false)} / {formatTime(rangeLen, false)}
           </span>
           {seg && (
             <button
