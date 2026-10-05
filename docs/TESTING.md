@@ -5,7 +5,7 @@
 > **读时机**：写/改测试前；跑一次完整验证前；需要给出"这条验收过了吗"的结论时。
 > **写规则**：新增测试或验收组时追加 TC 行并写明 `引用 AC`（缺陷驱动的写在 §3.4，标注 `关联 BUG-0NN`）；TC 号不复用；只记**验收/回归级**用例——单元测试留在代码里（`cargo test` 即执行记录），不抄进本文。
 > **关联**：[INDEX.md](./INDEX.md)（ID 与地图） · 上位 [DESIGN.md](./DESIGN.md) · 进度 [PLAN.md](./PLAN.md) · 缺陷 [BUGS.md](./BUGS.md) · 夹具规范 [FFMPEG.md](./FFMPEG.md) §6.6
-> **最后更新**：2026-09-28（**文档精简**：`TC-022`/`TC-028`/`TC-024` 的边界矩阵注记块压缩为 3 行摘要——精确期望值与不变量断言已在 `src/utils/crop.test.ts` / `src/utils/media.test.ts` 用例内，本文按写规则"单元测试不抄进本文"只留披露与对照数字；同批新增 `TC-047`（M15 保留式裁剪：纯函数自动半 + 删除流手工半，§3.2）与 `TC-044`/`TC-045`（`BUG-014`/`BUG-015` 回归，§3.4）、`TC-046`（M14 批次手工验收，§3.2）；此前 2026-09-25：`M11-9` 新增 `TC-043`（撤销预算计量自动半已测 + 帧预算真机半 ⏳）；同日：`M11-8` 新增 `TC-042`、修复 TC-041/042 熔行；同日：`M11-7` 计数 25→27、`M11-6` 新增 `TC-041`、`T-004` 固化 TC-022/024/028 矩阵；2026-09-24：`M11-0` 新增 `TC-040` 撤销基线）
+> **最后更新**：2026-09-28（**文档精简**：`TC-022`/`TC-028`/`TC-024` 的边界矩阵注记块压缩为 3 行摘要——精确期望值与不变量断言已在 `src/utils/crop.test.ts` / `src/utils/media.test.ts` 用例内，本文按写规则"单元测试不抄进本文"只留披露与对照数字；同批新增 `TC-047`（M15 保留式裁剪：纯函数自动半 + 删除流手工半，§3.2）与 `TC-044`/`TC-045`（`BUG-014`/`BUG-015` 回归，§3.4）、`TC-046`（M14 批次手工验收，§3.2）；同日 `M15-1` 落地：§1 的用例清单补 `utils/removal`（TC-047 自动半），并把陈旧的后端单测计数 81 校正为 90（§3.1 `TC-004` 的口径）；此前 2026-09-25：`M11-9` 新增 `TC-043`（撤销预算计量自动半已测 + 帧预算真机半 ⏳）；同日：`M11-8` 新增 `TC-042`、修复 TC-041/042 熔行；同日：`M11-7` 计数 25→27、`M11-6` 新增 `TC-041`、`T-004` 固化 TC-022/024/028 矩阵；2026-09-24：`M11-0` 新增 `TC-040` 撤销基线）
 
 ---
 
@@ -15,8 +15,8 @@
 | --- | --- | --- |
 | 类型检查 | `node_modules/.bin/tsc --noEmit`（或 `pnpm build`） | 前端类型与未使用变量（`noUnusedLocals`/`noUnusedParameters`） |
 | 静态检查 | `pnpm lint`（`eslint .`） | react-hooks 依赖、`@tauri-apps/*` 只允许 `services/` 内导入 |
-| 前端单测 | `pnpm test`（`vitest run`） | 命令层与工具层的**纯函数**单测（用例在 `src/**/*.test.ts`：`undo/commands` · `utils/array` · `utils/paths` · `utils/crop`（TC-022/028 矩阵） · `utils/media`（TC-024 矩阵））；受限环境用 `node node_modules/vitest/vitest.mjs run`；配置在 `vitest.config.ts`（node 环境，不含 DOM） |
-| 后端全量 | `cd src-tauri && cargo test` | **81 个单测 + 5 条 e2e**（Windows 计数：含 2 条 `#[cfg(windows)]` 同一性用例）；需要 sidecar 的用例（e2e 与 `commands::media` 的缩略图回归）在 sidecar 缺失时打印 skip 并通过 |
+| 前端单测 | `pnpm test`（`vitest run`） | 命令层与工具层的**纯函数**单测（用例在 `src/**/*.test.ts`：`undo/commands`（TC-040/041） · `utils/`（`array` · `paths` · `time` · `perf` · `crop` TC-022/028 矩阵 · `media` TC-024 矩阵 · **`removal` TC-047 派生链**） · `components/ClipTimeline/geometry`）；受限环境用 `node node_modules/vitest/vitest.mjs run`；配置在 `vitest.config.ts`（node 环境，不含 DOM） |
+| 后端全量 | `cd src-tauri && cargo test` | **90 个单测 + 5 条 e2e**（Windows 计数：含 2 条 `#[cfg(windows)]` 同一性用例）；需要 sidecar 的用例（e2e 与 `commands::media` 的缩略图回归）在 sidecar 缺失时打印 skip 并通过 |
 | 真实素材冒烟（可选，默认不跑） | `cd src-tauri && cargo test --test real_media_smoke -- --ignored --nocapture --test-threads=1` | `tests/real_media_smoke.rs` 8 条用例全部 `#[ignore]`（默认只编译）；按 `command.rs` 真实参数构建器打真实素材，约 3.5 分钟，缺 `video/` 素材自动跳过 |
 | 端到端应用 | `pnpm tauri dev` | 手测与 UI 验收 |
 | 真机 GUI 自动化 | 见 [gui-e2e/README.md](./gui-e2e/README.md) §2（沙箱关闭 + CDP 调试端口 + 驱动脚本） | 关键功能的端到端回归，断言"界面显示值 == 产物实测值"；用例见 §3.5 |
