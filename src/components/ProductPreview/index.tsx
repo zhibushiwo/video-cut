@@ -582,7 +582,22 @@ export default function ProductPreview({
           onPointerCancel={() => {
             draggingRef.current = false;
           }}
-          onChange={(e) => seekInternal(Number(e.target.value))}
+          onChange={(e) => {
+            const t = Number(e.target.value);
+            if (!renderedActive) {
+              seekInternal(t);
+              return;
+            }
+            // 渲染即预览（M12-2）：成品时间即视频时间——直接改 currentTime，
+            // 不能再走 `seekInternal`（那是"成品内↔源内"的双槽映射，这里没有源内可言）
+            const v = renderedVideoRef.current;
+            if (v) {
+              const dur = v.duration;
+              v.currentTime =
+                Number.isFinite(dur) && dur > 0 ? Math.min(Math.max(0, t), dur) : t;
+            }
+            cbsRef.current.onPlayhead(t);
+          }}
           aria-label="成品播放进度"
           className="h-1 min-w-0 flex-1 cursor-pointer accent-signal"
         />
