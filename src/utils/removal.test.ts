@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MIN_SEG_DURATION_SEC } from "./time";
 import {
+  actualRemovalOf,
   complementIntervals,
   normalizeRemovals,
   planRemoval,
@@ -262,6 +263,41 @@ describe("planRemoval（三态门禁）", () => {
     });
     expect(plan.blocked).toBe("nothing-left");
     expect(plan.keeps).toEqual([]);
+  });
+});
+
+describe("actualRemovalOf（删除列表逐行的实际删除区间）", () => {
+  it("标记被吸附延伸时，取到并段后的那一段（终点是吸附后的 K）", () => {
+    const plan = planRemoval({
+      ...base,
+      marks: [{ start: 10, end: 19.3 }],
+      keyframes: kfEvery2s(),
+    });
+    expect(actualRemovalOf(plan.removals, { start: 10, end: 19.3 })).toEqual({
+      start: 10,
+      end: 20,
+    });
+  });
+
+  it("两条标记并成一段删除时，各自都映射到同一段（延伸量由 UI 用 K − b 表达）", () => {
+    const plan = planRemoval({
+      ...base,
+      marks: [
+        { start: 10, end: 20 },
+        { start: 20.02, end: 30 },
+      ],
+      keyframes: kfEvery2s(),
+    });
+    expect(plan.removals).toEqual([{ start: 10, end: 30 }]);
+    expect(actualRemovalOf(plan.removals, { start: 10, end: 20 })).toEqual({ start: 10, end: 30 });
+    expect(actualRemovalOf(plan.removals, { start: 20.02, end: 30 })).toEqual({
+      start: 10,
+      end: 30,
+    });
+  });
+
+  it("无对应区间 ⇒ null（类型兜底）", () => {
+    expect(actualRemovalOf([], { start: 1, end: 2 })).toBeNull();
   });
 });
 

@@ -7,6 +7,17 @@ export interface Selection {
   end: number;
 }
 
+/**
+ * 删除模式（保留式裁剪 `FR-326`）的**只读**标记：`start`/`end` = 用户标记要删的区间，
+ * `actualEnd` = 吸附后的**实际删除终点**（起点侧不吸附——删除起点精确，终点向上对齐关键帧，
+ * 实施设计见 plans/M15.md §20.1.3）。
+ */
+export interface RemovalMark {
+  start: number;
+  end: number;
+  actualEnd: number;
+}
+
 interface TimelineProps {
   duration: number;
   /** 关键帧时间点（秒，升序），来自 list_keyframes */
@@ -21,6 +32,8 @@ interface TimelineProps {
    * 要求"UI 事先展示实际落点"；重编码路径（帧级精确）不要传。
    */
   realStart?: number;
+  /** 删除模式的标记色带（只读；不传即旧行为——提取式剪切页与工作台都不传） */
+  removalMarks?: RemovalMark[];
   onSelectionChange: (sel: Selection) => void;
   onSeek: (t: number) => void;
 }
@@ -69,6 +82,7 @@ export default function Timeline({
   currentTime,
   snap,
   realStart,
+  removalMarks,
   onSelectionChange,
   onSeek,
 }: TimelineProps) {
@@ -182,6 +196,24 @@ export default function Timeline({
             className="absolute bottom-1.5 h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-signal/80"
             style={{ left: pct(t) }}
           />
+        ))}
+        {/* 删除模式的只读标记（FR-326 / M15-2）：warn 色带 = 标记区间；warn 虚线 = 终点向上吸附出的延伸 */}
+        {removalMarks?.map((m) => (
+          <div key={`mark-${m.start}-${m.end}`} className="pointer-events-none">
+            <div
+              className="absolute bottom-0 top-0 border-x border-warn/50 bg-warn/15"
+              style={{ left: pct(m.start), width: `calc(${pct(m.end)} - ${pct(m.start)})` }}
+            />
+            {m.actualEnd > m.end + 1e-9 && (
+              <div
+                className="absolute bottom-0 top-0 border-r border-dashed border-warn/70 bg-warn/10"
+                style={{
+                  left: pct(m.end),
+                  width: `calc(${pct(m.actualEnd)} - ${pct(m.end)})`,
+                }}
+              />
+            )}
+          </div>
         ))}
         {/* 选中区间 */}
         <div

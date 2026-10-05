@@ -227,3 +227,18 @@ export function planRemoval(args: PlanRemovalArgs): RemovalPlan {
   // 防御分支（数学上不可达：保留段数量每轮严格减少）；宁可不导出，也不下发未收敛的段
   return blockedPlan(complementIntervals([], durationSec), "nothing-left");
 }
+
+/**
+ * 某条标记对应的**实际删除区间**：最终 `removals` 中包含它的那一段。
+ *
+ * 并段（重叠/相邻标记、碎片吸收）后可能比这条标记更长——删除列表逐行显示
+ * "标记 `[a,b]` · 实际删除 `[a, K]` · 延伸 `K − b`"（`NFR-004` 口径：删除终点向后延伸
+ * 了多少必须让用户看得见）。理论上恒能找到（`removals` = 保留段的补集，覆盖全部标记），
+ * 返回 `null` 只是类型兜底。
+ */
+export function actualRemovalOf(
+  removals: readonly Interval[],
+  mark: Interval,
+): Interval | null {
+  return removals.find((r) => r.start <= mark.start + NEAR && r.end >= mark.end - NEAR) ?? null;
+}
