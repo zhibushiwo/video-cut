@@ -129,6 +129,36 @@ export function realCutStart(start: number, keyframes: number[]): number {
 }
 
 /**
+ * 无损（stream copy）删除的**保留段起点下界对齐**：取 ≥ t 的最近关键帧；不存在返回 `null`。
+ *
+ * 与 [`realCutStart`]（向下取 ≤ t、宁可多留）**方向相反，两者不得混用**（`FR-326` /
+ * `ADR-037`，推导见 plans/M15.md §20.1.3）：copy 路径下 `-ss`（输入侧）落到 ≤ 请求时刻的
+ * 最近关键帧、`-t` 又按请求时长截取 ⇒ 输出窗口**整体前移**（头部残留本该删掉的内容、尾部
+ * 被啃短）。要让"标记删除的内容一点不残留"，保留段起点必须 **≥ 删除终点**——直接把它设在
+ * 关键帧上，净效果 = 删除起点精确、终点向后延伸（多删 ≤ 1 个 GOP）。
+ *
+ * @param t 删除区间的终点（秒）
+ * @param keyframes `list_keyframes` 返回的关键帧时间点（**升序**）
+ */
+export function nextKeyframeAtOrAfter(t: number, keyframes: readonly number[]): number | null {
+  let lo = 0;
+  let hi = keyframes.length - 1;
+  let best: number | null = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const kf = keyframes[mid];
+    if (kf === undefined) break;
+    if (kf >= t) {
+      best = kf;
+      hi = mid - 1; // 还能更小，继续往左找
+    } else {
+      lo = mid + 1;
+    }
+  }
+  return best;
+}
+
+/**
  * 判定"实际落点 vs 选区入点算不算同一时刻"的容差（秒）。
  *
  * 关键帧 pts 会被界面的毫秒格式舍掉尾数（`1.319333` → 显示 `1.319`），这个量级的差

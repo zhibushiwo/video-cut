@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatTimecode } from "./time";
+import { formatTimecode, nextKeyframeAtOrAfter, realCutStart } from "./time";
 
 describe("formatTimecode（总帧数时间码，TIMELINE.md §17.3）", () => {
   it("零点与普通时刻", () => {
@@ -29,5 +29,31 @@ describe("formatTimecode（总帧数时间码，TIMELINE.md §17.3）", () => {
     expect(formatTimecode(1, 29.97)).toBe("00:00:01:00");
     // 锁住两种读法的分歧：100s@29.97 → 总帧 2997（非 3000）→ 00:01:39:27
     expect(formatTimecode(100, 29.97)).toBe("00:01:39:27");
+  });
+});
+
+describe("nextKeyframeAtOrAfter（保留段起点向上对齐，FR-326）", () => {
+  const kf = [0, 2, 4, 6];
+
+  it("命中：取 ≥ t 的最近关键帧；恰在关键帧上取自身", () => {
+    expect(nextKeyframeAtOrAfter(3, kf)).toBe(4);
+    expect(nextKeyframeAtOrAfter(4, kf)).toBe(4);
+    expect(nextKeyframeAtOrAfter(4.0001, kf)).toBe(6);
+  });
+
+  it("t ≤ 首个关键帧 ⇒ 首个；t 超过最后一个 ⇒ null（调用方按片尾处理）", () => {
+    expect(nextKeyframeAtOrAfter(-1, kf)).toBe(0);
+    expect(nextKeyframeAtOrAfter(0, kf)).toBe(0);
+    expect(nextKeyframeAtOrAfter(7, kf)).toBeNull();
+  });
+
+  it("空表 / 非有限 t ⇒ null（不抛、不返回非法关键帧）", () => {
+    expect(nextKeyframeAtOrAfter(1, [])).toBeNull();
+    expect(nextKeyframeAtOrAfter(Number.NaN, kf)).toBeNull();
+  });
+
+  it("与 realCutStart 方向相反：同一 t 一个向上、一个向下（不得混用）", () => {
+    expect(realCutStart(3, kf)).toBe(2); // 提取式：宁可多留
+    expect(nextKeyframeAtOrAfter(3, kf)).toBe(4); // 删除式：宁多删不残留
   });
 });
