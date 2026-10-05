@@ -8,6 +8,7 @@ import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useHotkeys } from "../../hooks/useHotkeys";
 import { useProxyPreview } from "../../hooks/useProxyPreview";
 import {
+  checkPipeline,
   fileExists,
   fileSrc,
   listKeyframes,
@@ -16,7 +17,14 @@ import {
   probeMedia,
   submitTask,
 } from "../../services/tauri";
-import type { AppSettings, CutMode, MediaInfo, PipelineItem, Segment } from "../../types";
+import type {
+  AppSettings,
+  CutMode,
+  MediaInfo,
+  PipelineCheck,
+  PipelineItem,
+  Segment,
+} from "../../types";
 import { audioSummary, needsProxy, videoSummary, wantsProxy } from "../../utils/media";
 import { basename, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
 import { actualRemovalOf, planRemoval, type Interval } from "../../utils/removal";
@@ -244,6 +252,60 @@ export default function CutPage({
     [removalRows],
   );
 
+  /**
+   * 保留段 → pipeline items（同源、无变换 ⇒ 命中 `plan_items` 规则 A 全 copy）。
+   * 导出与无损性校验**共用同一份**，避免两处各拼一遍 payload（T-005 的收敛口径）。
+   */
+  const removalItems = useMemo<PipelineItem[]>(
+    () =>
+      inputPath && removalPlan && removalPlan.blocked === null
+        ? removalPlan.keeps.map((k) => ({
+            input: inputPath,
+            segment: { startSec: k.start, endSec: k.end },
+            rotateDeg: 0,
+            hflip: false,
+            vflip: false,
+            crop: null,
+            outWidth: null,
+            outHeight: null,
+          }))
+        : [],
+    [inputPath, removalPlan],
+  );
+
+  /**
+   * 导出前校验（`M15-3`）：规则 A 下必然全 copy，这一步是**校验 + 徽标**、不做静默假设
+   * （防抖 400ms，与工作台同款写法）。命中 `!allLossless` 时徽标改「重编码」并列出原因。
+   */
+  const [pipeCheck, setPipeCheck] = useState<PipelineCheck | null>(null);
+  const [checkError, setCheckError] = useState<string | null>(null);
+  useEffect(() => {
+    setPipeCheck(null);
+    setCheckError(null);
+    if (removalItems.length === 0) return;
+    let alive = true;
+    const timer = setTimeout(() => {
+      checkPipeline(removalItems)
+        .then((c) => {
+          if (alive) setPipeCheck(c);
+        })
+        .catch((err: unknown) => {
+          if (alive) setCheckError(String(err));
+        });
+    }, 400);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [removalItems]);
+
+  /** 编辑态与导出徽标共用：`null`（还没校验出来）= 按规则 A 的预期显示"无损" */
+  const lossless = removeMode ? pipeCheck?.allLossless !== false : cutMode === "fast";
+  const checkReasons =
+    pipeCheck && !pipeCheck.allLossless
+      ? [...pipeCheck.warnings, ...pipeCheck.items.flatMap((i) => i.reasons)].filter(Boolean)
+      : [];
+
   /** 门禁原因（导出按钮禁用时显示；文案见 UI.md §9.4 门禁表） */
   const gateReason =
     !removeMode || !removalPlan || removalPlan.blocked === null
@@ -296,25 +358,15 @@ export default function CutPage({
    * 目标已存在时按决策 #19 只加时间戳（`resolveUniqueTarget`，不静默覆盖）。
    */
   const startRemovalExport = async () => {
-    if (!inputPath || !outputDir || !removalPlan || removalPlan.blocked !== null) return;
+    if (!inputPath || !outputDir || removalItems.length === 0) return;
     setSubmitting(true);
     setError(null);
     try {
-      const items: PipelineItem[] = removalPlan.keeps.map((k) => ({
-        input: inputPath,
-        segment: { startSec: k.start, endSec: k.end },
-        rotateDeg: 0,
-        hflip: false,
-        vflip: false,
-        crop: null,
-        outWidth: null,
-        outHeight: null,
-      }));
       const dir = outputDir.replace(/[\\/]+$/, "");
       const target = await resolveUniqueTarget(dir, removalOutputName(inputPath), fileExists);
       await submitTask({
         type: "pipeline",
-        items,
+        items: removalItems,
         output: target,
         quality: settings.quality,
         encoder: settings.encoder === "auto" ? null : settings.encoder,
@@ -574,6 +626,23 @@ export default function CutPage({
                         </span>
                       ))}
                     </div>
+                    {/* 无损性校验（M15-3）：规则 A 下必然全 copy；与实际不符就如实显示 */}
+                    <div className="mt-1">
+                      {pipeCheck?.allLossless ? (
+                        <span className="text-signal">
+                          ✓ 全程无损（同源、无变换 ⇒ 全部 stream copy）
+                        </span>
+                      ) : pipeCheck ? (
+                        <span className="text-warn">
+                          ⚠ 检测到需重编码的段
+                          {checkReasons.length > 0 ? `：${checkReasons.join("；")}` : ""}
+                        </span>
+                      ) : checkError ? (
+                        <span className="text-warn">无损性检测失败：{checkError}</span>
+                      ) : (
+                        <span>正在校验无损性…</span>
+                      )}
+                    </div>
                   </div>
                 )}
               </>
@@ -607,12 +676,12 @@ export default function CutPage({
         </button>
         <span
           className={`rounded border px-1.5 py-0.5 text-xs ${
-            removeMode || cutMode === "fast"
+            lossless
               ? "border-signal/30 bg-signal/10 text-signal"
               : "border-warn/30 bg-warn/10 text-warn"
           }`}
         >
-          {removeMode || cutMode === "fast" ? "无损" : "重编码"}
+          {lossless ? "无损" : "重编码"}
         </span>
         {removeMode ? (
           <button
