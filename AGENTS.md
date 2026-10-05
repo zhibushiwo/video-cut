@@ -5,7 +5,7 @@
 > **读时机**：每次接手任务前；准备动 `ffmpeg/`、`task/`、IPC 层之前必须读完 §3。
 > **写规则**：只在"红线、命令、完事标准、流程"变化时改本文；每条尽量一行，能指向文档就指向。**不写规格、不写进度**。
 > **关联**：[docs/INDEX.md](docs/INDEX.md)（文档地图与 ID 规范） · [docs/PLAN.md](docs/PLAN.md)（进度与任务） · [docs/HANDOFF.md](docs/HANDOFF.md)（当前状态）
-> **最后更新**：2026-09-26（§2/§4 补 `cargo fmt --check` 入流程；第 8 条补 `submit_internal`，R3-2/R3-3）
+> **最后更新**：2026-10-05（§2 补 `pnpm version:bump`，含 `--changelog`；§3 新增第 22 条「版本号单一真源 = package.json」；§5.1 新增发版流程）
 
 ---
 
@@ -37,6 +37,7 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 | Rust 格式化 / 检查 | `cd src-tauri && cargo fmt` / `cargo fmt --check`（pre-commit 自动跑检查，R3-6） |
 | 下载/更新 sidecar FFmpeg | `pwsh scripts/fetch-ffmpeg.ps1` |
 | 生成测试夹具 | `pwsh scripts/gen-fixtures.ps1` |
+| 升级版本号（同步 `package.json` / `Cargo.toml`） | `pnpm version:bump <patch/minor/major/x.y.z>`（`--dry-run` 只预览；加 `--changelog` 连带切 `docs/CHANGELOG.md` 的 `[Unreleased]`；真源与红线见 §3 第 22 条） |
 
 ## 3. 红线（改动前必读）
 
@@ -79,6 +80,10 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 
 21. **输入侧与输出侧的 `-ss` 格式化必须分开**：**输入侧** seek（copy 路径 `cut_args` / `pipeline_copy_args`）走 `command::fmt_seek`（**+1µs、6 位小数**）；**输出侧** seek 与 `-t` 走 `fmt_sec`（3 位小数）。输入侧语义是"落到 ≤ 请求时刻的最近关键帧"，而关键帧 pts 常非整毫秒（`tb=1/60000` 下 5.753333），被三位小数舍到请求时刻**之前**就会退到**再前一个**关键帧。见 [BUGS.md](docs/BUGS.md) `BUG-007`（界面 2.7s / 产物 4.036s）。新增带输入侧 seek 的构建器都要补"`-ss` 严格大于请求时刻"的参数序列断言。
 
+**版本与打包**（2026-10-05 补充）
+
+22. **版本号单一真源 = `package.json`**：`src-tauri/tauri.conf.json` 的 `version` 只写 `"../package.json"`（Tauri 据此生成安装包名 `video-cut_<版本>_x64-setup.exe` 与 `getVersion()`），`src-tauri/Cargo.toml` 的版本由脚本同步。**不要手改数字**，一律走 `pnpm version:bump <patch/minor/major/x.y.z>`；不得在 `tauri.conf.json` 写死 semver（会形成第二个真源）。
+
 ## 4. 完事标准
 
 改动**完成**需同时满足：
@@ -95,6 +100,15 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 - 一个 checkbox 一次提交，提交信息前缀用任务号：`M11-3: …` · `R1-4: …` · `T-001: …`（编号规则见 [docs/INDEX.md](docs/INDEX.md) §3）
 - 文档/配置类用 `docs:` / `chore:` 前缀
 - 不跳过 hooks；提交前跑 §4 的三项验证
+
+### 5.1 发版流程
+
+1. `pnpm version:bump <x.y.z> --changelog` —— 同步 `package.json` 与 `src-tauri/Cargo.toml`（`src-tauri/tauri.conf.json` 自动跟随，红线见 §3 第 22 条），并把 `docs/CHANGELOG.md` 的 `[Unreleased]` 切成 `## [x.y.z] - YYYY-MM-DD`、顶部重开空段（`[Unreleased]` 只有占位时会拒绝切段，确要强切加 `--force`）
+2. 补写新 `[Unreleased]` 的「开发中」状态说明（切段时会被清空）
+3. `pnpm tauri build` —— 产物 `video-cut_<x.y.z>_x64-setup.exe`
+4. 干净 Win11 安装冒烟：`NFR-011` · `TC-016`
+
+> 漏切补救：`pnpm version:bump <当前版本> --changelog` —— 版本号与当前相同时只切 CHANGELOG、不动版本号。
 
 ## 6. 改动流程（推荐顺序）
 

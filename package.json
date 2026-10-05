@@ -10,6 +10,7 @@
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
     "check:docs": "node scripts/check-docs.mjs",
+    "version:bump": "node scripts/bump-version.mjs",
     "hooks:install": "git config core.hooksPath .githooks",
     "preview": "vite preview",
     "tauri": "tauri"
