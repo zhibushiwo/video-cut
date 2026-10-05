@@ -86,7 +86,12 @@ export function usePreviewRender(opts: {
       submittedKey: submittedKeyRef.current,
       failedKey,
     });
-    if (!d.autoRender) return;
+    if (!d.autoRender) {
+      // 自愈：当前签名既没被提交、也没有成品时，不该停留在"渲染中"——
+      // 否则页脚会永远显示「渲染预览中…」并把「精确预览」置灰（真机 TC-048 抓到）
+      setPhase((p) => (p === "rendering" ? (readyKey ? "ready" : "idle") : p));
+      return;
+    }
     const timer = window.setTimeout(() => submit(key), PREVIEW_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
   }, [hasEntries, allLossless, key, readyKey, failedKey, submit]);
@@ -130,8 +135,13 @@ export function usePreviewRender(opts: {
     phase,
     /** 是否处于"没在用真实成品"的回退态（供提示条文案） */
     fallback: hasEntries && !decision.useRendered,
-    /** 页脚「精确预览」是否可用 */
-    canRenderNow: hasEntries && items.length > 0 && phase !== "rendering",
+    /**
+     * 页脚「精确预览」是否可用。
+     * **只按"有没有东西可渲染"判定，不受 phase 影响**——渲染中再点一次是安全的
+     * （`submit` 会先取消旧任务，后端同源单例也会取代），而"因为 phase 卡住就把按钮
+     * 永久置灰"会让回退路径没有出口（真机 `TC-048` 抓到的缺陷）。
+     */
+    canRenderNow: hasEntries && items.length > 0,
     renderNow,
   };
 }
