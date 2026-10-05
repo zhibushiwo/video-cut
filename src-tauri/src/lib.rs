@@ -187,6 +187,10 @@ pub enum VideoTask {
         output: String,
         quality: QualityPreset,
         encoder: Option<String>,
+        /// 渲染即预览（M12-2）：输出改写缓存目录、任务 internal、低优先级、新编辑取代旧任务。
+        /// `serde(default)` 保证旧前端载荷（不带该字段）仍可反序列化。
+        #[serde(default)]
+        preview: bool,
     },
 }
 
@@ -216,7 +220,12 @@ pub fn run() {
             app.state::<AppTasks>()
                 .0
                 .set_on_terminal(Box::new(move |h| {
-                    // 代理预览等内部任务不是用户导出，不入历史
+                    // 内部任务（代理生成 / 渲染即预览）不是用户导出，一律不入历史。M12-2：
+                    // 渲染即预览沿用 `kind = "pipeline"`（在白名单里），故必须**先按 internal 拦**，
+                    // 不能只看 kind——否则每次预览都会污染历史记录。
+                    if h.internal {
+                        return;
+                    }
                     if !matches!(
                         h.kind.as_str(),
                         "cut" | "merge" | "rotate" | "crop_zoom" | "pipeline"

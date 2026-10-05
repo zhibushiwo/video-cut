@@ -223,7 +223,27 @@ pub async fn check_pipeline(
     })
 }
 
+/// 渲染即预览的"**只留当前一份**"（M12-2，TIMELINE.md §17.6）：清掉 `dir` 下所有文件名不含
+/// `keep_token` 的文件——即上一轮预览的成品与陈旧 `.part`。本任务用自己的令牌，故不会误删
+/// 自己的半成品；删除失败一律忽略（被 WebView2 占用的文件留给「清理缓存」兜底），
+/// **绝不复用旧文件**（复用会让前端拿到过期画面）。
+pub(crate) fn sweep_preview_dir(dir: &Path, keep_token: &str) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for e in entries.flatten() {
+        if e.file_name().to_string_lossy().contains(keep_token) {
+            continue;
+        }
+        let _ = std::fs::remove_file(e.path());
+    }
+}
+
 /// 提交工作台任务：单任务内串行"逐片段处理 → 定向统一 → concat"（DESIGN §3.8）。
+///
+/// `preview = true` 是**渲染即预览**（M12-2，TIMELINE.md §17.6）：忽略 `output`，产物改写
+/// `<app_cache_dir>/preview/<令牌>.mp4`；任务以 **internal + 低优先级 + 同源单例** 提交
+/// ——不进历史与任务面板、不抢导出并发位、新编辑取代旧预览。
 pub fn submit_pipeline(
     app: AppHandle,
     state: &State<'_, AppTasks>,
@@ -231,6 +251,7 @@ pub fn submit_pipeline(
     output: String,
     quality: QualityPreset,
     locked_encoder: Option<String>,
+    preview: bool,
 ) -> Result<String, String> {
     if items.is_empty() {
         return Err("请先添加视频".into());
@@ -245,27 +266,44 @@ pub fn submit_pipeline(
             }
         }
     }
-    // 输出不得落在任一输入上（同一性比较走 fs::same_path 的归一化，见 R3-7）
-    crate::fs::reject_if_input_equals(
-        Path::new(&output),
-        &items.iter().map(|it| it.input.as_str()).collect::<Vec<_>>(),
-    )?;
-    // 用户请求的输出路径（真正落盘的名字由作业体按容器校正后决定，见下）
-    let requested = PathBuf::from(&output);
+    // 输出不得落在任一输入上（同一性比较走 fs::same_path 的归一化，见 R3-7）。
+    // preview 忽略用户给的 `output`，同一性检查改由作业体对**真实产物路径**做（见下）。
+    if !preview {
+        crate::fs::reject_if_input_equals(
+            Path::new(&output),
+            &items.iter().map(|it| it.input.as_str()).collect::<Vec<_>>(),
+        )?;
+    }
+    // 渲染即预览的内容签名（M12-2）：同一份时间线不重复渲染（React StrictMode 双提交幂等）；
+    // 编辑后签名必变 → 由 `submit_internal_singleton` 触发"取代旧预览"。
+    let dedup_key = format!(
+        "{:016x}",
+        super::fnv1a(serde_json::to_string(&items).unwrap_or_default().as_bytes())
+    );
+    // 输出前导：preview 写缓存目录的 `<令牌>.mp4`；普通导出用用户请求的路径
+    // （真正落盘的名字由作业体按容器校正后决定，见下）。
     let PreparedOutput {
         out_dir,
         out_name,
         token,
         ffmpeg,
         ffprobe,
-    } = super::prepare_output(&requested, &output)?;
+    } = if preview {
+        super::prepare_preview_output(&super::media::preview_cache_dir(&app)?, &dedup_key)?
+    } else {
+        super::prepare_output(&PathBuf::from(&output), &output)?
+    };
 
     // ADR-033：容器要按"有没有片段需要转码"来定，而这只在探测+计划之后才知道；
     // 探测与计划**留在作业体内**（`DESIGN` §8.1/§8.2：按运行时的文件状态做，排队期间文件可能变），
     // 因此最终名与 `.part` 也在作业体内才定（见下面的容器决策）。
     let list_path = out_dir.join(format!(".concat_{token}.txt"));
 
-    let label = format!("工作台 {} 个片段 → {out_name}", items.len());
+    let label = format!(
+        "{} {} 个片段 → {out_name}",
+        if preview { "预览渲染" } else { "工作台" },
+        items.len()
+    );
     let n = items.len();
     log::info!("[pipeline] {label}");
     log::debug!(
@@ -274,6 +312,10 @@ pub fn submit_pipeline(
     );
 
     let job: Job = Box::new(move |ctx: &TaskContext| {
+        // 渲染即预览：**只留当前一份**（M12-2）——先清掉上一轮预览的产物与陈旧 `.part`
+        if preview {
+            sweep_preview_dir(&out_dir, &token);
+        }
         // 磁盘空间预检（DESIGN §8.2）：中间片段与成品并存，峰值 ≈ 2 × Σ片段源大小
         let inputs_size: u64 = items.iter().map(|it| super::file_size(&it.input)).sum();
         super::require_disk_space(&out_dir, inputs_size.saturating_mul(2))?;
@@ -447,12 +489,17 @@ pub fn submit_pipeline(
         // ADR-033：**全 copy 且无需归一化**才跟随源容器；只要有一个片段要转码、**或发生过归一化**
         // （归一化本身就是一次重编码，`ADR-033` ② 把它归在重编码类），成品容器统一 mp4。
         // 命名放在这里定：归一化是否需要只有探测完中间文件才知道（`DESIGN` §8.1/§8.2：按运行时状态）。
-        let container_ext = if plans.iter().all(|p| p.copy) && n_norm == 0 {
+        // 渲染即预览固定 mp4（产物在缓存目录，复用方按 mp4 播放）；普通导出走 ADR-033 的容器决策
+        let container_ext = if !preview && plans.iter().all(|p| p.copy) && n_norm == 0 {
             crate::fs::source_container_ext(&items[0].input)
         } else {
             "mp4".to_string()
         };
-        let out = crate::fs::output_path_for(Path::new(&output), &container_ext);
+        let out = if preview {
+            out_dir.join(&out_name)
+        } else {
+            crate::fs::output_path_for(Path::new(&output), &container_ext)
+        };
         crate::fs::reject_if_input_equals(
             &out,
             &items.iter().map(|it| it.input.as_str()).collect::<Vec<_>>(),
@@ -500,9 +547,15 @@ pub fn submit_pipeline(
         Ok(())
     });
 
-    Ok(state
-        .0
-        .submit(Arc::new(TauriEmitter(app)), "pipeline", &label, job))
+    let sink = Arc::new(TauriEmitter(app));
+    Ok(if preview {
+        // 渲染即预览：internal + 低优先级 + 同源单例（新编辑取代旧任务，且不抢导出并发位）
+        state
+            .0
+            .submit_internal_singleton(sink, "pipeline", &label, &dedup_key, job)
+    } else {
+        state.0.submit(sink, "pipeline", &label, job)
+    })
 }
 
 fn plan_inputs(items: &[PipelineItem], facts: &[MergeFileFacts]) -> Vec<PlanInput> {
@@ -663,5 +716,36 @@ mod tests {
             "format": { "format_name": "mp4", "duration": "10.0", "size": "1000" }
         });
         probe::parse_media_json(&v).unwrap()
+    }
+
+    /// 渲染即预览的"只留当前一份"（M12-2）：只保留当前令牌的文件（含同名 `.part`），
+    /// 上一轮的成品与陈旧 `.part` 一并清掉。
+    #[test]
+    fn sweep_preview_dir_keeps_only_current_token() {
+        let dir = std::env::temp_dir().join(format!("vc-preview-sweep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("aaaa-0001.mp4"), b"old").unwrap();
+        std::fs::write(dir.join("aaaa-0001.mp4.part.aaaa-0001.mp4"), b"stale").unwrap();
+        std::fs::write(dir.join("bbbb-0002.mp4"), b"current").unwrap();
+        std::fs::write(dir.join("bbbb-0002.mp4.part.bbbb-0002.mp4"), b"inflight").unwrap();
+
+        sweep_preview_dir(&dir, "bbbb-0002");
+
+        let mut names: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        assert_eq!(
+            names,
+            vec![
+                "bbbb-0002.mp4".to_string(),
+                "bbbb-0002.mp4.part.bbbb-0002.mp4".to_string()
+            ],
+            "只应留下当前令牌的文件（含其 .part）"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -24,6 +24,22 @@ pub type Killer = Box<dyn FnOnce() + Send>;
 /// 提交方写在作业体里的簿记回收会被整体跳过，故必须由任务系统统一触发。
 pub type Cleanup = Box<dyn FnOnce(&str) + Send>;
 
+/// 任务排队优先级（M12-2）：用户任务 = `Normal`，缓存类内部任务（`proxy` / 渲染即预览）= `Low`。
+/// 调度**优先挑选普通任务**，低优先级只在没有普通任务待跑时才启动，且**不抢占**已在跑的任务。
+/// **仅内部概念**——不进 `StatusPayload` / `TaskSnapshot`，前端契约不变。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Priority {
+    Normal,
+    Low,
+}
+
+/// 排队项（M12-2 起队列带优先级，见 [`Priority`]）。
+struct Queued {
+    id: String,
+    job: Job,
+    priority: Priority,
+}
+
 /// 事件推送抽象：生产环境发 Tauri 事件，测试环境收集断言。
 pub trait EventSink: Send + Sync {
     fn emit_status(&self, payload: &StatusPayload);
@@ -77,6 +93,8 @@ pub struct TaskHandle {
     /// 内部任务（R3-3，如代理生成）：不进 `snapshot()`（任务面板补元数据与关闭守卫
     /// 均不可见），事件照常派发。经 [`TaskManager::submit_internal`] 提交时为 true。
     pub internal: bool,
+    /// 排队优先级（M12-2，见 [`Priority`]）：只影响调度挑选顺序，不改变任务语义。
+    pub priority: Priority,
     killer: Mutex<Option<Killer>>,
     /// 提交时间（unix ms，供 [`crate::history::HistoryEntry`] 使用）。
     pub(crate) created_at: u64,
@@ -202,7 +220,7 @@ pub(crate) type OnTerminal = Box<dyn Fn(&TaskHandle) + Send + Sync>;
 struct Inner {
     tasks: HashMap<String, TaskEntry>,
     order: Vec<String>,
-    queue: VecDeque<(String, Job)>,
+    queue: VecDeque<Queued>,
     running: usize,
     /// kind 维度去重登记表（R3-2）：(kind, dedup_key) → task_id。由 [`TaskManager::
     /// submit_internal`] 登记，条目回收统一在 [`Shared::run_cleanup`]（全部终态路径都经过它，
@@ -331,10 +349,20 @@ impl TaskManager {
         job: Job,
         cleanup: Cleanup,
     ) -> String {
-        self.submit_core(sink, kind, label, None, false, job, Some(cleanup))
+        self.submit_core(
+            sink,
+            kind,
+            label,
+            None,
+            false,
+            Priority::Normal,
+            false,
+            job,
+            Some(cleanup),
+        )
     }
 
-    /// 内部任务的统一提交入口（R3-2/R3-3，当前唯一用户是代理生成）：
+    /// 内部任务的统一提交入口（R3-2/R3-3，当前用户：代理生成、渲染即预览）：
     ///
     /// - **kind + key 去重**：同 `(kind, dedup_key)` 已有活动任务时**不重复提交**，
     ///   直接返回既有 taskId（调用方拿到的是同一任务，事件订阅天然共享）；条目由
@@ -343,6 +371,9 @@ impl TaskManager {
     /// - **面板与关闭守卫不可见**：internal 任务不进 [`TaskManager::snapshot`]
     ///   （list_tasks → 任务面板补元数据、关闭窗口确认都看不到），但 task-status /
     ///   task-progress 事件照常派发，payload 带 `internal` 标记供前端过滤展示（R3-3）。
+    ///
+    /// 备注：本入口按**普通优先级**入队；缓存类任务（代理生成 / 渲染即预览）走
+    /// [`TaskManager::submit_internal_low`]。
     pub fn submit_internal(
         &self,
         sink: Arc<dyn EventSink>,
@@ -351,9 +382,74 @@ impl TaskManager {
         dedup_key: &str,
         job: Job,
     ) -> String {
-        self.submit_core(sink, kind, label, Some(dedup_key), true, job, None)
+        self.submit_core(
+            sink,
+            kind,
+            label,
+            Some(dedup_key),
+            true,
+            Priority::Normal,
+            false,
+            job,
+            None,
+        )
     }
 
+    /// **低优先级**内部任务（M12-2）：缓存类任务（代理生成、渲染即预览）用此入口——
+    /// 调度只在没有普通任务待跑时才启动它们，保证"不抢导出并发位"。
+    pub fn submit_internal_low(
+        &self,
+        sink: Arc<dyn EventSink>,
+        kind: &str,
+        label: &str,
+        dedup_key: &str,
+        job: Job,
+    ) -> String {
+        self.submit_core(
+            sink,
+            kind,
+            label,
+            Some(dedup_key),
+            true,
+            Priority::Low,
+            false,
+            job,
+            None,
+        )
+    }
+
+    /// **同源单例**提交（M12-2，渲染即预览专用）：与 [`TaskManager::submit_internal`] 的区别是
+    /// **新内容取代旧任务**，而不是复用——
+    ///
+    /// - 同 `(kind, key)` 且旧任务仍活动 → 复用旧 taskId（React StrictMode 双提交幂等）；
+    /// - 否则取消**同 kind 的全部活动内部任务**（不限于同 key），再登记新任务。这条是
+    ///   "新编辑取代旧 preview"的落点：key = 时间线内容签名，编辑后 key 必变，只按
+    ///   `(kind, key)` 查表根本找不到旧任务。
+    /// - 取消动作在**同一临界区内**完成（置 cancelled + 出队 + 取 killer），保证不出现
+    ///   "两个活动预览"的窗口；旧任务的终态事件 / 历史 / 清理放到**出锁后**补，避免在临界区里回调。
+    /// - 与其它缓存类任务一样按**低优先级**排队。
+    pub fn submit_internal_singleton(
+        &self,
+        sink: Arc<dyn EventSink>,
+        kind: &str,
+        label: &str,
+        dedup_key: &str,
+        job: Job,
+    ) -> String {
+        self.submit_core(
+            sink,
+            kind,
+            label,
+            Some(dedup_key),
+            true,
+            Priority::Low,
+            true,
+            job,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)] // 私有核心：参数已按语义分组，拆结构体反而更难读
     fn submit_core(
         &self,
         sink: Arc<dyn EventSink>,
@@ -361,6 +457,8 @@ impl TaskManager {
         label: &str,
         dedup_key: Option<&str>,
         internal: bool,
+        priority: Priority,
+        replace_same_kind: bool,
         job: Job,
         cleanup: Option<Cleanup>,
     ) -> String {
@@ -375,20 +473,58 @@ impl TaskManager {
             outputs: Mutex::new(Vec::new()),
             cancelled: AtomicBool::new(false),
             internal,
+            priority,
             killer: Mutex::new(None),
             created_at: crate::history::now_ms(),
             started_at: Mutex::new(0),
             terminal_recorded: AtomicBool::new(false),
         });
+        // 被取代的旧任务：(handle, sink, 是否"排队中就被取代")；终态补齐在出锁后做
+        let mut superseded: Vec<(Arc<TaskHandle>, Arc<dyn EventSink>, bool)> = Vec::new();
+        let mut killers: Vec<Killer> = Vec::new();
         let mut inner = self.shared.inner.lock();
         if let Some(key) = dedup_key {
             let entry_key = (kind.to_string(), key.to_string());
             if let Some(existing) = inner.dedup.get(&entry_key).cloned() {
                 if inner.tasks.get(&existing).is_some_and(TaskEntry::is_active) {
+                    // 同 key 仍活动 = 同一份内容（含 StrictMode 双提交）→ 复用，不重跑
                     return existing;
                 }
                 // 残留条目自愈：理论上 run_cleanup 已回收，防御一次（R1-3 同思路）
                 inner.dedup.remove(&entry_key);
+            }
+            if replace_same_kind {
+                let victims: Vec<String> = inner
+                    .order
+                    .iter()
+                    .filter(|oid| {
+                        inner.tasks.get(*oid).is_some_and(|e| {
+                            e.handle.internal && e.handle.kind == kind && e.is_active()
+                        })
+                    })
+                    .cloned()
+                    .collect();
+                for victim in victims {
+                    let (old_handle, old_sink, was_pending, killer) = {
+                        let Some(entry) = inner.tasks.get(&victim) else {
+                            continue;
+                        };
+                        let old_handle = entry.handle.clone();
+                        let old_sink = entry.sink.clone();
+                        old_handle.cancelled.store(true, Ordering::Relaxed);
+                        let was_pending = *old_handle.status.lock() == TaskStatus::Pending;
+                        let killer = old_handle.killer.lock().take();
+                        (old_handle, old_sink, was_pending, killer)
+                    };
+                    if let Some(k) = killer {
+                        killers.push(k);
+                    }
+                    if was_pending {
+                        *old_handle.status.lock() = TaskStatus::Cancelled;
+                        inner.queue.retain(|q| q.id != victim);
+                    }
+                    superseded.push((old_handle, old_sink, was_pending));
+                }
             }
             inner.dedup.insert(entry_key, id.clone());
         }
@@ -401,8 +537,24 @@ impl TaskManager {
                 cleanup,
             },
         );
-        inner.queue.push_back((id.clone(), job));
+        inner.queue.push_back(Queued {
+            id: id.clone(),
+            job,
+            priority,
+        });
         drop(inner);
+        // 旧任务收尾（出锁后）：先 kill 子进程，再补"排队中就被取代、不会经过执行器"的终态
+        for k in killers {
+            k();
+        }
+        for (old_handle, old_sink, was_pending) in superseded {
+            if was_pending {
+                TaskContext::new(old_handle.clone(), old_sink).emit_status();
+                // 与 cancel 的 Pending 分支同口径：补记终态日志/历史与清理钩子
+                self.shared.record_terminal(&old_handle);
+                self.shared.run_cleanup(&old_handle.id);
+            }
+        }
         TaskContext::new(handle, sink).emit_status();
         self.shared.cv.notify_all();
         id
@@ -422,7 +574,7 @@ impl TaskManager {
             let killer = handle.killer.lock().take();
             if pending {
                 *handle.status.lock() = TaskStatus::Cancelled;
-                inner.queue.retain(|(qid, _)| qid != id);
+                inner.queue.retain(|q| q.id != id);
             }
             (handle, sink, killer, pending)
         };
@@ -486,22 +638,29 @@ fn scheduler_loop(shared: Arc<Shared>) {
             let mut inner = shared.inner.lock();
             loop {
                 // 排队期间被取消的任务直接出队丢弃，不占用并发配额
-                if let Some(pos) = inner.queue.iter().position(|(id, _)| {
+                if let Some(pos) = inner.queue.iter().position(|q| {
                     inner
                         .tasks
-                        .get(id)
+                        .get(&q.id)
                         .is_some_and(|e| e.handle.cancelled.load(Ordering::Relaxed))
                 }) {
                     inner.queue.remove(pos);
                     continue;
                 }
                 if inner.running < shared.max_concurrent {
-                    if let Some((id, job)) = inner.queue.pop_front() {
-                        if let Some(entry) = inner.tasks.get(&id) {
+                    // 优先挑选普通任务（M12-2）：低优先级（proxy / 渲染即预览）只在没有普通
+                    // 任务待跑时才启动——保证"不抢导出并发位"；同类内保持 FIFO，不做抢占。
+                    let idx = inner
+                        .queue
+                        .iter()
+                        .position(|q| q.priority == Priority::Normal)
+                        .unwrap_or(0);
+                    if let Some(q) = inner.queue.remove(idx) {
+                        if let Some(entry) = inner.tasks.get(&q.id) {
                             let handle = entry.handle.clone();
                             let sink = entry.sink.clone();
                             inner.running += 1;
-                            break (id, handle, sink, job);
+                            break (q.id, handle, sink, q.job);
                         }
                     }
                 }
@@ -940,5 +1099,304 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert_eq!(cleaned.load(Ordering::Relaxed), 1);
+    }
+
+    // ---------- M12-2：优先级挑选与同源单例（渲染即预览） ----------
+
+    /// internal 任务不进 `snapshot()`，故按**事件流**等终态（与 `wait_terminal` 同用途）。
+    fn wait_terminal_event(sink: &CollectSink, id: &str, timeout: Duration) -> TaskStatus {
+        let start = Instant::now();
+        loop {
+            if let Some(st) = sink
+                .statuses
+                .lock()
+                .iter()
+                .rev()
+                .find(|(tid, st)| {
+                    tid == id
+                        && matches!(
+                            st,
+                            TaskStatus::Completed | TaskStatus::Failed | TaskStatus::Cancelled
+                        )
+                })
+                .map(|(_, st)| *st)
+            {
+                return st;
+            }
+            assert!(
+                start.elapsed() < timeout,
+                "任务未在时限内到达终态（事件流）"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn normal_priority_selected_before_low() {
+        // 单并发位：谁能上完全取决于优先级挑选，而不是提交顺序
+        let mgr = TaskManager::new(1);
+        let sink: Arc<dyn EventSink> = Arc::new(CollectSink::default());
+        let order: Arc<Mutex<Vec<&'static str>>> = Arc::new(Mutex::new(Vec::new()));
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+
+        let blocker = mgr.submit(
+            sink.clone(),
+            "test",
+            "阻塞",
+            Box::new(move |_| {
+                let _ = rx.recv();
+                Ok(())
+            }),
+        );
+        let mark = |v: &'static str| {
+            let o = order.clone();
+            move |_: &TaskContext| {
+                o.lock().push(v);
+                Ok(())
+            }
+        };
+        // 低优先级**先**提交，普通任务**后**提交 → 普通任务必须先跑
+        let low = mgr.submit_internal_low(
+            sink.clone(),
+            "proxy",
+            "低",
+            "low-key",
+            Box::new(mark("low")),
+        );
+        let normal = mgr.submit(sink.clone(), "test", "普通", Box::new(mark("normal")));
+
+        tx.send(()).unwrap(); // 放行阻塞任务
+        let start = Instant::now();
+        while order.lock().len() < 2 && start.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(
+            *order.lock(),
+            vec!["normal", "low"],
+            "普通任务必须先于低优先级任务启动（不抢导出并发位）"
+        );
+        wait_terminal(&mgr, &[&blocker, &normal], Duration::from_secs(5));
+        let _ = low;
+    }
+
+    #[test]
+    fn low_priority_runs_when_no_normal() {
+        let mgr = TaskManager::new(1);
+        let sink = Arc::new(CollectSink::default());
+        let ran = Arc::new(AtomicUsize::new(0));
+        let r2 = ran.clone();
+        let id = mgr.submit_internal_low(
+            sink.clone(),
+            "proxy",
+            "低",
+            "k",
+            Box::new(move |_| {
+                r2.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }),
+        );
+        assert_eq!(
+            wait_terminal_event(&sink, &id, Duration::from_secs(5)),
+            TaskStatus::Completed
+        );
+        assert_eq!(
+            ran.load(Ordering::Relaxed),
+            1,
+            "没有普通任务待跑时低优先级任务必须能启动（不得饿死）"
+        );
+    }
+
+    #[test]
+    fn singleton_same_key_reuses_active() {
+        let mgr = TaskManager::new(2);
+        let sink = Arc::new(CollectSink::default());
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        let id1 = mgr.submit_internal_singleton(
+            sink.clone(),
+            "pipeline",
+            "预览",
+            "sig-1",
+            Box::new(move |_| {
+                let _ = rx.recv();
+                Ok(())
+            }),
+        );
+        let id2 = mgr.submit_internal_singleton(
+            sink.clone(),
+            "pipeline",
+            "预览",
+            "sig-1",
+            Box::new(|_| Ok(())),
+        );
+        assert_eq!(id1, id2, "同签名仍活动时必须复用（StrictMode 双提交幂等）");
+        tx.send(()).unwrap();
+        assert_eq!(
+            wait_terminal_event(&sink, &id1, Duration::from_secs(5)),
+            TaskStatus::Completed
+        );
+    }
+
+    #[test]
+    fn singleton_new_key_cancels_old() {
+        let mgr = TaskManager::new(2);
+        let sink = Arc::new(CollectSink::default());
+        // 旧预览：等被取消才退出（保证定位在"旧任务仍活动"的路径上）
+        let old = mgr.submit_internal_singleton(
+            sink.clone(),
+            "pipeline",
+            "预览",
+            "sig-1",
+            Box::new(|ctx| {
+                let start = Instant::now();
+                while !ctx.is_cancelled() && start.elapsed() < Duration::from_secs(5) {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Ok(())
+            }),
+        );
+        let new_id = mgr.submit_internal_singleton(
+            sink.clone(),
+            "pipeline",
+            "预览",
+            "sig-2",
+            Box::new(|_| Ok(())),
+        );
+        assert_ne!(old, new_id);
+        assert_eq!(
+            wait_terminal_event(&sink, &old, Duration::from_secs(5)),
+            TaskStatus::Cancelled,
+            "被取代的旧预览必须置 Cancelled"
+        );
+        assert_eq!(
+            wait_terminal_event(&sink, &new_id, Duration::from_secs(5)),
+            TaskStatus::Completed,
+            "新预览必须正常完成"
+        );
+    }
+
+    #[test]
+    fn singleton_replace_keeps_new_dedup_entry() {
+        let mgr = TaskManager::new(2);
+        let sink = Arc::new(CollectSink::default());
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        // 旧预览保持活动，确保发生"取代"
+        let _old = mgr.submit_internal_singleton(
+            sink.clone(),
+            "pipeline",
+            "预览",
+            "sig-1",
+            Box::new(|ctx| {
+                let start = Instant::now();
+                while !ctx.is_cancelled() && start.elapsed() < Duration::from_secs(5) {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Ok(())
+            }),
+        );
+        let new_id = mgr.submit_internal_singleton(
+            sink.clone(),
+            "pipeline",
+            "预览",
+            "sig-2",
+            Box::new(move |_| {
+                let _ = rx.recv();
+                Ok(())
+            }),
+        );
+        // 旧任务的 run_cleanup 可能在新登记之后才跑：它按 value 比对，绝不能删掉 sig-2 的条目
+        let again = mgr.submit_internal_singleton(
+            sink.clone(),
+            "pipeline",
+            "预览",
+            "sig-2",
+            Box::new(|_| Ok(())),
+        );
+        assert_eq!(
+            new_id, again,
+            "取代后新签名的登记必须仍在（旧任务的 run_cleanup 不得误删）"
+        );
+        tx.send(()).unwrap();
+        assert_eq!(
+            wait_terminal_event(&sink, &new_id, Duration::from_secs(5)),
+            TaskStatus::Completed
+        );
+    }
+
+    #[test]
+    fn queued_singleton_cancel_runs_no_job() {
+        let mgr = TaskManager::new(1);
+        let sink = Arc::new(CollectSink::default());
+        let (tx, rx) = std::sync::mpsc::channel::<()>();
+        // 占满唯一并发位，让后面的预览只能排队
+        let blocker = mgr.submit(
+            sink.clone(),
+            "test",
+            "阻塞",
+            Box::new(move |_| {
+                let _ = rx.recv();
+                Ok(())
+            }),
+        );
+        let ran = Arc::new(AtomicUsize::new(0));
+        let r2 = ran.clone();
+        let old = mgr.submit_internal_singleton(
+            sink.clone(),
+            "pipeline",
+            "预览",
+            "sig-1",
+            Box::new(move |_| {
+                r2.fetch_add(1, Ordering::Relaxed);
+                Ok(())
+            }),
+        );
+        assert_eq!(
+            ran.load(Ordering::Relaxed),
+            0,
+            "并发位被占，该任务应还在排队"
+        );
+        let new_id = mgr.submit_internal_singleton(
+            sink.clone(),
+            "pipeline",
+            "预览",
+            "sig-2",
+            Box::new(|_| Ok(())),
+        );
+        assert_eq!(
+            wait_terminal_event(&sink, &old, Duration::from_secs(5)),
+            TaskStatus::Cancelled
+        );
+        assert_eq!(
+            ran.load(Ordering::Relaxed),
+            0,
+            "排队中被取代的任务不得执行作业体"
+        );
+        tx.send(()).unwrap();
+        wait_terminal(&mgr, &[&blocker], Duration::from_secs(5));
+        assert_eq!(
+            wait_terminal_event(&sink, &new_id, Duration::from_secs(5)),
+            TaskStatus::Completed
+        );
+    }
+
+    #[test]
+    fn internal_pipeline_hidden_from_snapshot() {
+        // 预览沿用 kind = "pipeline"（在白名单里），必须靠 internal 而非 kind 从面板/历史排除
+        let mgr = TaskManager::new(1);
+        let sink = Arc::new(CollectSink::default());
+        let id = mgr.submit_internal_singleton(
+            sink.clone(),
+            "pipeline",
+            "预览",
+            "sig",
+            Box::new(|_| Ok(())),
+        );
+        assert!(
+            mgr.snapshot().iter().all(|s| s.id != id),
+            "internal 的 pipeline 任务必须不进 snapshot（否则会出现在任务面板）"
+        );
+        assert_eq!(
+            wait_terminal_event(&sink, &id, Duration::from_secs(5)),
+            TaskStatus::Completed
+        );
     }
 }

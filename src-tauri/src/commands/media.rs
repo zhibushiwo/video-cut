@@ -110,12 +110,24 @@ pub fn expand_video_inputs(paths: Vec<String>) -> Vec<String> {
     out
 }
 
-/// 缓存占用（M4-8，DESIGN §9.9）：代理与缩略图两个缓存目录。
+/// 渲染即预览的缓存子目录名（M12-2）：与 `proxy` / `thumbs` 同级，纳入缓存统计与清理。
+pub(crate) const PREVIEW_SUBDIR: &str = "preview";
+
+/// 渲染即预览的输出目录 `<app_cache_dir>/preview`（M12-2，见 TIMELINE.md §17.6）。
+pub(crate) fn preview_cache_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path()
+        .app_cache_dir()
+        .map(|c| c.join(PREVIEW_SUBDIR))
+        .map_err(|e| format!("无法定位缓存目录：{e}"))
+}
+
+/// 缓存占用（M4-8，DESIGN §9.9）：代理、缩略图与**渲染预览**（M12-2）三个缓存目录。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CacheUsage {
     pub proxy_bytes: u64,
     pub thumb_bytes: u64,
+    pub preview_bytes: u64,
 }
 
 /// 缓存清理结果：被占用跳过的文件数（Windows 文件占用常态）。
@@ -149,6 +161,7 @@ pub fn cache_usage(app: AppHandle) -> Result<CacheUsage, String> {
     Ok(CacheUsage {
         proxy_bytes: dir_size(&cache.join("proxy")),
         thumb_bytes: dir_size(&cache.join("thumbs")),
+        preview_bytes: dir_size(&cache.join(PREVIEW_SUBDIR)),
     })
 }
 
@@ -160,7 +173,11 @@ pub fn clear_cache(app: AppHandle) -> Result<CacheClearResult, String> {
         .map_err(|e| format!("无法定位缓存目录：{e}"))?;
     let mut removed = 0u32;
     let mut skipped = 0u32;
-    for dir in [cache.join("proxy"), cache.join("thumbs")] {
+    for dir in [
+        cache.join("proxy"),
+        cache.join("thumbs"),
+        cache.join(PREVIEW_SUBDIR),
+    ] {
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;
         };
@@ -358,7 +375,7 @@ pub fn generate_proxy(
     let task_id =
         state
             .0
-            .submit_internal(Arc::new(TauriEmitter(app)), "proxy", &label, &input, job);
+            .submit_internal_low(Arc::new(TauriEmitter(app)), "proxy", &label, &input, job);
     Ok(ProxyStart {
         task_id: Some(task_id),
         proxy_path: path_to_string(&output),

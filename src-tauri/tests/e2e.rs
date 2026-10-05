@@ -456,3 +456,90 @@ fn output_container_follows_adr_033() {
     assert_container(fx, &trans_out, "mp4");
     assert_decodable(fx, &trans_out);
 }
+
+/// 链路 5：**渲染即预览**的产物链（M12-2，`FR-1760`/`TC-048` 的自动半）。
+///
+/// 与 `pipeline_full_chain` 同一条「copy 片段 + 带裁剪/翻转的重编码片段 → normalize → concat」，
+/// 但落点换成**预览缓存目录**里的 `<令牌>.mp4`：断言成品落在预览目录、容器固定 mp4、
+/// 时长 = 片段和、全帧可解码。
+///
+/// 交付边界（避免"以为这里覆盖了其实没有"）：**输出路径决策与"只留当前一份"的目录清扫**
+/// 由 `commands/pipeline.rs` 的单测 `sweep_preview_dir_keeps_only_current_token` 覆盖
+/// （`commands` 模块私有，集成测试调不到）；**任务的 internal / 低优先级 / 同源取代**
+/// 由 `task/manager.rs` 的 7 条单测覆盖。
+#[test]
+fn preview_pipeline_full_chain() {
+    let Some(fx) = setup() else {
+        eprintln!("skip: 未找到 sidecar ffmpeg/ffprobe");
+        return;
+    };
+    let preview_dir = fx.dir.join("preview");
+    std::fs::create_dir_all(&preview_dir).unwrap();
+    // 命名对齐 `prepare_preview_output`：成品 `<令牌>.mp4`、中间件带同一令牌
+    let token = "e2e0preview0001-0001";
+    let final_out = preview_dir.join(format!("{token}.mp4"));
+    let seg1 = preview_dir.join(format!(".pipe_{token}_000.mp4"));
+    let seg2 = preview_dir.join(format!(".pipe_{token}_001.mp4"));
+    let seg2n = preview_dir.join(format!(".pipe_{token}_001n.mp4"));
+    let list = preview_dir.join(format!(".concat_{token}.txt"));
+
+    // copy 片段
+    run_ffmpeg(
+        fx,
+        &cmd::pipeline_copy_args(Some((0.0, 2.0)), 0, false, false, &s(&fx.src_a), &s(&seg1)),
+        "preview copy 片段",
+    );
+    let d1 = assert_duration(fx, &seg1, 2.0, 0.3);
+
+    // 重编码片段：裁剪放大（160×120 → 320×240）+ 水平翻转 + timescale 对齐源
+    let facts_a = probe::probe_merge_facts_sync(&fx.ffprobe, &s(&fx.src_a)).unwrap();
+    let base_ts = cmd::parse_timescale(&facts_a.video_time_base);
+    run_ffmpeg(
+        fx,
+        &cmd::pipeline_transcode_args(
+            Some((1.0, 2.0)),
+            0,
+            true,
+            false,
+            Some((0, 0, 160, 120, 320, 240)),
+            "libx264",
+            QualityPreset::Balanced,
+            base_ts,
+            &s(&fx.src_a),
+            &s(&seg2),
+        ),
+        "preview 重编码片段",
+    );
+    assert_decodable(fx, &seg2);
+
+    // 定向统一
+    let facts1 = probe::probe_merge_facts_sync(&fx.ffprobe, &s(&seg1)).unwrap();
+    run_ffmpeg(
+        fx,
+        &cmd::normalize_args(
+            &s(&seg2),
+            facts1.info.video.width,
+            facts1.info.video.height,
+            facts1.info.video.frame_rate,
+            &facts1.info.video.pix_fmt,
+            cmd::parse_timescale(&facts1.video_time_base),
+            &s(&seg2n),
+        ),
+        "preview normalize",
+    );
+    let d2 = assert_duration(fx, &seg2n, 2.0, 0.3);
+
+    std::fs::write(&list, cmd::concat_list_content(&[s(&seg1), s(&seg2n)])).unwrap();
+    run_ffmpeg(
+        fx,
+        &cmd::concat_args(&s(&list), &s(&final_out)),
+        "preview concat",
+    );
+    assert!(
+        final_out.starts_with(&preview_dir),
+        "预览产物必须落在预览缓存目录内"
+    );
+    assert_duration(fx, &final_out, d1 + d2, 0.5);
+    assert_container(fx, &final_out, "mp4");
+    assert_decodable(fx, &final_out);
+}

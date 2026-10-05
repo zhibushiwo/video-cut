@@ -95,6 +95,22 @@ pub(crate) fn prepare_output(
     })
 }
 
+/// **渲染即预览**的输出前导（M12-2）：输出固定落在 `dir`（`<app_cache_dir>/preview`）下，
+/// 名字为 `<令牌>.mp4`（强制 mp4——预览产物在缓存目录，复用方按 mp4 播放）。
+/// 令牌由 `seed`（时间线内容签名）派生**并带提交序号**，故每次提交都指向不同文件：
+/// 旧预览由作业体开头按令牌清理（见 `pipeline.rs`），不会与并发中的新任务互写。
+pub(crate) fn prepare_preview_output(dir: &Path, seed: &str) -> Result<PreparedOutput, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("无法创建预览目录：{e}"))?;
+    let token = pipeline::temp_token(seed);
+    Ok(PreparedOutput {
+        out_dir: dir.to_path_buf(),
+        out_name: format!("{token}.mp4"),
+        token,
+        ffmpeg: command::resolve_sidecar("ffmpeg")?,
+        ffprobe: command::resolve_sidecar("ffprobe")?,
+    })
+}
+
 /// 进度节流间隔（DESIGN §8.2，NFR-009）：~200ms 放行一次。
 const PROGRESS_INTERVAL_MS: u64 = 200;
 

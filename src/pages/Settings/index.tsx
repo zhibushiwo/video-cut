@@ -135,7 +135,7 @@ export default function SettingsPage({
   };
 
   const cacheDesc = usage
-    ? `代理预览与首帧缩略图缓存共 ${formatBytes(usage.proxyBytes + usage.thumbBytes)}（代理 ${formatBytes(usage.proxyBytes)} · 缩略图 ${formatBytes(usage.thumbBytes)}）。清理后预览需要时会自动重新生成。`
+    ? `代理预览、首帧缩略图与渲染预览缓存共 ${formatBytes(usage.proxyBytes + usage.thumbBytes + usage.previewBytes)}（代理 ${formatBytes(usage.proxyBytes)} · 缩略图 ${formatBytes(usage.thumbBytes)} · 渲染预览 ${formatBytes(usage.previewBytes)}）。清理后预览需要时会自动重新生成。`
     : "正在统计代理预览与首帧缩略图缓存的占用…";
 
   return (

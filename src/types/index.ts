@@ -135,10 +135,11 @@ export interface AppSettings {
   accent: AccentChoice;
 }
 
-/** 缓存占用（M4-8，与 Rust CacheUsage 对齐） */
+/** 缓存占用（M4-8；M12-2 起含渲染预览，与 Rust CacheUsage 对齐） */
 export interface CacheUsage {
   proxyBytes: number;
   thumbBytes: number;
+  previewBytes: number;
 }
 
 /** 缓存清理结果：被占用跳过的文件数（Windows 文件占用常态） */
@@ -202,6 +203,9 @@ export type VideoTask =
       output: string;
       quality: QualityPreset;
       encoder: string | null;
+      /** 渲染即预览（M12-2）：输出改写缓存目录、任务 internal/低优先级、新编辑取代旧任务。
+       *  缺省 false（与 Rust 侧的 `#[serde(default)]` 对齐）。 */
+      preview?: boolean;
     };
 
 /** 工作台单项配置（DESIGN §3.8）：裁剪矩形为显示空间像素坐标 */
