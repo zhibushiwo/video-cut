@@ -43,7 +43,7 @@ import type {
 import { moveAt } from "../../utils/array";
 import { cropToPx } from "../../utils/crop";
 import { wantsProxy } from "../../utils/media";
-import { basename, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
+import { basename, resolveOutputDir, resolveUniqueTarget, defaultOutputName } from "../../utils/paths";
 import { createSpanRecorder, formatPerfLine } from "../../utils/perf";
 import { formatTime } from "../../utils/time";
 import {
@@ -110,6 +110,8 @@ export default function WorkbenchPage({
   const [check, setCheck] = useState<PipelineCheck | null>(null);
   const [checkError, setCheckError] = useState<string | null>(null);
   const [outputName, setOutputName] = useState(DEFAULT_OUTPUT_NAME);
+  /** 用户是否手改过输出名（`M14-3`）：改过即停止默认名联动；清空工程时复位 */
+  const nameDirtyRef = useRef(false);
   const [quality, setQuality] = useState<QualityPreset>(settings.quality);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -427,7 +429,8 @@ export default function WorkbenchPage({
     setCheckError(null);
     setSelectedClipId(null);
     setSelectedSources(new Set());
-    setOutputName(DEFAULT_OUTPUT_NAME);
+    // 输出名回默认由上面的派生 effect 负责（素材清空 ⇒ 复位 + 清 nameDirty）
+    nameDirtyRef.current = false;
     setPlayhead(0);
     setPlaying(false);
     setPlaybackRate(1);
@@ -747,6 +750,25 @@ export default function WorkbenchPage({
     firstSourcePath ?? files[0]?.path ?? "",
     settings.defaultOutputDir,
   );
+
+  /**
+   * 默认输出名（`M14-3`，UI.md §9.8）：`<首个素材名>_workbench.<扩展名>`。
+   *
+   * "首个素材" = **时间轴首片段的源**（那正是 concat 的第一段，也是 `outputDir` 的取值来源），
+   * 时间轴还空着时退回首个素材卡片；扩展名按 `ADR-033` 预判（全程无损 ⇒ 跟随该源的容器；
+   * 含重编码 / 还没检测出结果 ⇒ 固定 `mp4`）。**用户手改过（`nameDirtyRef`）即停止联动**，
+   * 清空工程时复位。重名仍沿用 `resolveUniqueTarget`（决策 #19，只加时间戳）。
+   */
+  useEffect(() => {
+    const base = firstSourcePath ?? files[0]?.path;
+    if (!base) {
+      nameDirtyRef.current = false;
+      setOutputName(DEFAULT_OUTPUT_NAME);
+      return;
+    }
+    if (nameDirtyRef.current) return;
+    setOutputName(defaultOutputName(base, "workbench", check?.allLossless === true));
+  }, [firstSourcePath, files, check]);
 
   const startExport = async () => {
     if (timelineClips.length === 0 || !outputDir || !outputName.trim() || hasProbeError) return;
@@ -1272,7 +1294,11 @@ export default function WorkbenchPage({
         quality={quality}
         onQualityChange={setQuality}
         outputName={outputName}
-        onOutputNameChange={setOutputName}
+        onOutputNameChange={(v) => {
+          // 用户手改过 ⇒ 停止默认名联动（M14-3）；清空工程时复位
+          nameDirtyRef.current = true;
+          setOutputName(v);
+        }}
         error={error}
         submitting={submitting}
         exportDisabled={exportDisabled}

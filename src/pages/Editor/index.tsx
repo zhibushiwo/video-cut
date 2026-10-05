@@ -15,7 +15,7 @@ import {
 import type { AppSettings, MediaInfo, QualityPreset } from "../../types";
 import { cropSizeText, cropToPx, type CropRect } from "../../utils/crop";
 import { needsProxy, wantsProxy } from "../../utils/media";
-import { basename, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
+import { basename, defaultOutputName, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
 import { QUALITY_LABELS } from "../../utils/quality";
 
 type EditorTool = "rotate" | "crop";
@@ -121,18 +121,17 @@ export default function EditorPage({
   const startEdit = async () => {
     if (!inputPath || !info) return;
     const src = inputPath;
-    const name = basename(src);
-    const dot = name.lastIndexOf(".");
-    const stem = dot > 0 ? name.slice(0, dot) : name;
     // ADR-033：容器由命令决定、名字必须与之一致——元数据旋转是 copy（跟随源容器），
-    // 转码旋转与局部放大是重编码（统一 mp4）。这里按同一口径生成名字，免得界面上写的和
-    // 实际落盘的扩展名不一致（后端还会再校正一次兜底）。
-    const srcExt = dot > 0 ? name.slice(dot + 1).toLowerCase() : "mp4";
-    const ext = tool === "rotate" && !rotateTranscode ? srcExt : "mp4";
+    // 转码旋转与局部放大是重编码（统一 mp4）。命名口径收敛在 `utils/paths.ts`（`M14-3`），
+    // 与合并页 `_merged` / 工作台 `_workbench` 共用同一实现；后端还会再校正一次兜底。
+    const lossless = tool === "rotate" && !rotateTranscode;
     const dir = resolveOutputDir(src, settings.defaultOutputDir);
     // 同名才追加时间戳（DESIGN 决策 #19）：上次导出还在时不静默覆盖
-    const baseName = `${stem}_${tool === "rotate" ? "rotated" : "zoomed"}.${ext}`;
-    const target = await resolveUniqueTarget(dir, baseName, fileExists);
+    const target = await resolveUniqueTarget(
+      dir,
+      defaultOutputName(src, tool === "rotate" ? "rotated" : "zoomed", lossless),
+      fileExists,
+    );
     setSubmitting(true);
     setError(null);
     try {

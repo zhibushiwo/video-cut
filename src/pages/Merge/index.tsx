@@ -13,7 +13,7 @@ import type { AppSettings, MergeComparison } from "../../types";
 import { useDragSort } from "../../hooks/useDragSort";
 import { moveAt } from "../../utils/array";
 import { audioSummary, videoSummary } from "../../utils/media";
-import { basename, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
+import { basename, defaultOutputName, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
 import { formatBytes } from "../../utils/time";
 
 /** 默认输出文件名（`M14-3` 会把它换成"按首个素材派生 + `ADR-033` 扩展名预判"） */
@@ -107,6 +107,24 @@ export default function MergePage({
     };
   }, [files]);
 
+  /**
+   * 默认输出名（`M14-3`，UI.md §9.5）：`<首个文件名>_merged.<扩展名>`——扩展名按 `ADR-033` 预判
+   * （参数一致 = copy 跟随源容器；不一致 / 还没检测出结果 = 重编码固定 `mp4`）。
+   * **用户手改过（`nameDirtyRef`）之后不再联动**（素材增删/排序都不覆盖他的名字）；
+   * 清空列表时复位。重名仍沿用 `resolveUniqueTarget`（决策 #19，只加时间戳）。
+   */
+  const nameDirtyRef = useRef(false);
+  useEffect(() => {
+    const first = files[0];
+    if (!first) {
+      nameDirtyRef.current = false;
+      setOutputName(DEFAULT_OUTPUT_NAME);
+      return;
+    }
+    if (nameDirtyRef.current) return;
+    setOutputName(defaultOutputName(first, "merged", check?.compatible === true));
+  }, [files, check]);
+
   const addFiles = useCallback(async () => {
     const picked = await pickVideos();
     if (picked.length === 0) return;
@@ -139,7 +157,8 @@ export default function MergePage({
     setCheck(null);
     setCheckError(null);
     setConfirmNormalize(false);
-    setOutputName(DEFAULT_OUTPUT_NAME);
+    // 文件名回默认由上面的派生 effect 负责（files 变空 ⇒ 复位 + 清 nameDirty）
+    nameDirtyRef.current = false;
   }, [files.length]);
 
   const reorder = (from: number, to: number) => {
@@ -340,7 +359,11 @@ export default function MergePage({
             文件名
             <input
               value={outputName}
-              onChange={(e) => setOutputName(e.target.value)}
+              onChange={(e) => {
+                // 用户手改过 ⇒ 停止默认名联动（M14-3）；清空列表时复位
+                nameDirtyRef.current = true;
+                setOutputName(e.target.value);
+              }}
               className="w-40 rounded border border-hairline bg-panel px-2 py-1.5 font-mono text-xs text-paper focus:border-signal focus:outline-none"
             />
           </label>
