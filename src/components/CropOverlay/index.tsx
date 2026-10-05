@@ -159,6 +159,11 @@ interface CropFieldsProps {
   hint: ReactNode;
   /** 窄栏（工作台右侧 64 宽面板）用紧凑字号 */
   dense?: boolean;
+  /**
+   * 只读（`FR-354` / `M14-5` 的预览态）：输入框与比例锁禁用，不提交任何变更。
+   * 选区的**显示**仍由调用方决定（预览态通常连选区框一起隐藏）。
+   */
+  disabled?: boolean;
 }
 
 /** 放大数值微调：像素输入（偶数对齐、越界收缩），坐标基于显示空间 */
@@ -171,6 +176,7 @@ export function CropFields({
   extra,
   hint,
   dense,
+  disabled,
 }: CropFieldsProps) {
   const [fields, setFields] = useState({ x: "0", y: "0", w: "0", h: "0" });
 
@@ -198,12 +204,13 @@ export function CropFields({
       <span className="text-[11px] text-mute">{label}</span>
       <input
         value={fields[key]}
+        disabled={disabled}
         onChange={(e) => setFields((f) => ({ ...f, [key]: e.target.value }))}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
         }}
-        className={`${dense ? "w-20 text-xs" : "w-24 text-sm"} rounded border border-hairline bg-panel px-2 py-1.5 font-mono text-paper focus:border-signal focus:outline-none`}
+        className={`${dense ? "w-20 text-xs" : "w-24 text-sm"} rounded border border-hairline bg-panel px-2 py-1.5 font-mono text-paper focus:border-signal focus:outline-none disabled:opacity-50`}
       />
     </label>
   );
@@ -216,13 +223,14 @@ export function CropFields({
         {field("w", "宽")}
         {field("h", "高")}
         <label
-          className={`flex cursor-pointer items-center gap-1.5 text-xs text-mute ${dense ? "" : "pb-2"}`}
+          className={`flex items-center gap-1.5 text-xs text-mute ${disabled ? "" : "cursor-pointer"} ${dense ? "" : "pb-2"}`}
         >
           <input
             type="checkbox"
             checked={lockRatio}
+            disabled={disabled}
             onChange={(e) => onLockRatio(e.target.checked)}
-            className="accent-signal"
+            className="accent-signal disabled:opacity-50"
           />
           锁定画面比例
         </label>

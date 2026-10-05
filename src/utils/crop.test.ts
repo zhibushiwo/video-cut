@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { MIN_CROP_PX, cropToPx, pxToCrop, type CropPx } from "./crop";
+import {
+  MIN_CROP_PX,
+  cropPreviewTransform,
+  cropToPx,
+  pxToCrop,
+  type CropPx,
+} from "./crop";
 
 /**
  * TC-022（BUG-004）/ TC-028（BUG-010）的边界矩阵，2026-09-25（`T-004`）由一次性命令级脚本
@@ -201,6 +207,76 @@ describe("cropToPx（归一化选区 → 像素，TC-028）", () => {
         if (px.w > 0 || px.h > 0) sawNonZero = true;
       }
       expect(sawNonZero).toBe(true);
+    }
+  });
+});
+
+/**
+ * `cropPreviewTransform`（`FR-354` / `M14-5`）：预览态把裁切区铺满画面，与后端
+ * `crop=…,scale=<显示分辨率>` 逐像素等价。断言分两层——① 几个手算的确定值（含恒等与退化）；
+ * ② 随机扫描的**映射语义不变量**：解析回 `translate/scale` 后，裁切区四角必须落到画面的四角。
+ */
+describe("cropPreviewTransform（裁切预览映射，M14-5）", () => {
+  /** 把 `translate(tx%, ty%) scale(sx, sy)` 解析回数字（与实现同形，用于校验语义而非字符串） */
+  function parse(t: string): { tx: number; ty: number; sx: number; sy: number } {
+    const m = t.match(
+      /^translate\((-?[\d.]+)%, (-?[\d.]+)%\) scale\((-?[\d.]+), (-?[\d.]+)\)$/,
+    );
+    expect(m, `transform 形态不符：${t}`).not.toBeNull();
+    const [, tx, ty, sx, sy] = m!;
+    return { tx: Number(tx), ty: Number(ty), sx: Number(sx), sy: Number(sy) };
+  }
+
+  it("整幅选区（nw = nh = 1）退化为恒等", () => {
+    expect(cropPreviewTransform({ nx: 0, ny: 0, nw: 1, nh: 1 })).toBe(
+      "translate(0%, 0%) scale(1, 1)",
+    );
+  });
+
+  it("右半 / 下半：把该半边放大 2× 并平移到画面里", () => {
+    expect(cropPreviewTransform({ nx: 0.5, ny: 0, nw: 0.5, nh: 1 })).toBe(
+      "translate(-50%, 0%) scale(2, 1)",
+    );
+    expect(cropPreviewTransform({ nx: 0, ny: 0.5, nw: 1, nh: 0.5 })).toBe(
+      "translate(0%, -50%) scale(1, 2)",
+    );
+  });
+
+  it("居中四分之一 ⇒ 只缩放不平移；非方形选区各自算各自的轴", () => {
+    expect(cropPreviewTransform({ nx: 0.25, ny: 0.25, nw: 0.5, nh: 0.5 })).toBe(
+      "translate(0%, 0%) scale(2, 2)",
+    );
+    expect(cropPreviewTransform({ nx: 0.1, ny: 0.2, nw: 0.5, nh: 0.25 })).toBe(
+      "translate(30%, 70%) scale(2, 4)",
+    );
+  });
+
+  it("退化输入 ⇒ null（调用方按无裁剪处理）", () => {
+    expect(cropPreviewTransform(null)).toBeNull();
+    expect(cropPreviewTransform(undefined)).toBeNull();
+    expect(cropPreviewTransform({ nx: 0.1, ny: 0.1, nw: 0, nh: 0.5 })).toBeNull();
+    expect(cropPreviewTransform({ nx: 0.1, ny: 0.1, nw: 0.5, nh: -1 })).toBeNull();
+    expect(cropPreviewTransform({ nx: Number.NaN, ny: 0, nw: 0.5, nh: 0.5 })).toBeNull();
+  });
+
+  it("随机扫描：裁切区四角恰好映射到画面四角（含越界与极小选区）", () => {
+    const rnd = mulberry32(20260928);
+    for (let i = 0; i < 500; i++) {
+      const nx = rnd();
+      const ny = rnd();
+      const nw = Math.min(1 - nx, 0.001 + rnd() * (1 - nx));
+      const nh = Math.min(1 - ny, 0.001 + rnd() * (1 - ny));
+      const t = cropPreviewTransform({ nx, ny, nw, nh });
+      expect(t).not.toBeNull();
+      const { tx, ty, sx, sy } = parse(t!);
+      // 映射（含 `transform-origin: 50% 50%` 的偏移项）：P → 0.5(1 − s) + s·P + t。
+      // 容差取 1e-4：百分比保留 4 位小数 ⇒ scale 的舍入误差 ~5e-5 会被 P（≤1）放大一次。
+      const mx = (p: number) => 0.5 * (1 - sx) + sx * p + tx / 100;
+      const my = (p: number) => 0.5 * (1 - sy) + sy * p + ty / 100;
+      expect(mx(nx)).toBeCloseTo(0, 4);
+      expect(my(ny)).toBeCloseTo(0, 4);
+      expect(mx(nx + nw)).toBeCloseTo(1, 4);
+      expect(my(ny + nh)).toBeCloseTo(1, 4);
     }
   });
 });

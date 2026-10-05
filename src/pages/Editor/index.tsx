@@ -13,7 +13,7 @@ import {
   submitTask,
 } from "../../services/tauri";
 import type { AppSettings, MediaInfo, QualityPreset } from "../../types";
-import { cropSizeText, cropToPx, type CropRect } from "../../utils/crop";
+import { cropPreviewTransform, cropSizeText, cropToPx, type CropRect } from "../../utils/crop";
 import { needsProxy, wantsProxy } from "../../utils/media";
 import { basename, defaultOutputName, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
 import { QUALITY_LABELS } from "../../utils/quality";
@@ -49,6 +49,11 @@ export default function EditorPage({
   // 裁剪（R1-4：框选交互/数值字段/选区框均来自 components/CropOverlay）
   const [rect, setRect] = useState<CropRect | null>(null);
   const [lockRatio, setLockRatio] = useState(true);
+  /**
+   * 裁剪预览双态（`FR-354` / `ADR-035`，`M14-5`）：编辑态 = 全画面 + 可拖选区框（坐标即所见），
+   * 预览态 = 套用 `crop → scale` 后的画面（与导出构图一致，选区框只读）。切换**不重置选区**。
+   */
+  const [cropView, setCropView] = useState<"edit" | "preview">("edit");
   const videoBoxRef = useRef<HTMLDivElement>(null);
 
   const playerRef = useRef<VideoPlayerHandle>(null);
@@ -68,6 +73,7 @@ export default function EditorPage({
     setInfo(null);
     setRot(NO_ROTATE);
     setRect(null);
+    setCropView("edit");
     try {
       const mi = await probeMedia(path);
       setInfo(mi);
@@ -105,6 +111,7 @@ export default function EditorPage({
     setRect(null);
     setRotateTranscode(false);
     setQuality(settings.quality);
+    setCropView("edit");
   }, [hasWork, tool, settings.quality]);
 
   // 拖拽导入：每次新的拖入都加载第一个文件（App 层原地分发，页面不跳转）
@@ -213,6 +220,9 @@ export default function EditorPage({
       : undefined;
 
   const px = info && rect ? pxRect(rect) : null;
+  /** 预览态的裁切映射（`FR-354`）：编辑态 / 无选区 ⇒ 不套用（画面即整帧） */
+  const cropPreview =
+    tool === "crop" && cropView === "preview" ? cropPreviewTransform(rect) : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -228,11 +238,11 @@ export default function EditorPage({
           <p className="text-xs text-warn">{probeError}</p>
         ) : (
           <>
-            {/* 预览：旋转用 CSS transform 实时呈现；裁剪叠加框选层 */}
-            <div className="flex h-[44vh] w-full items-center justify-center overflow-hidden rounded-md border border-hairline bg-black">
+            {/* 预览：旋转用 CSS transform 实时呈现；裁剪走「编辑 / 预览」双态（M14-5 / FR-354） */}
+            <div className="relative flex h-[44vh] w-full items-center justify-center overflow-hidden rounded-md border border-hairline bg-black">
               <div
                 ref={videoBoxRef}
-                className="relative"
+                className={`relative ${tool === "crop" ? "overflow-hidden" : ""}`}
                 style={
                   info
                     ? {
@@ -245,7 +255,10 @@ export default function EditorPage({
               >
                 <VideoPlayer
                   ref={playerRef}
+                  // 裁剪工具用 fill：预览态的裁切映射要求视频铺满显示空间框（拉伸语义与后端一致）
+                  fill={tool === "crop"}
                   src={fileSrc(proxyPath ?? inputPath)}
+                  videoStyle={cropPreview ? { transform: cropPreview } : undefined}
                   banner={
                     proxyPath
                       ? "当前为代理预览画面，导出使用原始文件"
@@ -255,7 +268,8 @@ export default function EditorPage({
                   }
                   onError={onError}
                   overlay={
-                    tool === "crop" && (
+                    tool === "crop" &&
+                    cropView === "edit" && (
                       <CropOverlay
                         boundsRef={videoBoxRef}
                         rect={rect}
@@ -266,6 +280,27 @@ export default function EditorPage({
                   }
                 />
               </div>
+              {tool === "crop" && (
+                <div
+                  className="absolute right-2 top-2 flex overflow-hidden rounded-md border border-hairline bg-ink/80 backdrop-blur-sm"
+                  role="group"
+                  aria-label="裁剪预览：编辑 / 预览"
+                >
+                  {(["edit", "preview"] as const).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setCropView(v)}
+                      aria-pressed={cropView === v}
+                      className={`px-2.5 py-1 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal ${
+                        cropView === v ? "bg-panel text-paper" : "text-mute hover:text-paper"
+                      }`}
+                    >
+                      {v === "edit" ? "编辑" : "预览"}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {info && tool === "rotate" && (
@@ -295,7 +330,12 @@ export default function EditorPage({
                 onChange={setRect}
                 lockRatio={lockRatio}
                 onLockRatio={setLockRatio}
-                hint={`在预览上拖拽框选区域（虚线外不可选）。${cropSizeText(px, { w: info.video.width, h: info.video.height })}画质受重编码影响，可用质量档位权衡。`}
+                disabled={cropView === "preview"}
+                hint={
+                  cropView === "preview"
+                    ? "预览态：画面即导出构图（裁切区被拉伸填满显示画面，宽高比不保持）。切回编辑态可继续调整选区；预览为近似，导出以 FFmpeg 实际输出为准。"
+                    : `在预览上拖拽框选区域（虚线外不可选）。${cropSizeText(px, { w: info.video.width, h: info.video.height })}画质受重编码影响，可用质量档位权衡。`
+                }
                 extra={
                   <label className="flex items-center gap-1.5 pb-2 text-xs text-mute">
                     质量档位

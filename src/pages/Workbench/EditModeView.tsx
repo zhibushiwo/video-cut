@@ -9,7 +9,7 @@ import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useProxyPreview } from "../../hooks/useProxyPreview";
 import { fileSrc } from "../../services/tauri";
 import type { Clip } from "../../types";
-import { cropSizeText, cropToPx } from "../../utils/crop";
+import { cropPreviewTransform, cropSizeText, cropToPx } from "../../utils/crop";
 import { formatTime } from "../../utils/time";
 import { displayedDims, fieldBtn, type ClipEdit, type EditorTab, type SourceFile } from "./shared";
 
@@ -28,6 +28,11 @@ export function EditModeView({
   const { proxyPath, onError } = useProxyPreview(source.path, useProxy);
   const playerRef = useRef<VideoPlayerHandle>(null);
   const [tab, setTab] = useState<EditorTab>("rotate");
+  /**
+   * 放大预览双态（`FR-354` / `ADR-035`，`M14-5`）：编辑态 = 全画面 + 可拖选区框；
+   * 预览态 = 套用 `crop → scale` 后的画面（与导出构图一致，选区框只读）。切换**不重置选区**。
+   */
+  const [cropPreview, setCropPreview] = useState(false);
   const [current, setCurrent] = useState(0);
   const [playing, setPlaying] = useState(false);
   // 片段区间内预览（M9-5）：越过出点自动暂停；循环 = 回到入点继续播
@@ -97,6 +102,8 @@ export function EditModeView({
   });
 
   const px = clip.crop ? cropToPx(clip.crop, dims) : null;
+  /** 编辑态（可拖框、数值字段生效）：仅放大 tab 且不在预览态 */
+  const cropEditing = tab === "crop" && !cropPreview;
 
   const tabBtn = (t: EditorTab) =>
     `flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-signal ${
@@ -109,24 +116,60 @@ export function EditModeView({
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <div
             ref={stageRef}
-            className={`relative ${tab === "crop" ? (overRect ? "cursor-move" : "cursor-crosshair") : ""}`}
+            className={`relative ${cropPreview ? "overflow-hidden" : ""} ${cropEditing ? (overRect ? "cursor-move" : "cursor-crosshair") : ""}`}
             style={{ aspectRatio: `${dims.w} / ${dims.h}`, height: "100%", maxWidth: "100%" }}
-            {...(tab === "crop" ? cropHandlers : {})}
+            {...(cropEditing ? cropHandlers : {})}
           >
-            <div style={innerStyle}>
-              <VideoPlayer
-                ref={playerRef}
-                fill
-                controls={false}
-                src={fileSrc(proxyPath ?? source.path)}
-                banner={proxyPath ? "当前为代理预览画面，导出使用原始文件" : null}
-                onTime={handleTime}
-                onPlayStateChange={setPlaying}
-                onError={onError}
-                onLoadedMetadata={() => playerRef.current?.seek(clip.seg?.start ?? 0)}
-              />
+            {/* 预览态（M14-5）：裁切映射只作用于这一层——旋转盒留在层内，选区框在外层坐标系里 */}
+            <div
+              className="absolute inset-0"
+              style={
+                cropPreview ? { transform: cropPreviewTransform(clip.crop) ?? undefined } : undefined
+              }
+            >
+              <div style={innerStyle}>
+                <VideoPlayer
+                  ref={playerRef}
+                  fill
+                  controls={false}
+                  src={fileSrc(proxyPath ?? source.path)}
+                  banner={proxyPath ? "当前为代理预览画面，导出使用原始文件" : null}
+                  onTime={handleTime}
+                  onPlayStateChange={setPlaying}
+                  onError={onError}
+                  onLoadedMetadata={() => playerRef.current?.seek(clip.seg?.start ?? 0)}
+                />
+              </div>
             </div>
-            {tab === "crop" && clip.crop && <CropBox rect={clip.crop} />}
+            {cropEditing && clip.crop && <CropBox rect={clip.crop} />}
+            {tab === "crop" && (
+              <div
+                className="absolute right-1 top-1 flex overflow-hidden rounded-md border border-hairline bg-ink/80 backdrop-blur-sm"
+                role="group"
+                aria-label="放大预览：编辑 / 预览"
+                // 舞台上有框选 handlers（onPointerDown 拉选区），切换控件必须拦掉冒泡
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                {[
+                  ["edit", "编辑"],
+                  ["preview", "预览"],
+                ].map(([v, label]) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setCropPreview(v === "preview")}
+                    aria-pressed={cropPreview === (v === "preview")}
+                    className={`px-2 py-1 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal ${
+                      cropPreview === (v === "preview")
+                        ? "bg-panel text-paper"
+                        : "text-mute hover:text-paper"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         {/* 走带控制外置：控制条在变换盒内会被旋转/裁剪层遮挡（§9.8 预览约定） */}
@@ -189,8 +232,14 @@ export function EditModeView({
             onChange={(crop) => onChange({ crop })}
             lockRatio={clip.lockRatio}
             onLockRatio={(v) => onChange({ lockRatio: v })}
-            hint={`在预览上拖拽框选（框内拖动=移动选区），坐标基于旋转后的画面。${cropSizeText(px, dims)}放大必然重编码，画质用页脚质量档位权衡。`}
+            disabled={cropPreview}
+            hint={
+              cropPreview
+                ? "预览态：画面即导出构图（裁切区被拉伸填满，宽高比不保持）。切回编辑态可继续调整；导出以 FFmpeg 实际输出为准。"
+                : `在预览上拖拽框选（框内拖动=移动选区），坐标基于旋转后的画面。${cropSizeText(px, dims)}放大必然重编码，画质用页脚质量档位权衡。`
+            }
             extra={
+              !cropPreview &&
               px && (
                 <button
                   type="button"

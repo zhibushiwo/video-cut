@@ -5,6 +5,7 @@ import {
   useImperativeHandle,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
 } from "react";
 import { formatTime } from "../../utils/time";
@@ -35,13 +36,19 @@ interface VideoPlayerProps {
   videoMaxClass?: string;
   /** 覆盖层（如裁剪框选层）：渲染在视频之上、控制条之下，不拦截播放控制 */
   overlay?: ReactNode;
+  /**
+   * 直接作用于 `<video>` 元素的样式（如裁剪预览的 `transform`）。
+   * **只影响视频本身**——控制条 / 提示条 / 覆盖层这些兄弟节点留在外层坐标系里，
+   * 不会被一起缩放（`M14-5` 的裁切预览要的正是这个语义）。
+   */
+  videoStyle?: CSSProperties;
   /** 播放状态变化（快捷键空格需要真实状态，M4-3） */
   onPlayStateChange?: (playing: boolean) => void;
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(
-    { src, onTime, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass, onPlayStateChange },
+    { src, onTime, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass, videoStyle, onPlayStateChange },
     ref,
   ) {
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -158,6 +165,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           ref={videoRef}
           src={src}
           preload="metadata"
+          style={videoStyle}
           className={
             fill
               ? "h-full w-full cursor-pointer bg-black"

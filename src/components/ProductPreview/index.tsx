@@ -15,6 +15,7 @@ import { useTauriEvent } from "../../hooks/useTauriEvent";
 import { appendFrontendLog, fileSrc, generateProxy, onTaskStatus } from "../../services/tauri";
 import { beginFrameSampling, formatPerfLine, type PerfScene, type PerfSummary } from "../../utils/perf";
 import type { RotateState } from "../RotateControls";
+import { cropPreviewTransform } from "../../utils/crop";
 import { formatTime } from "../../utils/time";
 
 /** 成品连播的一个播放单元（父层由 timeline 派生） */
@@ -356,43 +357,55 @@ export default function ProductPreview({
       height: q ? `${(e.dims.w / e.dims.h) * 100}%` : "100%",
       transform: `translate(-50%, -50%) rotate(${e.rot.deg}deg) scaleX(${e.rot.hflip ? -1 : 1}) scaleY(${e.rot.vflip ? -1 : 1})`,
     };
+    const cropT = cropPreviewTransform(e.crop);
     return (
-      <div key={name} className="absolute inset-0" style={{ opacity: name === slot ? 1 : 0 }}>
-        <div style={inner}>
-          <video
-            ref={name === "a" ? videoA : videoB}
-            src={fileSrc(playablePath(idx))}
-            preload="auto"
-            playsInline
-            className="h-full w-full bg-black"
-            onPause={() => {
-              // 外部暂停（如页面隐藏保活）同步回播放状态（M10-1）；位置也落进离散镜像
-              if (name === slot) {
-                cbsRef.current.onPlayingChange(false);
-                syncDiscreteFromVideo();
-              }
-            }}
-            onLoadedMetadata={() => {
-              const v = name === "a" ? videoA.current : videoB.current;
-              const t = pendingSeekRef.current[name];
-              if (v && t !== null) {
-                v.currentTime = t;
-                pendingSeekRef.current[name] = null;
-              }
-              if (v) v.playbackRate = rateRef.current; // 新媒体加载重置倍率 → 补挂（M11-8）
-              if (name === slot && playingRef.current) void v?.play();
-            }}
-            onEnded={() => {
-              if (name !== slot) return;
-              const next = segIdxRef.current + 1;
-              const es = entriesRef.current;
-              const ne = es[next];
-              if (next < es.length && ne) switchTo(next, ne.srcStart);
-              else {
-                cbsRef.current.onPlayingChange(false);
-              }
-            }}
-          />
+      <div
+        key={name}
+        className="absolute inset-0 overflow-hidden"
+        style={{ opacity: name === slot ? 1 : 0 }}
+      >
+        {/* 裁切/放大映射（`BUG-015` / `M14-5`）：直接显示该片段的放大构图，
+            不再"整帧上叠一个选区框"——预览构图必须等于导出构图（DESIGN §3.8） */}
+        <div
+          className="absolute inset-0"
+          style={cropT ? { transform: cropT } : undefined}
+        >
+          <div style={inner}>
+            <video
+              ref={name === "a" ? videoA : videoB}
+              src={fileSrc(playablePath(idx))}
+              preload="auto"
+              playsInline
+              className="h-full w-full bg-black"
+              onPause={() => {
+                // 外部暂停（如页面隐藏保活）同步回播放状态（M10-1）；位置也落进离散镜像
+                if (name === slot) {
+                  cbsRef.current.onPlayingChange(false);
+                  syncDiscreteFromVideo();
+                }
+              }}
+              onLoadedMetadata={() => {
+                const v = name === "a" ? videoA.current : videoB.current;
+                const t = pendingSeekRef.current[name];
+                if (v && t !== null) {
+                  v.currentTime = t;
+                  pendingSeekRef.current[name] = null;
+                }
+                if (v) v.playbackRate = rateRef.current; // 新媒体加载重置倍率 → 补挂（M11-8）
+                if (name === slot && playingRef.current) void v?.play();
+              }}
+              onEnded={() => {
+                if (name !== slot) return;
+                const next = segIdxRef.current + 1;
+                const es = entriesRef.current;
+                const ne = es[next];
+                if (next < es.length && ne) switchTo(next, ne.srcStart);
+                else {
+                  cbsRef.current.onPlayingChange(false);
+                }
+              }}
+            />
+          </div>
         </div>
       </div>
     );
@@ -411,17 +424,6 @@ export default function ProductPreview({
         >
           {slotRender("a")}
           {slotRender("b")}
-          {entry.crop && (
-            <div
-              className="pointer-events-none absolute border-2 border-signal bg-signal/10"
-              style={{
-                left: `${entry.crop.nx * 100}%`,
-                top: `${entry.crop.ny * 100}%`,
-                width: `${entry.crop.nw * 100}%`,
-                height: `${entry.crop.nh * 100}%`,
-              }}
-            />
-          )}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2">

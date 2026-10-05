@@ -90,3 +90,35 @@ export function cropSizeText(px: CropPx | null, dims: { w: number; h: number }):
     ? `已选 ${px.w}×${px.h} @ (${px.x}, ${px.y})，输出将放大回 ${dims.w}×${dims.h}。`
     : "尚未框选。";
 }
+
+/** 百分比保留 4 位小数：够 CSS 用、又让输出稳定可断言 */
+function round4(v: number): number {
+  return Math.round(v * 1e4) / 1e4;
+}
+
+/**
+ * 裁切预览的 CSS `transform`（`FR-354` / `M14-5`）：把**显示空间的整帧**做一次线性映射，
+ * 使**裁切区正好铺满画面** —— 与后端的 `crop=<w>:<h>:<x>:<y>,scale=<显示分辨率>`
+ * **逐像素等价**（同一条映射；差异只来自 lanczos 重采样与偶数对齐，且宽高比**不保持** =
+ * 各向异性拉伸，与后端"裁切区被拉伸填满显示画面"的语义一致）。
+ *
+ * 为什么用 `transform` 而不是等价的内层 `left/top/width/height` 写法：`transform` 只作用于
+ * **被应用的那个元素**——控制条、提示条、选区框这些兄弟节点必须留在显示空间坐标系里，
+ * 跟缩放层一起被拉伸就错位了。调用约定：元素自身已铺满显示空间框（`inset-0` 或
+ * `w-full h-full`）、`transform-origin` 用默认的 `50% 50%`。
+ *
+ * 推导（归一化坐标，`O = 0.5`）：`p → O + t + s(p − O)`，令映射为 `p → (p − n)/nw`，
+ * 得 `s = 1/nw`、`t = (0.5 − n − nw/2)/nw`（分量各算一次）。
+ *
+ * 退化输入（`nw`/`nh` ≤ 0 或非有限）返回 `null`，调用方按"无裁剪"处理；`nw = nh = 1`
+ * 退化为恒等 `translate(0%, 0%) scale(1, 1)`。
+ */
+export function cropPreviewTransform(rect: CropRect | null | undefined): string | null {
+  if (!rect) return null;
+  const { nx, ny, nw, nh } = rect;
+  if (!Number.isFinite(nx) || !Number.isFinite(ny)) return null;
+  if (!Number.isFinite(nw) || !Number.isFinite(nh) || nw <= 0 || nh <= 0) return null;
+  const tx = round4(((0.5 - (nx + nw / 2)) / nw) * 100);
+  const ty = round4(((0.5 - (ny + nh / 2)) / nh) * 100);
+  return `translate(${tx}%, ${ty}%) scale(${round4(1 / nw)}, ${round4(1 / nh)})`;
+}
