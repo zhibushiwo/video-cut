@@ -1,6 +1,7 @@
 /** ① 源剪切模式（预览区三态）：选区间 → 添加为片段（一个素材可反复剪出多个片段）。
  *  R2-1 自 index.tsx 迁出；R2-2 走带键收敛进 hooks/usePlaybackHotkeys、代理预览收敛进 hooks/useProxyPreview。 */
 import { useEffect, useRef, useState } from "react";
+import { Maximize2 } from "lucide-react";
 import Timeline, { type Selection } from "../../components/Timeline";
 import { TimeField } from "../../components/TimeField";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
@@ -31,6 +32,8 @@ export function CutModeView({
   const info = source.info!;
   const { proxyPath, onError } = useProxyPreview(source.path, useProxy);
   const playerRef = useRef<VideoPlayerHandle>(null);
+  /** 全屏容器（M16-4 延伸）：整块源剪切工作面（预览 + 选区轴 + 入出点行）进 Fullscreen API */
+  const rootRef = useRef<HTMLDivElement>(null);
   const [current, setCurrent] = useState(0);
   const [sel, setSel] = useState<Selection>({ start: 0, end: info.durationSec });
   /** null = 关键帧扫描中（允许数字输入，无吸附） */
@@ -102,7 +105,7 @@ export function CutModeView({
   };
 
   return (
-    <div className="flex h-full w-full flex-col gap-2 p-2">
+    <div ref={rootRef} className="flex h-full w-full flex-col gap-2 p-2">
       <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
         <VideoPlayer
           ref={playerRef}
@@ -144,6 +147,20 @@ export function CutModeView({
             className="mb-0.5 ml-auto rounded-md bg-signal px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
           >
             ✓ 添加为片段
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const el = rootRef.current;
+              if (!el) return;
+              if (document.fullscreenElement) void document.exitFullscreen();
+              else void el.requestFullscreen();
+            }}
+            aria-label="工作面全屏"
+            title="工作面全屏（预览+选区轴+入出点，Esc 退出）"
+            className="mb-0.5 flex h-7 w-7 items-center justify-center rounded text-mute transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+          >
+            <Maximize2 className="h-4 w-4" />
           </button>
         </div>
       </div>
