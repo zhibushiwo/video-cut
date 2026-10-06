@@ -17,6 +17,7 @@ import { beginFrameSampling, formatPerfLine, type PerfScene, type PerfSummary } 
 import { displayedStageStyle } from "../RotateControls";
 import type { RotateState } from "../../types";
 import { cropPreviewTransform } from "../../utils/crop";
+import { OUT_POINT_EPS, shouldRewindOnPlay } from "../../utils/productPlayback";
 import { formatTime } from "../../utils/time";
 
 /** 成品连播的一个播放单元（父层由 timeline 派生） */
@@ -255,13 +256,45 @@ export default function ProductPreview({
     if (renderedActive) return;
     const v = slot === "a" ? videoA.current : videoB.current;
     if (!v) return;
-    if (playing) void v.play();
-    else {
+    if (playing) {
+      const es = entriesRef.current;
+      const idx = segIdxRef.current;
+      const e = es[idx];
+      // 播完停在出点后再按播放（`BUG-021`）：tick 的越界判定是「当前时间 ≥ 出点 − ε」，
+      // 而"停"只 pause() 不改 currentTime —— 元素正停在这条区间里，直接 play() 会在第一帧
+      // 再次命中判定被自己按停（现象 = 点了播放画面不动）。凡回退虚拟连播的中段片段，
+      // 每次重播都必现（全段片段因元素会走到 `ended`、由浏览器回绕而侥幸正常）。
+      // 修法：先回到**成品起点**再起播，与渲染分支 `<video>` ended → play() 的回绕同口径。
+      if (
+        e &&
+        shouldRewindOnPlay({
+          currentTime: v.currentTime,
+          ended: v.ended,
+          segIdx: idx,
+          segCount: es.length,
+          srcEnd: e.srcEnd,
+        })
+      ) {
+        if (idx === 0) {
+          // 单段成品：同槽回绕；幂等设值，`ended` 随 seek 一并清掉
+          v.currentTime = e.srcStart;
+          cbsRef.current.onPlayhead(0);
+          void v.play();
+        } else {
+          // 多段成品停在末尾：回绕要跨槽（切回第 0 段所在槽）。本 effect 会在 `slot`
+          // 变化后重跑，由重跑那次起播新活动槽 —— 这里不能对离场槽 play()。
+          seekInternal(0);
+        }
+        prevPlayingRef.current = playing;
+        return;
+      }
+      void v.play();
+    } else {
       v.pause();
       if (prevPlayingRef.current) syncDiscreteFromVideo();
     }
     prevPlayingRef.current = playing;
-  }, [playing, slot, renderedActive, syncDiscreteFromVideo]);
+  }, [playing, slot, renderedActive, syncDiscreteFromVideo, seekInternal]);
 
   // rAF 驱动播放头；越界切下一段 / 结尾停止
   useEffect(() => {
@@ -276,7 +309,7 @@ export default function ProductPreview({
       const e = es[segIdxRef.current];
       const v = slotRef.current === "a" ? videoA.current : videoB.current;
       if (e && v && !v.paused) {
-        if (v.currentTime >= e.srcEnd - 0.03 || v.ended) {
+        if (v.currentTime >= e.srcEnd - OUT_POINT_EPS || v.ended) {
           const next = segIdxRef.current + 1;
           const ne = es[next];
           if (next < es.length && ne) {

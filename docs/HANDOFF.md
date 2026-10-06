@@ -5,7 +5,7 @@
 > **读时机**：会话开场第一条；接续他人工作时。
 > **写规则**：只写当前状态与**近期相关**的坑；已定型的长期约定移入 AGENTS.md（本文只留指针）；历史批次要点进 [handoff-archive.md](./archive/handoff-archive.md)，本文不堆积。
 > **关联**：[../README.md](../README.md)（项目简介/技术栈/命令） · [INDEX.md](./INDEX.md)（地图与 ID） · [PLAN.md](./PLAN.md)（进度真源） · [../AGENTS.md](../AGENTS.md)（红线与完事标准）
-> **最后更新**：2026-10-06（头部改一行式、里程碑快照表撤除——规则见 [INDEX.md](./INDEX.md) §7）；批次明细见下方「已做的最近数批」与 [CHANGELOG.md](./CHANGELOG.md)，历史批次要点在 [handoff-archive.md](./archive/handoff-archive.md)
+> **最后更新**：2026-10-06（「已做的最近数批」补 `T-011`/`T-012`（`BUG-021` 成品预览重播回绕 · `BUG-022` 片段加工重播起播反馈）与可复用的真机复现手法；头部此前改一行式、里程碑快照表撤除——规则见 [INDEX.md](./INDEX.md) §7）；批次明细见下方「已做的最近数批」与 [CHANGELOG.md](./CHANGELOG.md)，历史批次要点在 [handoff-archive.md](./archive/handoff-archive.md)
 > **项目速览**（原独立小节，2026-09-19 去重为指针）：简介 / 功能 / 技术栈 / 环境要求 / 构建命令 → [../README.md](../README.md)｜命令 / 红线 / 完事标准 → [../AGENTS.md](../AGENTS.md)｜文档分工与 ID 规范 → [INDEX.md](./INDEX.md) §1–§2。
 
 ## 当前状态（2026-10-05）
@@ -23,6 +23,10 @@
 > **M14 实施顺序（用户裁决，已被上条改判）**：`M14-1` 连播停住（**先复现再修**，`BUG-014`）→ `M14-2` 页面重置/换素材 → `M14-3` 默认命名 → `M14-4` 入出点按钮 → `M14-5` 放大双态预览 + 成品预览套用裁剪（`FR-354`/`BUG-015`）→ `M14-6` 池卡手柄语义。**方案见 [plans/M14.md](./plans/M14.md)**（含 CSS 变换公式、三个消费点、测试与风险）；规格已同步 DESIGN §3.5/§3.8/§8.3、UI §9.2/§9.4/§9.5/§9.6/§9.8、TIMELINE §17.6/§17.9。
 
 - **已做的最近数批**（更早的 R4 段 / R2 段 / M11 段 / T-004 / 过度工程审查 / 提交状态见 [handoff-archive.md](./archive/handoff-archive.md)）：
+  - （2026-10-06）**用户"重播"反馈的另两条根因——`T-011`/`T-012`，`BUG-021`/`BUG-022`**（用户反馈："从中间剪成片段（`4.303–7.320`）播完再点播放就无法重新播放；全段作为片段则可以"；此前 `T-008`/`T-009`/`T-010` 三轮都落在 `EditModeView`/`VideoPlayer`，**都没覆盖用户实际所在的那条路径**）：
+    - `T-011 · BUG-021`（**成品预览 · 回退虚拟连播分支**，确定性缺陷，真机 CDP 复现）：`ProductPreview` 的越界判定 `currentTime ≥ 段出点 − 0.03` 一条判定同时管"切下一段"与"到末尾停"，而"停"只 `pause()`、不改 `currentTime` → 元素停在 ε 区间内，再按播放 `play()` 后**第一帧**又命中同一条判定被 `onPlayingChange(false)` 按停（探针实测 `play()` → **7ms** → `pause()`，`t` 停在 7.32 纹丝不动，中段/全段都死）。**"全段可以"的来源**：全段片段 `srcEnd = 源时长`，元素会走到 `ended`，浏览器在 `play()` 时自动回绕——只有"中段 + 回退分支"必死；而渲染即预览（单文件 `<video>`）分支同样靠浏览器回绕，所以"渲染就绪时也正常"。**修法**：纯函数 `utils/productPlayback.ts::shouldRewindOnPlay`（末段且 `ended` 或已停在/越过出点）→ 单段同槽回绕到区间起点、多段 `seekInternal(0)` 跨槽回成品起点再起播；tick 的硬编码 `0.03` 收敛为同源常量 `OUT_POINT_EPS`。真机三条路径（中段/全段/两段成品）重播全部真正起播；+8 条 Vitest。
+    - `T-012 · BUG-022`（**片段加工**，反馈面）：`T-010` 把起播推迟到 `seeked` 落地之后，而回退 seek 在长 GOP 1080p60 源上要 **1.6~2s**（`rs=1` + `seeking` 整窗口）——这段里按钮仍是「播放」、画面不动，用户必然连点，而每次连点都打断上一次未落地的 `play()`（**用户实机日志 12:42:50–53 恰好六条 `AbortError: The play() request was interrupted by a call to pause()`**，与"连点 6 次"完全吻合）→ 现场即"无法重新播放"。**修法**：起播回退把 `seek` 与 `play()` 当场一起发出（门保留、仍由 `seeked` 解除，只挡回退期间旧位置的越界判定），`handleSeeked` 不再补 `play()`（回退窗口内用户按的暂停不被抢回），`VideoPlayer.play()` 吞掉竞态 `AbortError`（日志噪音）。真机采样：修复前 1.6s 内 8 个采样点全是 `btn=播放`，修复后**首个采样点**即 `btn=暂停`；连点 6 次后单击仍正常重播；循环 4.8s 周期无回归。
+    - **真机复现/验证手法**（可复用，见 [gui-e2e/cases-workbench-task.md](./gui-e2e/cases-workbench-task.md) `TC-053`/`TC-054`）：用户实机无调试端口 → 用 `WEBVIEW2_USER_DATA_FOLDER` 指到独立目录再带 `--remote-debugging-port` 起**第二实例**（同一 user-data 会共享已启动的浏览器进程、调试端口不生效，且不要动用户在跑的 `pnpm tauri dev`）；素材导入用 `tauri://drag-drop` 的**真实事件注入**（`window.__internal_unstable_listeners_function_id__`），文本字段用真实键鼠；断言靠 `HTMLMediaElement.prototype.play/pause` 包装 + `document` 捕获监听（媒体事件不冒泡，必须 `capture`）。
   - （2026-10-05）**用户实机反馈三连（片段加工）——`T-007`/`T-008`/`T-009`，`BUG-016`/`BUG-017`/`BUG-018`**：
     - `T-007 · BUG-016`：片段加工的时间刻度仍按**整源**画（源 30s / 片段 5s 时读数是 `/ 00:00:30`、能拖出区间再被弹回）。改成刻度/读数/键盘走带一律以**片段区间**为准（`toRel`/`toSrc` 互转 + 钳制）；`UI.md` §9.8 同批把"刻度也以区间为准"写明（原句只约束播放、不约束刻度，正是缺陷得以存在的歧义）。
     - `T-008 · BUG-017`：**从中间剪出的片段**播完出点后无法重播（起播回退 `seek(入点)` 后立刻 `play()`，而 seek 异步 → 播放器仍用旧位置上报 → 命中"越过出点自动暂停"→ 刚起播就被自己按停）；改为 `pendingPlayRef`（等 `onTime` 报出已落回入点附近再起播）。②进度条到不了终点 = `step=0.05` 把区间长度 3.017 吸附成 3.00 → `step="any"`。**用户复测：②已好；①仍现**。

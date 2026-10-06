@@ -19,6 +19,17 @@ export interface VideoPlayerHandle {
 /** 倍速循环档位（M7-6）：0.5 → 1 → 1.5 → 2 → 0.5；工作台 K/L 走带（M11-8）复用同一档 */
 export const PLAYBACK_RATES = [0.5, 1, 1.5, 2];
 
+/**
+ * 起播，并吞掉 `play()` 的 **AbortError**：`play()` 与 `pause()` / 后续 `seek` 竞态时规范
+ * 让这个 promise 以 AbortError 拒绝（"这次起播被打断"）——那是正常结果，不是故障，不该作为
+ * "未处理的 Promise 拒绝"落进日志（`BUG-022` 真机排查时同源 6 条 ERROR 噪音，干扰了定性）。
+ * 真正的播放失败（解码不支持等）走 `<video>` 的 `error` 事件 → `onError`，不受影响。
+ */
+function safePlay(v: HTMLVideoElement | null | undefined) {
+  if (!v) return;
+  void v.play().catch(() => {});
+}
+
 interface VideoPlayerProps {
   src: string;
   /** 播放/seek 期间的时间上报（rAF 驱动，比 timeupdate 平滑） */
@@ -85,7 +96,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         }
       },
       play() {
-        void videoRef.current?.play();
+        safePlay(videoRef.current);
       },
       pause() {
         videoRef.current?.pause();
@@ -200,7 +211,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           onClick={() => {
             const v = videoRef.current;
             if (!v) return;
-            if (v.paused) void v.play();
+            if (v.paused) safePlay(v);
             else v.pause();
           }}
           onLoadedMetadata={(e) => {

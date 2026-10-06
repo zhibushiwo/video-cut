@@ -52,21 +52,25 @@ export function EditModeView({
   const toSrc = (rel: number) => rangeStart + Math.min(Math.max(0, rel), rangeLen);
 
   /**
-   * 「起播回退」待办（`BUG-017`）：`seek()` 是异步的，若 seek 回入点后**立刻** `play()`，
-   * 播放器仍会先用**旧位置**（恰好停在出点）上报一次 → 命中下面的越界判定 → 刚起播就被
-   * 自己按停（表现为"进度条回到原点、按钮没变、视频不动"，从中间剪的段因 seek 慢而稳定复现）。
+   * 「起播回退」门（`BUG-017` → `BUG-020` → `BUG-022`，三代同源）：播完停在出点后重播要先
+   * `seek` 回入点，而 `seek()` 是异步的——落地前的上报还是**旧位置**（恰好停在出点），
+   * 拿它做越界判定就会"刚起播就被自己按停"（表现为"进度条回到原点、按钮没变、画面不动"，
+   * 从中间剪的段因 seek 慢而稳定复现）。故置此标志挡住回退期间的越界判定。
    *
-   * 故改成：置此标志 + seek 回入点，等 `VideoPlayer` 的 **`onSeeked`**（`seeked` DOM 事件）
-   * 报出落地再 `play()`。**不能靠 `onTime` 的时间值来解除**——`onTime` 主要由 rAF 驱动，
-   * 而 rAF 只在 `play` 事件之后才跑，这里等的恰恰是"还没播"的阶段（鸡生蛋）；一旦那一次
-   * 手动上报也丢了，标志就永久挂着，而第二次点播放走直通分支时元素仍在 `seeking`、
-   * `preload="metadata"` 也没有可播数据 → `play()` 既不发 `play` 事件也不推进帧
-   * （真机实测：`btn=播放 t=7.00 paused=true`，`BUG-017` 残留）。
+   * **解除信号只有 `seeked`**（`VideoPlayer.onSeeked`）：`onTime` 主要由 rAF 驱动、而 rAF
+   * 只在 `play` 之后才跑，拿它当解除条件会形成鸡生蛋（`BUG-020`）。起播**不等**这个门
+   * ——`togglePlay` 里 seek 与 play 当场一起发出（长 GOP 源回退 seek 要 1.6~2s，
+   * 等落地再 play() 期间按钮一直是「播放」，用户以为没反应就反复点击，每次点击又打断
+   * 上一次未落地的 play()，重播就此永不发生 = `BUG-022` 的用户可见面）。
    */
   const pendingPlayRef = useRef(false);
 
   const handleTime = (t: number) => {
     setCurrent(t);
+    // 「起播回退」门（`BUG-017` / `BUG-020`）：回退 seek 落地前的上报可能还是**回退前的
+    // 旧位置**（恰好停在出点），拿它做越界判定就会"刚起播就被自己按停"；解除信号只有
+    // `seeked`（`VideoPlayer.onSeeked`）。
+    if (pendingPlayRef.current) return;
     // 仅播放中触发：暂停态拖动进度越过出点不打断（再按播放会先回入点）
     if (seg && playing && t >= seg.end) {
       if (loop) {
@@ -78,11 +82,13 @@ export function EditModeView({
     }
   };
 
-  /** seek 落地：解除「起播回退」门并真正起播（`seeked` 只在真正落地时才来，见 VideoPlayer.onSeeked） */
+  /**
+   * seek 落地 = 「起播回退」门解除（`seeked` 是唯一可靠的"已落地"信号，见 `VideoPlayer.onSeeked`）。
+   * **不在这里补 `play()`**：起播已在 `togglePlay` 里当场发起（不等 seeked，见其注释），
+   * 若用户在这段等待里按了暂停，补一次 play() 会把他的暂停抢回来。
+   */
   const handleSeeked = () => {
-    if (!pendingPlayRef.current) return;
     pendingPlayRef.current = false;
-    playerRef.current?.play(); // 播放态由 play 事件回写（见 togglePlay 注释）
   };
 
   /**
@@ -97,13 +103,16 @@ export function EditModeView({
       return;
     }
     // 区间内预览：起播点在区间外（含播完暂停在出点）时先回到入点。
-    // 这一步**不能** seek 完立刻 play（见 pendingPlayRef 注释）：交给 handleSeeked 在
-    // `seeked` 落地后起播。若 seek 迟迟不落地，标志会保持、playing 仍为 false，
-    // 用户再点一次走下面的直通分支即可自愈（不会卡死）。
+    // seek 与 play **当场一起发出**（`BUG-022`）：从中间剪出的段回退 seek 要回退解码到
+    // 关键帧，实测 1.6~2s（长 GOP 的 1080p60 源）——若等 `seeked` 再 play()，这段时间按钮
+    // 仍是「播放」、画面不动，用户以为没反应就会连点，而每次连点都会打断上一次未落地的
+    // play()（日志里的 `AbortError`），重播就此永不发生。当场 play() 让播放态/按钮立刻有
+    // 反馈，seek 落地即续播；回退期间的旧位置上报由 handleTime 的门挡住。
     if (seg && (current < seg.start - 0.02 || current >= seg.end - 0.02)) {
       pendingPlayRef.current = true;
       playerRef.current?.seek(seg.start);
       setCurrent(seg.start);
+      playerRef.current?.play();
       return;
     }
     playerRef.current?.play();
