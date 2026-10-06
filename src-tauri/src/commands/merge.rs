@@ -275,6 +275,7 @@ pub fn submit_merge(
                         &base.video.pix_fmt,
                         command::parse_timescale(&facts[0].video_time_base),
                         &inter.to_string_lossy(),
+                        false,
                     ),
                     dur,
                     &|local, speed| {

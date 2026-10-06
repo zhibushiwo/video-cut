@@ -518,6 +518,7 @@ fn t6_real_workbench_pipeline_end_to_end() {
             base_ts,
             &s(&e.b),
             &s(&seg2),
+            false,
         ),
         "片段2 转码（180° + 裁剪放大 + timescale 对齐）",
     );
@@ -537,6 +538,7 @@ fn t6_real_workbench_pipeline_end_to_end() {
             &f1.info.video.pix_fmt,
             cmd::parse_timescale(&f1.video_time_base),
             &s(&seg2n),
+            false,
         ),
         "normalize 定向统一",
     );

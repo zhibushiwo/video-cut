@@ -396,6 +396,7 @@ pub async fn submit_pipeline(
                     base_timescale,
                     &it.input,
                     &inter.to_string_lossy(),
+                    preview,
                 )
             };
 
@@ -462,6 +463,7 @@ pub async fn submit_pipeline(
                     &base.info.video.pix_fmt,
                     base_timescale,
                     &norm.to_string_lossy(),
+                    preview,
                 ),
                 dur,
                 &|local, speed| {

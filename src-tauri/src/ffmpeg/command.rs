@@ -220,6 +220,7 @@ pub fn normalize_args(
     pix_fmt: &str,
     video_timescale: u32,
     output: &str,
+    fast: bool,
 ) -> Vec<String> {
     let vf = format!("scale={width}:{height}:flags=lanczos,fps={fps:.3},format={pix_fmt}");
     let mut args = base_args();
@@ -231,12 +232,12 @@ pub fn normalize_args(
         "0:a:0?".into(),
     ]);
     args.extend(["-vf".into(), vf, "-c:v".into(), "libx264".into()]);
+    // fast（T-019）：preview 归一化用速度优先档位；导出归一化画质不受影响
     args.extend([
         "-preset".into(),
-        "medium".into(),
-        "-crf".into(),
-        "20".into(),
+        if fast { "ultrafast" } else { "medium" }.into(),
     ]);
+    args.extend(["-crf".into(), "20".into()]);
     args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "192k".into()]);
     if video_timescale > 0 {
         args.extend(["-video_track_timescale".into(), video_timescale.to_string()]);
@@ -366,11 +367,23 @@ pub fn effective_encoder(locked: Option<&str>, pix_fmt: &str) -> String {
 
 /// 质量档位 → 编码参数（集中映射，DESIGN §3.5：高质量/平衡/小体积）。
 pub fn encoder_quality_args(encoder: &str, quality: QualityPreset) -> Vec<String> {
+    encoder_quality_args_with_preset(encoder, quality, None)
+}
+
+/// `preset_override`：预览渲染（M12-2 / T-019）传 `Some("ultrafast")`——预览只用于核对
+/// 内容，画质与导出无关，编码档位取速度优先；导出路径一律 `None`（quality 决定）。
+fn encoder_quality_args_with_preset(
+    encoder: &str,
+    quality: QualityPreset,
+    preset_override: Option<&str>,
+) -> Vec<String> {
     let (cq, amf_quality, crf, preset): (&str, &str, &str, &str) = match quality {
         QualityPreset::High => ("19", "quality", "16", "slow"),
         QualityPreset::Balanced => ("24", "balanced", "20", "medium"),
         QualityPreset::Small => ("28", "speed", "26", "fast"),
     };
+    let amf_quality: &str = preset_override.unwrap_or(amf_quality);
+    let preset: &str = preset_override.unwrap_or(preset);
     if encoder.ends_with("nvenc") {
         vec![
             "-rc".into(),
@@ -600,6 +613,7 @@ pub fn pipeline_transcode_args(
     video_timescale: u32,
     input: &str,
     output: &str,
+    fast: bool,
 ) -> Vec<String> {
     let mut args = base_args();
     args.extend([
@@ -626,7 +640,12 @@ pub fn pipeline_transcode_args(
         args.extend(["-vf".into(), vf_parts.join(",")]);
     }
     args.extend(["-c:v".into(), encoder.into()]);
-    args.extend(encoder_quality_args(encoder, quality));
+    // fast（T-019）：preview 渲染速度优先——preset 恒 ultrafast，画质与导出无关
+    args.extend(encoder_quality_args_with_preset(
+        encoder,
+        quality,
+        fast.then_some("ultrafast"),
+    ));
     args.extend(["-c:a".into(), "copy".into()]);
     if video_timescale > 0 {
         args.extend(["-video_track_timescale".into(), video_timescale.to_string()]);
@@ -735,6 +754,7 @@ mod tests {
             60000,
             "in.mp4",
             "out.mp4",
+            false,
         );
         let sst = t_args.iter().position(|a| a == "-ss").unwrap();
         assert_eq!(t_args[sst + 1], "2.000");
@@ -817,7 +837,7 @@ mod tests {
     #[test]
     fn normalize_args_builds_filter_chain() {
         // 精确序列断言（T-005 补强：原弱断言放过过丢 "-i" 的回归，靠 e2e 才抓到）
-        let args = normalize_args("in.mkv", 1920, 1080, 29.97, "yuv420p", 0, "out.mp4");
+        let args = normalize_args("in.mkv", 1920, 1080, 29.97, "yuv420p", 0, "out.mp4", false);
         assert_eq!(
             args,
             [
@@ -853,7 +873,9 @@ mod tests {
         );
         assert!(!args.contains(&"-video_track_timescale".to_string()));
         // 指定 timescale 时写入对齐参数
-        let args = normalize_args("in.mkv", 1920, 1080, 29.97, "yuv420p", 60000, "out.mp4");
+        let args = normalize_args(
+            "in.mkv", 1920, 1080, 29.97, "yuv420p", 60000, "out.mp4", false,
+        );
         let ts = args
             .iter()
             .position(|a| a == "-video_track_timescale")
@@ -1051,6 +1073,7 @@ mod tests {
             60000,
             "in.mp4",
             "out.mp4",
+            false,
         );
         let vf = &args[args.iter().position(|a| a == "-vf").unwrap() + 1];
         assert_eq!(
@@ -1089,6 +1112,7 @@ mod tests {
             0,
             "in.mp4",
             "out.mp4",
+            false,
         );
         let vf = &args[args.iter().position(|a| a == "-vf").unwrap() + 1];
         assert_eq!(vf, "crop=800:600:0:0,scale=1920:1080:flags=lanczos");

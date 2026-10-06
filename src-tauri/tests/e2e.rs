@@ -220,6 +220,7 @@ fn pipeline_full_chain() {
             base_ts,
             &s(&fx.src_a),
             &s(&seg2),
+            false,
         ),
         "pipeline 重编码片段",
     );
@@ -238,6 +239,7 @@ fn pipeline_full_chain() {
             &facts1.info.video.pix_fmt,
             cmd::parse_timescale(&facts1.video_time_base),
             &s(&seg2n),
+            false,
         ),
         "normalize 归一化",
     );
@@ -507,6 +509,7 @@ fn preview_pipeline_full_chain() {
             base_ts,
             &s(&fx.src_a),
             &s(&seg2),
+            false,
         ),
         "preview 重编码片段",
     );
@@ -524,6 +527,7 @@ fn preview_pipeline_full_chain() {
             &facts1.info.video.pix_fmt,
             cmd::parse_timescale(&facts1.video_time_base),
             &s(&seg2n),
+            false,
         ),
         "preview normalize",
     );
