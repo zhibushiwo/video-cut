@@ -698,20 +698,6 @@ export default function ProductPreview({
         >
           {playing ? "暂停" : "播放"}
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            const el = rootRef.current;
-            if (!el) return;
-            if (document.fullscreenElement) void document.exitFullscreen();
-            else void el.requestFullscreen();
-          }}
-          aria-label="全屏"
-          title="全屏（Esc 退出）"
-          className="shrink-0 text-mute transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-        >
-          <Maximize2 className="h-3.5 w-3.5" />
-        </button>
         {playbackRate !== 1 && (
           <span className="shrink-0 rounded border border-hairline px-1.5 py-0.5 font-mono text-[10px] text-mute">
             {playbackRate}×
@@ -758,6 +744,20 @@ export default function ProductPreview({
         <span className="shrink-0 font-mono text-[10px] text-mute">
           {formatTime(playhead, false)} / {formatTime(totalDuration, false)}
         </span>
+        <button
+          type="button"
+          onClick={() => {
+            const el = rootRef.current;
+            if (!el) return;
+            if (document.fullscreenElement) void document.exitFullscreen();
+            else void el.requestFullscreen();
+          }}
+          aria-label="全屏"
+          title="全屏（Esc 退出）"
+          className="shrink-0 text-mute transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+        >
+          <Maximize2 className="h-3.5 w-3.5" />
+        </button>
       </div>
       <p className="shrink-0 text-center text-[10px] text-mute/60">
         {renderedActive
