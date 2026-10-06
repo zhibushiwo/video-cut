@@ -111,7 +111,7 @@ export function CutModeView({
           onTime={setCurrent}
           onPlayStateChange={setPlaying}
           onError={onError}
-          videoMaxClass="max-h-[20vh]"
+          fill
         />
       </div>
       <div className="shrink-0">
