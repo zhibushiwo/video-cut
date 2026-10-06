@@ -5,7 +5,7 @@
 > **读时机**：接活前 / 汇报进度 / 判断下一步做什么。
 > **写规则**：一个任务一个 checkbox，完成即勾选并按约定粒度提交（信息前缀 `M11-3:` 等）；验收行只写 AC 编号，验收口径在 [DESIGN.md](./DESIGN.md)、执行方式在 [TESTING.md](./TESTING.md)；不在此写规格。
 > **关联**：[INDEX.md](./INDEX.md) · 上位 [DESIGN.md](./DESIGN.md)（规格仲裁者）与 [TIMELINE.md](./TIMELINE.md) · 当前状态 [HANDOFF.md](./HANDOFF.md)
-> **最后更新**：2026-10-06（新增 `T-011`/`T-012`/`T-013`/`T-014` 四条缺陷修复任务行（`BUG-021` 成品预览重播回绕 · `BUG-022` 片段加工重播起播反馈 · `BUG-023` 片段加工「点画面」绕过区间回退 · `BUG-024` 解码管线错误软重建），均 ✅ 落地（`T-013`/`T-014` 真机两轮复测用户确认）；头部此前改一行式并删两条过时的「下一步」段——规则见 [INDEX.md](./INDEX.md) §7）；内容级明细记在各任务行 ✅ 标注与 [CHANGELOG.md](./CHANGELOG.md)，历史批次要点在 [archive/handoff-archive.md](./archive/handoff-archive.md)
+> **最后更新**：2026-10-06（**M10-1 页面保活落地**（决策 #24，随 `BUG-026` 修复，回归 `TC-059`）；新增 `T-015`/`T-016` 缺陷修复任务行（`BUG-025` 窗口内拖拽误触发导入 · `BUG-019` 成品预览进度条条外松手冻结），均 ✅ 落地）；此前新增 `T-011`/`T-012`/`T-013`/`T-014` 四条缺陷修复任务行（`BUG-021` 成品预览重播回绕 · `BUG-022` 片段加工重播起播反馈 · `BUG-023` 片段加工「点画面」绕过区间回退 · `BUG-024` 解码管线错误软重建），均 ✅ 落地（`T-013`/`T-014` 真机两轮复测用户确认）；头部此前改一行式并删两条过时的「下一步」段——规则见 [INDEX.md](./INDEX.md) §7）；内容级明细记在各任务行 ✅ 标注与 [CHANGELOG.md](./CHANGELOG.md)，历史批次要点在 [archive/handoff-archive.md](./archive/handoff-archive.md)
 
 ## 里程碑总览
 
@@ -236,12 +236,12 @@
 
 > 用户裁决优先级不高，M9 完成后直接启动 M11。本批与时间线核心零耦合，随时可独立补做；设计要点不变。
 
-- [ ] **M10-1 [P1] 页面保活**（决策 #24）：Cut/Merge/Editor/Workbench 离开隐藏不卸载，隐藏瞬间自动暂停播放；History/Settings 维持条件挂载；设置变更即时生效不重置页面（UI.md §9.2） → **FR-9xx（待发号，UI.md §9.2）· AC 待发号 · `pages`/`utils`/`types` · TC-014（决策 #24）**
+- [x] **M10-1 [P1] 页面保活**（决策 #24）：Cut/Merge/Editor/Workbench 离开隐藏不卸载，隐藏瞬间自动暂停播放；History/Settings 维持条件挂载；设置变更即时生效不重置页面（UI.md §9.2） → **FR-9xx（待发号，UI.md §9.2）· AC 待发号 · `pages`/`utils`/`types` · TC-059**　✅ **2026-10-06 落地（随 [BUGS.md](./BUGS.md) `BUG-026` 修复提前实施，M10 解冻本项）**：App 层常挂四工作页（旋转/放大两个 PageName 各一实例、互不串状态）+ 非活动页 `display:none`；`navigate` 统一 `pause()` 全部 `<video>`（React 播放态经既有 pause 事件回写）；`initialFiles` 只喂活动页（防隐藏页消费同一次拖入）；全部 window 级热键按 `active` 门控（Cut/Workbench 两页自身 + CutModeView/EditModeView/ClipTimeline 子组件；useHotkeys 的 M10-1 前置注释兑现）。真机：切页往返状态完整保留（视图模式与播放位置在内）、隐藏页 Delete 拦截而活动页生效、播放中切页自动暂停且返回按钮如实回「播放」
 - [ ] **M10-2 [P2] 深浅主题**（B17，决策 #25）：`themeMode: dark | light | system` 设置项；`.theme-light` 变量组整体替换；跟随系统 matchMedia 监听实时切换；warn 琥珀与四个主题色浅底对比度逐一校对（UI.md §9.1） → **FR-9xx（待发号，UI.md §9.1）· AC 待发号 · `pages`/`utils`/`types` · TC-014（B17，决策 #25）**
 
 **验收**：AC 待发号（FR-9xx 随 M10 开工）· TC-014（口径见 DESIGN.md §3；执行见 TESTING.md）
 
-**实施顺序建议**：M9-1 → M9-2 → M9-3/4 → M9-5 → M10-1 → M10-2（M9 五项已于 2026-09-17 实施完毕；M10 现暂缓，恢复时按 M10-1 → M10-2 顺序做）。
+**实施顺序建议**：M9-1 → M9-2 → M9-3/4 → M9-5 → M10-1 → M10-2（M9 五项已于 2026-09-17 实施完毕；M10 曾暂缓——M10-1 已于 2026-10-06 随 `BUG-026` 修复实施，M10-2 仍暂缓）。
 
 ## 评审修复批次（三轮：2026-09-17 三路走读 → 2026-09-19 四路复审 → 2026-09-25 过度工程审查）
 

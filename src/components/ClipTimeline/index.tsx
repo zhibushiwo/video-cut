@@ -69,6 +69,8 @@ export interface TrimPreviewMsg {
 
 interface ClipTimelineProps {
   clips: TimelineClip[];
+  /** M10-1 页面保活：宿主页是否为当前活动页（false = 被隐藏保活）；+/−/\ 键经它门控 */
+  active?: boolean;
   /** 池→轴拖拽进行中的片段 id；null = 无 */
   externalDrag: { clipId: string } | null;
   selectedId: string | null;
@@ -142,6 +144,7 @@ interface TrimGesture {
 
 export default function ClipTimeline({
   clips,
+  active,
   externalDrag,
   selectedId,
   onSelect,
@@ -354,7 +357,7 @@ export default function ClipTimeline({
       else if (e.key === "-" || e.key === "_") zoomAt(1 / KEY_ZOOM_FACTOR, viewportW / 2);
       else if (e.key === "\\") zoomFit();
     },
-    clips.length > 0 && geo.total > 0,
+    (active ?? true) && clips.length > 0 && geo.total > 0,
   );
 
   /** 点击空白/标尺 → seek：世界 x = 视口本地 x + scrollLeft（§18.3 滚动容器），线性换算；

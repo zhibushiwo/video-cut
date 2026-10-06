@@ -88,6 +88,7 @@ const DEFAULT_OUTPUT_NAME = "workbench.mp4";
 export default function WorkbenchPage({
   settings,
   env,
+  active,
   onNavigate,
   initialFiles,
   onUpdateSettings,
@@ -95,6 +96,8 @@ export default function WorkbenchPage({
   settings: AppSettings;
   /** FFmpeg 环境状态（App 启动检测；落地页头部展示） */
   env: EnvironmentInfo | null;
+  /** M10-1 页面保活：本页是否为当前活动页（false = 被隐藏保活）；热键经它门控 */
+  active: boolean;
   onNavigate: (page: PageName) => void;
   initialFiles?: string[] | null;
   /** 设置项写回（M11-6：S 键切换关键帧吸附 write-through，决策 #30 同源切换） */
@@ -891,7 +894,7 @@ export default function WorkbenchPage({
   // Delete/Backspace 波纹删除选中片段（§17.4/§17.8，无模式限制——时间轴全模式可见）；
   // 选中为 M11-4 的独立 UI state，未选中时不挂监听（enabled 参，激活门控见 useHotkeys）
   usePlaybackHotkeys({
-    enabled: mode.type === "product",
+    enabled: active && mode.type === "product",
     currentTime: playhead,
     getCurrentTime: () => playheadRef.current,
     maxT: totalDuration,
@@ -904,7 +907,7 @@ export default function WorkbenchPage({
         removeFromTimeline(selectedClipId);
       }
     },
-    !!selectedClipId,
+    active && !!selectedClipId,
   );
   // C 键切割（M11-5，§17.4 / 决策 #30）：播放头处一刀两段；右键菜单入口见 M11-8。
   // 播放头不在片段上 / 距边缘不足最短时长时 builder 判 no-op 不入栈；带修饰键的 C
@@ -916,7 +919,7 @@ export default function WorkbenchPage({
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       splitAtPlayhead();
     },
-    mode.type === "product" && timeline.length > 0,
+    active && mode.type === "product" && timeline.length > 0,
   );
 
   // S 键切换关键帧吸附（M11-6，§17.4 / 决策 #30）：与设置项同源 write-through（App 持久化；
@@ -927,7 +930,7 @@ export default function WorkbenchPage({
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       onUpdateSettings({ keyframeSnap: !settings.keyframeSnap });
     },
-    mode.type === "product",
+    active && mode.type === "product",
   );
 
   // Ctrl+Z / Ctrl+Shift+Z 撤销/重做（M11-7，§17.5/§17.8）：全模式可用（时间轴常驻可见，
@@ -942,6 +945,7 @@ export default function WorkbenchPage({
       if (e.shiftKey) redo();
       else undo();
     },
+    active,
   );
 
   // M11-8 快捷键补全（§17.8 🆕 项落地）：K/L 走带 · A 追加入轴 · Ctrl+E 导出 · I/O 修剪
@@ -994,7 +998,7 @@ export default function WorkbenchPage({
         if (selectedClipId) onTrimToPlayhead(selectedClipId, e.code === "KeyI" ? "in" : "out");
       }
     },
-    mode.type === "product",
+    active && mode.type === "product",
   );
 
   // 切走预览模式时暂停连播；切回成品模式时把播放头同步给播放器。
@@ -1168,6 +1172,7 @@ export default function WorkbenchPage({
                       <CutModeView
                         key={src.id}
                         source={src}
+                        active={active}
                         snap={settings.keyframeSnap}
                         useProxy={proxyEnabled(src.info)}
                         onAdd={(seg) => addClip(src.id, seg)}
@@ -1184,6 +1189,7 @@ export default function WorkbenchPage({
                         key={clip.id}
                         clip={clip}
                         source={src}
+                        active={active}
                         useProxy={proxyEnabled(src.info)}
                         onChange={(patch) => updateClip(clip.id, patch)}
                       />
@@ -1195,6 +1201,7 @@ export default function WorkbenchPage({
             {/* ② 合成时间轴 */}
             <ClipTimeline
               clips={tlClips}
+              active={active}
               externalDrag={extDrag}
               selectedId={selectedClipId}
               onSelect={(id) => {

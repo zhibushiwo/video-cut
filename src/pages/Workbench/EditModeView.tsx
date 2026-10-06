@@ -16,11 +16,14 @@ import { displayedDims, fieldBtn, type ClipEdit, type SourceFile } from "./share
 export function EditModeView({
   clip,
   source,
+  active,
   useProxy,
   onChange,
 }: {
   clip: Clip;
   source: SourceFile;
+  /** M10-1 页面保活：本页是否为当前活动页（false = 被隐藏保活）；热键经它门控 */
+  active: boolean;
   useProxy: boolean;
   onChange(patch: ClipEdit): void;
 }) {
@@ -122,6 +125,7 @@ export function EditModeView({
   const frameStep = frameStepOf(info.video.frameRate);
   // 键盘走带同样以区间为界（否则 ←/→ 仍能走到区间外，与刻度自相矛盾）
   usePlaybackHotkeys({
+    enabled: active,
     currentTime: toRel(current),
     maxT: rangeLen,
     frameStep,

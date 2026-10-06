@@ -13,11 +13,14 @@ import { fieldBtn, type SourceFile } from "./shared";
 
 export function CutModeView({
   source,
+  active,
   snap,
   useProxy,
   onAdd,
 }: {
   source: SourceFile;
+  /** M10-1 页面保活：本页是否为当前活动页（false = 被隐藏保活）；热键经它门控 */
+  active: boolean;
   snap: boolean;
   useProxy: boolean;
   onAdd(seg: { start: number; end: number } | null): void;
@@ -59,6 +62,7 @@ export function CutModeView({
   // 快捷键（M4-3，源剪切）：走带共用块见 usePlaybackHotkeys；页面专属：I/O 设入/出点
   const frameStep = frameStepOf(info.video.frameRate);
   usePlaybackHotkeys({
+    enabled: active,
     currentTime: current,
     maxT: info.durationSec,
     frameStep,
@@ -74,7 +78,7 @@ export function CutModeView({
   useHotkeys((e) => {
     if (e.code === "KeyI" && !e.repeat) commitStart(current);
     if (e.code === "KeyO" && !e.repeat) commitEnd(current);
-  });
+  }, active);
 
   const addNow = () => {
     const whole = sel.start <= 0.001 && sel.end >= info.durationSec - 0.001;

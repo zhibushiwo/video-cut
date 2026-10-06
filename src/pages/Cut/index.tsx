@@ -65,10 +65,13 @@ function removalOutputName(inputPath: string): string {
 
 export default function CutPage({
   settings,
+  active,
   onBack,
   initialFiles,
 }: {
   settings: AppSettings;
+  /** M10-1 页面保活：本页是否为当前活动页（false = 被隐藏保活）；热键经它门控 */
+  active: boolean;
   onBack: () => void;
   initialFiles?: string[] | null;
 }) {
@@ -210,6 +213,7 @@ export default function CutPage({
   // 页面专属：I/O 设入/出点 · Delete 删最近添加的片段 ----------
   const frameStep = frameStepOf(info?.video.frameRate ?? 0);
   usePlaybackHotkeys({
+    enabled: active,
     currentTime,
     maxT: duration || currentTime,
     frameStep,
@@ -236,7 +240,7 @@ export default function CutPage({
       if (tab === "remove") setMarks((prev) => prev.slice(0, -1));
       else setSegments((prev) => (prev.length > 0 ? prev.slice(0, -1) : prev));
     }
-  });
+  }, active);
 
   const canAdd =
     duration > 0 && selection.end - selection.start >= 0.1;
