@@ -17,6 +17,7 @@ import { beginFrameSampling, formatPerfLine, type PerfScene, type PerfSummary } 
 import { displayedStageStyle } from "../RotateControls";
 import type { RotateState } from "../../types";
 import { cropPreviewTransform } from "../../utils/crop";
+import { beginPointerDrag } from "../../utils/pointerDrag";
 import { OUT_POINT_EPS, shouldRewindOnPlay } from "../../utils/productPlayback";
 import { formatTime } from "../../utils/time";
 
@@ -68,6 +69,16 @@ interface ProductPreviewProps {
 
 type Slot = "a" | "b";
 
+/**
+ * 起播并吞掉 `play()` 的 **AbortError**（`BUG-022` 同课）：`play()` 与 `pause()` / seek
+ * 竞态时规范让这个 promise 以 AbortError 拒绝——那是"这次起播被打断"的正常结果，
+ * 不该作为"未处理的 Promise 拒绝"落进日志。
+ */
+function safePlay(v: HTMLVideoElement | null | undefined) {
+  if (!v) return;
+  void v.play().catch(() => {});
+}
+
 export default function ProductPreview({
   entries,
   playhead,
@@ -96,6 +107,14 @@ export default function ProductPreview({
   const progressRef = useRef<HTMLInputElement>(null);
   /** 进度条拖动中：tick 暂停直写 .value，避免视频滞后位置回弹覆盖用户拖动值 */
   const draggingRef = useRef(false);
+  /**
+   * 进度条拖拽的 window 级收尾（红线 20 / `beginPointerDrag`）：原生 range 不做指针捕获，
+   * 在**进度条之外**松手时 `pointerup` 根本不会派发到 input 元素上——只靠元素自身的
+   * up/cancel 处理会把拖动态**永久挂起**，rAF 从此不再直写进度条（视频照常播、条冻死在
+   * 松手位置）。真机复现：拖动进度条 → 在条外松手 → 条停在 6.65 而视频走到 10.46（`BUG-019`）。
+   */
+  const dragDetachRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => dragDetachRef.current?.(), []);
   /** 槽就绪后待应用的源内绝对时间（metadata 前设 currentTime 不可靠） */
   const pendingSeekRef = useRef<{ a: number | null; b: number | null }>({ a: 0, b: null });
 
@@ -279,7 +298,7 @@ export default function ProductPreview({
           // 单段成品：同槽回绕；幂等设值，`ended` 随 seek 一并清掉
           v.currentTime = e.srcStart;
           cbsRef.current.onPlayhead(0);
-          void v.play();
+          safePlay(v);
         } else {
           // 多段成品停在末尾：回绕要跨槽（切回第 0 段所在槽）。本 effect 会在 `slot`
           // 变化后重跑，由重跑那次起播新活动槽 —— 这里不能对离场槽 play()。
@@ -288,7 +307,11 @@ export default function ProductPreview({
         prevPlayingRef.current = playing;
         return;
       }
-      void v.play();
+      // 换源（代理就绪切 src）后重进：新媒体从 0 起播会撞 tick 的 `currentTime >= srcStart`
+      // 门——门静默跳过直写，播放头/进度条冻到视频自然走过 srcStart 为止；元数据已就绪
+      // 时先归位段起点（未就绪时不抢，pendingSeek 会在 loadedmetadata 应用）
+      if (e && v.readyState >= 1 && v.currentTime < e.srcStart) v.currentTime = e.srcStart;
+      safePlay(v);
     } else {
       v.pause();
       if (prevPlayingRef.current) syncDiscreteFromVideo();
@@ -525,6 +548,25 @@ export default function ProductPreview({
                   syncDiscreteFromVideo();
                 }
               }}
+              onLoadStart={() => {
+                // 换源（媒体加载算法）把 `paused` 置回 true 但**不触发 `pause` 事件**——只靠
+                // onPause 回写的话 React 播放态卡在 true、rAF 的 `!v.paused` 门静默跳过直写，
+                // 播放头/进度条冻结（`BUG-018` 同族，`TC-051` 已在 VideoPlayer 真机证实）。
+                // 只同步"无待应用 seek 的活动槽"：`switchTo` 给新段换装也走 loadstart，
+                // 那条路的起播由 follow effect 接管，不得当"外部暂停"误杀（`BUG-014` 的教训）
+                if (name === slotRef.current && pendingSeekRef.current[name] === null) {
+                  cbsRef.current.onPlayingChange(false);
+                }
+              }}
+              onError={() => {
+                // 诊断埋点（`BUG-024` 同法）：成品预览此前对 `error` 完全无感，
+                // 真机出问题（如解码管线错误）时无证据可查
+                const v = name === "a" ? videoA.current : videoB.current;
+                void appendFrontendLog(
+                  "warn",
+                  `[preview] 槽位视频 error code=${v?.error?.code} ${v?.error?.message ?? ""} src=${(v?.currentSrc ?? "").slice(-60)}`,
+                );
+              }}
               onLoadedMetadata={() => {
                 const v = name === "a" ? videoA.current : videoB.current;
                 const t = pendingSeekRef.current[name];
@@ -533,7 +575,7 @@ export default function ProductPreview({
                   pendingSeekRef.current[name] = null;
                 }
                 if (v) v.playbackRate = rateRef.current; // 新媒体加载重置倍率 → 补挂（M11-8）
-                if (name === slotRef.current && playingRef.current) void v?.play();
+                if (name === slotRef.current && playingRef.current) safePlay(v);
               }}
               onEnded={() => {
                 if (name !== slotRef.current) return;
@@ -571,6 +613,17 @@ export default function ProductPreview({
               preload="auto"
               playsInline
               className="h-full w-full bg-black"
+              onLoadStart={() => {
+                // 同双槽分支：换源不触发 pause 事件，须显式回写播放态（`BUG-018` 同族）。
+                // 本分支没有"离场槽"问题；重播由 follow effect / 用户手动接手
+                cbsRef.current.onPlayingChange(false);
+              }}
+              onError={() => {
+                void appendFrontendLog(
+                  "warn",
+                  `[preview] 成品视频 error code=${renderedVideoRef.current?.error?.code} ${renderedVideoRef.current?.error?.message ?? ""}`,
+                );
+              }}
               onLoadedMetadata={() => {
                 const v = renderedVideoRef.current;
                 if (!v) return;
@@ -578,7 +631,7 @@ export default function ProductPreview({
                 // 新媒体加载会把 playbackRate 重置回 1 → 补挂（与双槽分支同一个坑）
                 v.playbackRate = rateRef.current;
                 // 元数据就绪时若已在播放态，补一次 play（与双槽分支同一个坑）
-                if (playingRef.current) void v.play();
+                if (playingRef.current) safePlay(v);
               }}
               onPause={() => {
                 // 外部暂停（如页面隐藏保活）同步回播放状态；本分支没有"离场槽"，
@@ -621,12 +674,15 @@ export default function ProductPreview({
           defaultValue={0}
           onPointerDown={() => {
             draggingRef.current = true;
-          }}
-          onPointerUp={() => {
-            draggingRef.current = false;
-          }}
-          onPointerCancel={() => {
-            draggingRef.current = false;
+            // 收尾挂 window 级监听（pointerup/pointercancel/窗口外松手兜底），见 dragDetachRef 注释
+            dragDetachRef.current?.();
+            dragDetachRef.current = beginPointerDrag(
+              () => {},
+              () => {
+                draggingRef.current = false;
+                dragDetachRef.current = null;
+              },
+            );
           }}
           onChange={(e) => {
             const t = Number(e.target.value);
