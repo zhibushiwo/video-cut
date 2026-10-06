@@ -49,3 +49,21 @@ body {
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* M16-4 全屏态（CAND-024）：全屏的是播放器外层容器，UA 不会替它做布局——
+   非 fill 模式的视频会停在 max-h-44vh 的原始尺寸缩在左上角（真机实测"全屏的不是视频"）。
+   有 <video> 直接子级的容器（VideoPlayer 根）：flex 居中 + 视频铺满可用空间（object-fit
+   默认 contain，不会变形）；成品预览的全屏根没有直接 video 子级，不受影响 */
+:fullscreen:has(> video) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+:fullscreen > video {
+  width: auto;
+  height: auto;
+  max-width: 100vw;
+  /* 留出底部控制条的高度，避免视频底边被遮 */
+  max-height: calc(100vh - 56px);
+}
