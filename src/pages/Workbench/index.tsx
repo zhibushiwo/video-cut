@@ -1202,6 +1202,7 @@ export default function WorkbenchPage({
             <ClipTimeline
               clips={tlClips}
               active={active}
+              onTrimSeek={productSeek}
               externalDrag={extDrag}
               selectedId={selectedClipId}
               onSelect={(id) => {

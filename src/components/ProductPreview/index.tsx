@@ -213,10 +213,12 @@ export default function ProductPreview({
     const prev = slotRef.current;
     const other: Slot = prev === "a" ? "b" : "a";
     if (slotContentRef.current[other] === idx) {
-      // 已预载同一 index：直接定位，不重载
+      // 已预载同一 index：直接定位，不重载。**同值赋值也要跳过**——预装时 pendingSeek
+      // 已把槽定位在 srcPos，这里再赋一次同值在 WebView2 上仍会触发一轮 seek（readyState
+      // 掉回 1、从中段入点重新解码可达秒级）——边界停顿的本体（真机 TC-060 实测 1.2s）
       pendingSeekRef.current[other] = null;
       const v = other === "a" ? videoA.current : videoB.current;
-      if (v) v.currentTime = srcPos;
+      if (v && Math.abs(v.currentTime - srcPos) > 0.01) v.currentTime = srcPos;
     } else {
       pendingSeekRef.current[other] = srcPos;
       setSlotContent((s) => ({ ...s, [other]: idx }));
@@ -227,6 +229,13 @@ export default function ProductPreview({
     setSegIdx(idx);
     // 离场槽位停住（已切到其出点附近，正常即将 ended；防其继续出声）
     (prev === "a" ? videoA.current : videoB.current)?.pause();
+    // 预装提前（M12-1 / `FR-1763`）：切换落定的同一渲染周期就把下一段装进离场槽
+    //（原渲染后 preload effect 晚一拍，离场槽在切换那一帧是空的）；与该 effect 幂等
+    const nn = es[idx + 1];
+    if (nn && slotContentRef.current[prev] !== idx + 1) {
+      pendingSeekRef.current[prev] = nn.srcStart;
+      setSlotContent((s) => ({ ...s, [prev]: idx + 1 }));
+    }
     // 段切换是离散镜像的同步点（§18.4）：时间读数/进度条跳到新段起点（seekInternal 随后
     // 的离散汇是同值，React bail）
     const target = es[idx];
@@ -331,18 +340,33 @@ export default function ProductPreview({
       const es = entriesRef.current;
       const e = es[segIdxRef.current];
       const v = slotRef.current === "a" ? videoA.current : videoB.current;
-      if (e && v && !v.paused) {
+      if (e && v) {
         if (v.currentTime >= e.srcEnd - OUT_POINT_EPS || v.ended) {
           const next = segIdxRef.current + 1;
           const ne = es[next];
           if (next < es.length && ne) {
-            switchTo(next, ne.srcStart);
+            // 就绪感知切换（M12-1 / `FR-1763`）：备用槽元数据已加载（readyState >= 2）且
+            // 起点 seek 已落地（pendingSeek 已清）才切——中段入点的回退 seek 在长 GOP 源上
+            // 实测可达秒级（真机 TC-060：rs=1 达 1.2s），ε 提前切会切向黑屏/冻结槽。
+            // 未就绪时：本段自然播完（≥srcEnd）或已 ended 都**停在本段末帧**等备用槽，
+            // tick 每帧复查；注意此判定必须在 `!v.paused` 门之外——ended 后元素 paused
+            // 置 true，门内检查会永久错过切换
+            const other: Slot = slotRef.current === "a" ? "b" : "a";
+            const ov = other === "a" ? videoA.current : videoB.current;
+            const standbyReady =
+              !!ov && ov.readyState >= 2 && pendingSeekRef.current[other] === null;
+            if (
+              standbyReady ||
+              (!v.ended && v.currentTime >= e.srcEnd)
+            ) {
+              switchTo(next, ne.srcStart);
+            }
           } else {
             cbsRef.current.onPlayingChange(false);
             cbsRef.current.onPlayhead(e.productStart + (e.srcEnd - e.srcStart));
             return;
           }
-        } else if (v.currentTime >= e.srcStart) {
+        } else if (!v.paused && v.currentTime >= e.srcStart) {
           // 播放头渲染路径（§18.4）：ref + DOM 直写，整条路径 0 个 setState——
           // React 侧 playhead 是离散镜像，播放中不更新（时间读数随之降频）
           const t = e.productStart + Math.min(v.currentTime - e.srcStart, e.srcEnd - e.srcStart);
@@ -582,8 +606,10 @@ export default function ProductPreview({
                 const next = segIdxRef.current + 1;
                 const es = entriesRef.current;
                 const ne = es[next];
-                if (next < es.length && ne) switchTo(next, ne.srcStart);
-                else {
+                // 有下一段时**不在这里切**：`ended` 触发时备用槽可能仍未就绪（FR-1763
+                // 的就绪判定在 tick 里逐帧复查，见上）；此刻切槽正是"切向黑屏槽"的
+                // 另一条入口。无下一段才正常停止
+                if (!(next < es.length && ne)) {
                   cbsRef.current.onPlayingChange(false);
                 }
               }}

@@ -101,6 +101,9 @@ interface ClipTimelineProps {
   /** 拖动中的预览区间上抛（逐 move 调用；Workbench 侧 ref + 300ms 尾随防抖，勿逐帧重渲染）。
    *  手势期间本组件以同一引用复用该回调——实现方须 useCallback 稳定。 */
   onTrimPreview(p: TrimPreviewMsg | null): void;
+  /** 修剪拖动帧预览（M12-1 / `FR-1764`）：手势激活立即一次、拖动中 ≥150ms 节流、
+   *  松手提交最终一次；参数 = 新边缘的成品时间（取消不发） */
+  onTrimSeek(t: number): void;
   /** 松手提交（§18.5 状态机 ⑤）：源内时间已预钳制，builder 会再钳一次（幂等） */
   onTrimCommit(clipId: string, edge: TrimEdge, srcTime: number): void;
   /** 双击边缘 = 修剪到播放头（§17.4）：播放头不在该片段内时由 Workbench 判 no-op */
@@ -125,6 +128,7 @@ const SNAP_PX = 8;
 const TRIM_HOT_PX = 8;
 
 /** 修剪激活死区（px，与 useDragSort 的死区同参——§18.5 状态机 ②） */
+const TRIM_SEEK_MIN_INTERVAL_MS = 150; // 帧预览节流（FR-1764）
 const TRIM_DEAD_ZONE_PX = 4;
 
 /** 修剪手势的进行中状态（§18.5 状态机；回调闭包可能跨越多次渲染，可变数据走 trimCtxRef） */
@@ -138,6 +142,8 @@ interface TrimGesture {
   cancelled: boolean;
   /** 最近一次预览的源端点值（提交用——与预览钳制同值，builder 会再钳一次） */
   lastSrcTime: number | null;
+  /** 上次帧预览 seek 的发出时刻（≥150ms 节流，`FR-1764`） */
+  lastSeekAt: number;
   detachEsc: () => void;
   detachDrag: () => void;
 }
@@ -161,6 +167,7 @@ export default function ClipTimeline({
   snapEnabled,
   onTrimStart,
   onTrimPreview,
+  onTrimSeek,
   onTrimCommit,
   onTrimToPlayhead,
   onContextMenu,
@@ -433,6 +440,13 @@ export default function ClipTimeline({
       pointerX,
     });
     onTrimPreview({ clipId: clip.id, seg: next.seg });
+    // 帧预览（`FR-1764`）：新边缘的成品时间（恒在当前条目区间内——双分支 seek 都落得到）
+    // = 本块成品起点 +（新边缘源时刻 − 源入点）；手势激活的首次 move 立即发，之后 ≥150ms 节流
+    const now = performance.now();
+    if (now - g.lastSeekAt >= TRIM_SEEK_MIN_INTERVAL_MS) {
+      g.lastSeekAt = now;
+      onTrimSeek((ctx.geo.starts[g.index] ?? 0) + (g.lastSrcTime - clip.srcIn));
+    }
   };
 
   /** 起手（状态机 ①②）：块 pointerdown 命中热区；≥4px 激活，未激活松手 = 普通点击（选中） */
@@ -449,6 +463,7 @@ export default function ClipTimeline({
       activated: false,
       cancelled: false,
       lastSrcTime: null,
+      lastSeekAt: 0,
       detachEsc: () => {},
       detachDrag: () => {},
     };
@@ -487,6 +502,18 @@ export default function ClipTimeline({
           last.type !== "pointercancel" &&
           g.lastSrcTime !== null
         ) {
+          // 最终 seek 落在最终边缘帧（`FR-1764`；取消分支不发）。**换算按提交后语义**：
+          // seekRequest 与新文档同批渲染，seekInternal 会用**新条目**映射——入缘的新入点帧
+          // 恰在块新起点（= starts[i]），出缘在新块末尾（= starts[i] + 新时长）；拖动中的
+          // 节流 seek 才用旧映射（预览态，见 §22.3 披露）
+          const ctx = trimCtxRef.current;
+          const clip = ctx.clips[g.index];
+          if (clip && clip.id === g.clipId) {
+            const start = ctx.geo.starts[g.index] ?? 0;
+            onTrimSeek(
+              g.edge === "in" ? start : start + (g.lastSrcTime - clip.srcIn),
+            );
+          }
           onTrimCommit(g.clipId, g.edge, g.lastSrcTime);
         }
         if (g.activated) suppressClickRef.current = true;

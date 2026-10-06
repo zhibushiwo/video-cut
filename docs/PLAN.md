@@ -5,7 +5,7 @@
 > **读时机**：接活前 / 汇报进度 / 判断下一步做什么。
 > **写规则**：一个任务一个 checkbox，完成即勾选并按约定粒度提交（信息前缀 `M11-3:` 等）；验收行只写 AC 编号，验收口径在 [DESIGN.md](./DESIGN.md)、执行方式在 [TESTING.md](./TESTING.md)；不在此写规格。
 > **关联**：[INDEX.md](./INDEX.md) · 上位 [DESIGN.md](./DESIGN.md)（规格仲裁者）与 [TIMELINE.md](./TIMELINE.md) · 当前状态 [HANDOFF.md](./HANDOFF.md)
-> **最后更新**：2026-10-06（**T-001 落地——TIMELINE §17.4 ↔ plans/M11 §18.5 消冗余，T 台账清零**；**M10-1 页面保活落地**（决策 #24，随 `BUG-026` 修复，回归 `TC-059`）；新增 `T-015`/`T-016` 缺陷修复任务行（`BUG-025` 窗口内拖拽误触发导入 · `BUG-019` 成品预览进度条条外松手冻结），均 ✅ 落地）；此前新增 `T-011`/`T-012`/`T-013`/`T-014` 四条缺陷修复任务行（`BUG-021` 成品预览重播回绕 · `BUG-022` 片段加工重播起播反馈 · `BUG-023` 片段加工「点画面」绕过区间回退 · `BUG-024` 解码管线错误软重建），均 ✅ 落地（`T-013`/`T-014` 真机两轮复测用户确认）；头部此前改一行式并删两条过时的「下一步」段——规则见 [INDEX.md](./INDEX.md) §7）；内容级明细记在各任务行 ✅ 标注与 [CHANGELOG.md](./CHANGELOG.md)，历史批次要点在 [archive/handoff-archive.md](./archive/handoff-archive.md)
+> **最后更新**：2026-10-06（**M12-1 连播改进落地**（`FR-1763`/`FR-1764`，TC-060 真机通过，方案/落地见 plans/M12.md §22）；**T-001 落地——TIMELINE §17.4 ↔ plans/M11 §18.5 消冗余，T 台账清零**；**M10-1 页面保活落地**（决策 #24，随 `BUG-026` 修复，回归 `TC-059`）；新增 `T-015`/`T-016` 缺陷修复任务行（`BUG-025` 窗口内拖拽误触发导入 · `BUG-019` 成品预览进度条条外松手冻结），均 ✅ 落地）；此前新增 `T-011`/`T-012`/`T-013`/`T-014` 四条缺陷修复任务行（`BUG-021` 成品预览重播回绕 · `BUG-022` 片段加工重播起播反馈 · `BUG-023` 片段加工「点画面」绕过区间回退 · `BUG-024` 解码管线错误软重建），均 ✅ 落地（`T-013`/`T-014` 真机两轮复测用户确认）；头部此前改一行式并删两条过时的「下一步」段——规则见 [INDEX.md](./INDEX.md) §7）；内容级明细记在各任务行 ✅ 标注与 [CHANGELOG.md](./CHANGELOG.md)，历史批次要点在 [archive/handoff-archive.md](./archive/handoff-archive.md)
 
 ## 里程碑总览
 
@@ -332,7 +332,7 @@
 
 > **关联**：`FR-1760`~`FR-1762`（§17.6 预览，随 `M12-2` 发号）· 决策 #28　·　**验收**：`AC-1760-1`/`AC-1761-1`/`AC-1762-1`（TIMELINE.md §17.9⑥）　——　执行：TESTING.md TC-048（真机）· 实施方案见 [plans/M12.md](./plans/M12.md)
 
-- [ ] **M12-1 连播改进**：ProductPreview 下一段预加载提前、边界停顿缓解；修剪拖动节流 seek 实时显示入/出点帧 → **FR-17xx · AC 见 §17.6 · `ProductPreview`/`TaskProgress`/`hooks` · TC 待建**
+- [x] **M12-1 连播改进**：ProductPreview 下一段预加载提前、边界停顿缓解；修剪拖动节流 seek 实时显示入/出点帧 → **`FR-1763`/`FR-1764` · AC 见 §17.6 · `ProductPreview`/`ClipTimeline`/`Workbench` · TC-060**　✅ **2026-10-06 落地**（方案与落地记录见 [plans/M12.md](./plans/M12.md) §22）：预装进 `switchTo` 同周期 + 就绪感知切换（备用槽 `readyState >= 2` 且起点 seek 落地才 ε 提前切）+ 修剪帧预览（激活立即 / ≥150ms 节流 / 提交后语义收尾）。真机两轮抓到两个设计外缺口并修复（`onEnded` 绕过判定、同值 `currentTime` 赋值仍触发 seek，见 §22.5）；**残余**：稀疏关键帧源跨 GOP 中段入点的 play 恢复重解码停顿（~1.2s）为 WebView2 固有成本，已披露
 - [ ] **M12-2 渲染即预览**（决策 #28）：Rust 侧 Pipeline 任务加 `preview` 标志（输出 `app_cache_dir/preview/<令牌>.mp4`、任务 internal **不进历史与面板**、进行中去重 = **新编辑取代旧任务**、**队列低优先级不抢导出并发位**）；前端纯无损时间线编辑停顿 ~1.5s 防抖自动渲染并播放真实成品，含重编码/失败时回退虚拟连播 + 手动"精确预览"；`cache_usage`/`clear_cache` 覆盖 preview 子目录且**只留当前一份** → **`FR-1760`~`FR-1762` · AC 见 §17.9⑥ · `task/manager.rs` · `commands/pipeline.rs` · `commands/media.rs` · `ProductPreview`/`TaskProgress`/`hooks` · TC-048（决策 #28）**　✅ **2026-10-05 全部落地**（四次提交 `M12-2a`~`M12-2d`，落地记录见 [plans/M12.md](./plans/M12.md) §21.9）：规格发号 → 后端 preview 变体（优先级/同源单例/缓存隔离）+ 前端防抖自动渲染与真实成品回放 + 页脚「精确预览」。（**B15 facts 缓存复查后关闭**——已由 probe LRU 覆盖，见 TIMELINE.md §17.7；**`TC-048` 真机半 ⏳ 待跑**）
 - [ ] **M12-3 暂停帧服务 spike**（可选）：现有缩略图命令改造为 seek 单帧 RGBA → canvas；出"是否产品化"结论（红线：连续播放不走逐帧 IPC，TIMELINE.md §17.6） → **FR-17xx · AC 见 §17.6 · `services/tauri.ts` · `VideoPlayer`/`Timeline` · TC 待建（spike）**
 
