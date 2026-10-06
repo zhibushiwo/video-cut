@@ -78,9 +78,11 @@ export function ClipPool({
                 >
                   <div className="relative h-16 w-full bg-black">
                     {thumb ? (
+                      // draggable=false：同 SourceCards——原生图片拖拽会被 Tauri 当成外部拖入（BUG-025）
                       <img
                         src={fileSrc(thumb)}
                         alt=""
+                        draggable={false}
                         className="h-full w-full object-cover"
                       />
                     ) : (

@@ -46,7 +46,14 @@ export function SourceCards({
           >
             <div className="relative h-20 w-full bg-black">
               {thumb ? (
-                <img src={fileSrc(thumb)} alt="" className="h-full w-full object-cover" />
+                // draggable=false：裸 <img> 被按住拖动会发起浏览器原生图片拖拽，
+                // 被 Tauri 拖放通道当成外部文件拖入 → 误亮导入遮罩（BUG-025）
+                <img
+                  src={fileSrc(thumb)}
+                  alt=""
+                  draggable={false}
+                  className="h-full w-full object-cover"
+                />
               ) : (
                 <span className="flex h-full w-full items-center justify-center">
                   <Film className="h-6 w-6 text-mute/50" />

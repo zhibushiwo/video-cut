@@ -229,9 +229,11 @@ export default function MergePage({
                       {i + 1}
                     </span>
                     {thumbs[path] ? (
+                      // draggable=false：同 SourceCards——原生图片拖拽会被 Tauri 当成外部拖入（BUG-025）
                       <img
                         src={fileSrc(thumbs[path])}
                         alt=""
+                        draggable={false}
                         className="h-9 w-16 shrink-0 rounded border border-hairline object-cover"
                       />
                     ) : (
