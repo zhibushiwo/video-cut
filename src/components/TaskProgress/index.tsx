@@ -265,6 +265,9 @@ export default function TaskProgress({ autoCloseSec = 0 }: { autoCloseSec?: numb
                   onClick={() => {
                     const out = snap.outputs[0];
                     if (out) void revealInFolder(out);
+                    // 打开位置 = 该条提示的使命已完成，立即关闭（M16-1）；清掉待触发的
+                    // 自动关闭定时器，防已删行的定时器回来操作
+                    dismiss(snap.id);
                   }}
                   className="text-[11px] text-signal transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
                 >

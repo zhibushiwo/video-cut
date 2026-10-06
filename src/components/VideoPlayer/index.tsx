@@ -1,4 +1,4 @@
-import { Volume2, VolumeX } from "lucide-react";
+import { Maximize2, Volume2, VolumeX } from "lucide-react";
 import {
   forwardRef,
   useEffect,
@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { formatTime } from "../../utils/time";
+import { useVolumeMemory } from "../../hooks/useVolumeMemory";
 import { appendFrontendLog } from "../../services/tauri";
 
 export interface VideoPlayerHandle {
@@ -81,6 +82,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     ref,
   ) {
     const videoRef = useRef<HTMLVideoElement>(null);
+    /** 全屏容器（M16-4）：整块播放器（含控制条）进 Fullscreen API，Esc 退出 */
+    const rootRef = useRef<HTMLDivElement>(null);
     const rafRef = useRef(0);
     const onTimeRef = useRef(onTime);
     onTimeRef.current = onTime;
@@ -105,8 +108,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const playIntentRef = useRef(false);
     const [cur, setCur] = useState(0);
     const [dur, setDur] = useState(0);
-    const [vol, setVol] = useState(1);
-    const [muted, setMuted] = useState(false);
+    // 音量/静音走会话级全局记忆（M16-2）：所有播放器实例共用、跨页面与换视频保持
+    const { volume: vol, muted, setVolume, toggleMuted } = useVolumeMemory();
     // 倍速循环切换（M7-6，档位见模块级 PLAYBACK_RATES）
     const RATES = PLAYBACK_RATES;
     const [rate, setRate] = useState(1);
@@ -280,6 +283,13 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       };
     }, []);
 
+    const toggleFullscreen = () => {
+      const el = rootRef.current;
+      if (!el) return;
+      if (document.fullscreenElement) void document.exitFullscreen();
+      else void el.requestFullscreen();
+    };
+
     const commitSeek = (t: number) => {
       const v = videoRef.current;
       if (!v) return;
@@ -289,6 +299,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
     return (
       <div
+        ref={rootRef}
         className={
           fill
             ? "relative h-full w-full overflow-hidden bg-black"
@@ -350,7 +361,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             </span>
             <button
               type="button"
-              onClick={() => setMuted((m) => !m)}
+              onClick={() => toggleMuted()}
               aria-label={muted || vol === 0 ? "取消静音" : "静音"}
               className="shrink-0 text-paper/80 transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
             >
@@ -366,14 +377,19 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               max={1}
               step={0.05}
               value={muted ? 0 : vol}
-              onChange={(e) => {
-                const nv = Number(e.target.value);
-                setVol(nv);
-                if (nv > 0) setMuted(false);
-              }}
+              onChange={(e) => setVolume(Number(e.target.value))}
               aria-label="音量"
               className="h-1 w-16 shrink-0 cursor-pointer accent-signal"
             />
+            <button
+              type="button"
+              onClick={toggleFullscreen}
+              aria-label="全屏"
+              title="全屏（Esc 退出）"
+              className="shrink-0 text-paper/80 transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+            >
+              <Maximize2 className="h-4 w-4" />
+            </button>
             <button
               type="button"
               onClick={() =>

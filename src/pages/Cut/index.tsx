@@ -373,6 +373,10 @@ export default function CutPage({
       ...prev,
       { startSec: selection.start, endSec: selection.end },
     ]);
+    // 自动续接（M16-3 / CAND-025）：入点接本次出点、出点推到结尾——逐段标注只再拖出点
+    if (settings.autoContinueClips && selection.end < duration) {
+      setSelection({ start: selection.end, end: duration });
+    }
   };
 
   /** 标记为删除（`M15-2`）：与「添加片段」共用同一条选区与同一条可用性判定 `canAdd` */

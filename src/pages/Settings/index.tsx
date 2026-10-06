@@ -197,6 +197,19 @@ export default function SettingsPage({
         </Row>
 
         <Row
+          title="添加片段自动续接"
+          desc="添加片段后，入点自动接到本次出点、出点推到视频结尾——逐段标注时只需再拖出点。"
+        >
+          <input
+            type="checkbox"
+            checked={settings.autoContinueClips}
+            onChange={(e) => onUpdate({ autoContinueClips: e.target.checked })}
+            className="accent-signal"
+            aria-label="添加片段自动续接"
+          />
+        </Row>
+
+        <Row
           title="代理预览"
           desc="不被 WebView2 支持的格式（AVI/HEVC 等）自动生成低清代理画面，导出仍用原文件。始终代理可让 4K 预览更流畅。"
         >

@@ -17,6 +17,11 @@ import type { CropRect } from "../../types";
 import { pxToCrop, type CropPx } from "../../utils/crop";
 import { beginPointerDrag } from "../../utils/pointerDrag";
 
+/** 边缘热区宽度（显示像素，M16-6）——与时间轴修剪手柄的热区同量级 */
+const EDGE_HOT_PX = 8;
+/** 拖边调整的最小选区（显示像素） */
+const MIN_RECT_PX = 8;
+
 interface CropSelectOptions {
   /** 量尺容器：归一化坐标相对它的矩形换算 */
   boundsRef: RefObject<HTMLElement | null>;
@@ -28,11 +33,13 @@ interface CropSelectOptions {
 }
 
 /**
- * 框选交互内核：返回悬停状态与可挂到任意元素上的指针 handlers。
- * 交互规则：框内按下 = 平移选区（保持尺寸）；框外按下 = 从按下点拉出新区选（任意方向）。
+ * 框选交互内核：返回悬停光标与可挂到任意元素上的指针 handlers。
+ * 交互规则（M16-6 起三层）：**边缘热区**（约 8px）按下 = 拖该边调整大小（角 = 两边同时）；
+ * 框内按下 = 平移选区（保持尺寸）；框外按下 = 从按下点拉出新区选（任意方向）。
+ * 比例锁只作用于"拉新框"；逐边调整不锁比例（锁哪条边的比例在交互上无定义）。
  */
 export function useCropSelect({ boundsRef, rect, onChange, lockRatio }: CropSelectOptions) {
-  const [overRect, setOverRect] = useState(false);
+  const [cursor, setCursor] = useState("cursor-crosshair");
   // 指针事件在 window 上，闭包可能过期 → 用 ref 读最新值
   const rectRef = useRef(rect);
   rectRef.current = rect;
@@ -50,16 +57,44 @@ export function useCropSelect({ boundsRef, rect, onChange, lockRatio }: CropSele
   const inRect = (p: { nx: number; ny: number }, r: CropRect) =>
     p.nx >= r.nx && p.nx <= r.nx + r.nw && p.ny >= r.ny && p.ny <= r.ny + r.nh;
 
+  /** 显示像素下的边缘命中（M16-6）：'h' = 左/右缘、'v' = 上/下缘，角 = 两者 */
+  const edgeHit = (
+    p: { nx: number; ny: number },
+    base: CropRect,
+    r: DOMRect,
+  ): { h: "L" | "R" | null; v: "T" | "B" | null } | null => {
+    if (!inRect(p, base)) return null;
+    const px = p.nx * r.width;
+    const py = p.ny * r.height;
+    const nearL = Math.abs(px - base.nx * r.width) <= EDGE_HOT_PX;
+    const nearR = Math.abs(px - (base.nx + base.nw) * r.width) <= EDGE_HOT_PX;
+    const nearT = Math.abs(py - base.ny * r.height) <= EDGE_HOT_PX;
+    const nearB = Math.abs(py - (base.ny + base.nh) * r.height) <= EDGE_HOT_PX;
+    const h: "L" | "R" | null =
+      nearL === nearR ? (nearL ? (px < ((base.nx + base.nw / 2) * r.width) ? "L" : "R") : null) : nearL ? "L" : "R";
+    const v: "T" | "B" | null =
+      nearT === nearB ? (nearT ? (py < ((base.ny + base.nh / 2) * r.height) ? "T" : "B") : null) : nearT ? "T" : "B";
+    if (!h && !v) return null;
+    return { h, v };
+  };
+
+  const cursorFor = (hit: { h: "L" | "R" | null; v: "T" | "B" | null } | null): string => {
+    if (!hit) return "cursor-crosshair";
+    if (hit.h && hit.v) return (hit.h === "L") === (hit.v === "T") ? "cursor-nwse-resize" : "cursor-nesw-resize";
+    return hit.h ? "cursor-ew-resize" : "cursor-ns-resize";
+  };
+
   const handlers = {
     onMouseMove: (e: React.MouseEvent) => {
       const box = boundsRef.current;
       const cur = rectRef.current;
       if (!box || !cur) {
-        setOverRect(false);
+        setCursor("cursor-crosshair");
         return;
       }
       const r = box.getBoundingClientRect();
-      setOverRect(inRect(toNorm(r, e.clientX, e.clientY), cur));
+      const p = toNorm(r, e.clientX, e.clientY);
+      setCursor(cursorFor(edgeHit(p, cur, r)));
     },
     onPointerDown: (e: React.PointerEvent) => {
       const box = boundsRef.current;
@@ -74,6 +109,35 @@ export function useCropSelect({ boundsRef, rect, onChange, lockRatio }: CropSele
         // 四处拖拽共用一份，别再本地手写（BUG-003 / AGENTS.md §3 第 20 条）
         beginPointerDrag(move);
       };
+
+      const hit = base ? edgeHit(p, base, r) : null;
+      if (base && hit) {
+        // 边缘调整模式（M16-6）：拖到的边跟随指针，对边锚定；下限 = 最小选区
+        const minNw = MIN_RECT_PX / r.width;
+        const minNh = MIN_RECT_PX / r.height;
+        const dragL = hit.h === "L";
+        const dragR = hit.h === "R";
+        const dragT = hit.v === "T";
+        const dragB = hit.v === "B";
+        attach((ev) => {
+          const q = toNorm(r, ev.clientX, ev.clientY);
+          let { nx, ny, nw, nh } = base;
+          if (dragL) {
+            const left = Math.min(Math.max(0, q.nx), nx + nw - minNw);
+            nw = nx + nw - left;
+            nx = left;
+          }
+          if (dragR) nw = Math.min(Math.max(minNw, q.nx - nx), 1 - nx);
+          if (dragT) {
+            const top = Math.min(Math.max(0, q.ny), ny + nh - minNh);
+            nh = ny + nh - top;
+            ny = top;
+          }
+          if (dragB) nh = Math.min(Math.max(minNh, q.ny - ny), 1 - ny);
+          onChangeRef.current({ nx, ny, nw, nh });
+        });
+        return;
+      }
 
       if (base && inRect(p, base)) {
         // 移动模式：平移现有选区，保持尺寸
@@ -110,7 +174,7 @@ export function useCropSelect({ boundsRef, rect, onChange, lockRatio }: CropSele
     },
   };
 
-  return { overRect, handlers };
+  return { cursor, handlers };
 }
 
 /** 选区框：不拦截指针事件（交互全在命中层/舞台上） */
@@ -135,10 +199,10 @@ export function CropOverlay({
   onChange,
   lockRatio,
 }: CropSelectOptions) {
-  const { overRect, handlers } = useCropSelect({ boundsRef, rect, onChange, lockRatio });
+  const { cursor, handlers } = useCropSelect({ boundsRef, rect, onChange, lockRatio });
   return (
     <div
-      className={`absolute inset-0 ${overRect ? "cursor-move" : "cursor-crosshair"}`}
+      className={`absolute inset-0 ${cursor}`}
       {...handlers}
     >
       {rect && <CropBox rect={rect} />}

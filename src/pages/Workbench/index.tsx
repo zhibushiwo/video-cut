@@ -1162,6 +1162,7 @@ export default function WorkbenchPage({
                         source={src}
                         active={active}
                         snap={settings.keyframeSnap}
+                        autoContinue={settings.autoContinueClips}
                         useProxy={proxyEnabled(src.info)}
                         onAdd={(seg) => addClip(src.id, seg)}
                       />

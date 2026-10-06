@@ -143,7 +143,7 @@ export function EditModeView({
   // ---------- 放大：显示空间框选 / 移动（R1-4：与编辑器页共用 components/CropOverlay） ----------
   const stageRef = useRef<HTMLDivElement>(null);
   // handlers 挂在旋转舞台上（覆盖层会挡住视频自身的点击播放）；框在舞台坐标系里画
-  const { overRect, handlers: cropHandlers } = useCropSelect({
+  const { cursor: cropCursor, handlers: cropHandlers } = useCropSelect({
     boundsRef: stageRef,
     rect: clip.crop,
     onChange: (crop) => onChange({ crop }),
@@ -165,7 +165,7 @@ export function EditModeView({
         <div className="flex min-h-0 flex-1 items-center justify-center">
           <div
             ref={stageRef}
-            className={`relative ${cropPreview ? "overflow-hidden" : ""} ${cropEditing ? (overRect ? "cursor-move" : "cursor-crosshair") : ""}`}
+            className={`relative ${cropPreview ? "overflow-hidden" : ""} ${cropEditing ? cropCursor : ""}`}
             style={{ aspectRatio: `${dims.w} / ${dims.h}`, height: "100%", maxWidth: "100%" }}
             {...(cropEditing ? cropHandlers : {})}
           >

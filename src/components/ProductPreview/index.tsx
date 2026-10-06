@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTauriEvent } from "../../hooks/useTauriEvent";
 import { appendFrontendLog, fileSrc, generateProxy, onTaskStatus } from "../../services/tauri";
+import { Maximize2 } from "lucide-react";
 import { beginFrameSampling, formatPerfLine, type PerfScene, type PerfSummary } from "../../utils/perf";
 import { displayedStageStyle } from "../RotateControls";
 import type { RotateState } from "../../types";
@@ -103,6 +104,8 @@ export default function ProductPreview({
   });
   const videoA = useRef<HTMLVideoElement>(null);
   const videoB = useRef<HTMLVideoElement>(null);
+  /** 全屏容器（M16-4）：整个预览组件（含控制行）进 Fullscreen API，Esc 退出 */
+  const rootRef = useRef<HTMLDivElement>(null);
   /** 进度条（非受控，§18.4）：rAF tick 每帧直写 .value，拖动经 seekInternal 通路 */
   const progressRef = useRef<HTMLInputElement>(null);
   /** 进度条拖动中：tick 暂停直写 .value，避免视频滞后位置回弹覆盖用户拖动值 */
@@ -547,7 +550,7 @@ export default function ProductPreview({
       <div
         key={name}
         className="absolute inset-0 overflow-hidden"
-        style={{ opacity: name === slot ? 1 : 0 }}
+        style={{ opacity: name === slot ? 1 : 0, pointerEvents: name === slot ? "auto" : "none" }}
       >
         {/* 裁切/放大映射（`BUG-015` / `M14-5`）：直接显示该片段的放大构图，
             不再"整帧上叠一个选区框"——预览构图必须等于导出构图（DESIGN §3.8） */}
@@ -561,7 +564,12 @@ export default function ProductPreview({
               src={fileSrc(playablePath(idx))}
               preload="auto"
               playsInline
-              className="h-full w-full bg-black"
+              className="h-full w-full cursor-pointer bg-black"
+              onClick={() => {
+                // 点画面即播放/暂停（M16-5 / CAND-027①）：与「播放」按钮同一条走带——
+                // 重播回绕等逻辑由播放跟随 effect 统一处理（`shouldRewindOnPlay`）
+                cbsRef.current.onPlayingChange(!playingRef.current);
+              }}
               onPause={() => {
                 // 外部暂停（如页面隐藏保活）同步回播放状态（M10-1）；位置也落进离散镜像。
                 // 身份判定必须读 slotRef（switchTo 内同步更新），不能用 slot state：switchTo 会
@@ -621,7 +629,7 @@ export default function ProductPreview({
   };
 
   return (
-    <div className="flex h-full w-full flex-col gap-1.5 p-2">
+    <div ref={rootRef} className="flex h-full w-full flex-col gap-1.5 bg-ink p-2">
       <div className="flex min-h-0 flex-1 items-center justify-center">
         <div
           className="relative"
@@ -638,7 +646,11 @@ export default function ProductPreview({
               src={fileSrc(renderedSrc ?? "")}
               preload="auto"
               playsInline
-              className="h-full w-full bg-black"
+              className="h-full w-full cursor-pointer bg-black"
+              onClick={() => {
+                // 同双槽：点画面走带（M16-5）
+                cbsRef.current.onPlayingChange(!playingRef.current);
+              }}
               onLoadStart={() => {
                 // 同双槽分支：换源不触发 pause 事件，须显式回写播放态（`BUG-018` 同族）。
                 // 本分支没有"离场槽"问题；重播由 follow effect / 用户手动接手
@@ -685,6 +697,20 @@ export default function ProductPreview({
           className="rounded-md border border-hairline px-2.5 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
         >
           {playing ? "暂停" : "播放"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const el = rootRef.current;
+            if (!el) return;
+            if (document.fullscreenElement) void document.exitFullscreen();
+            else void el.requestFullscreen();
+          }}
+          aria-label="全屏"
+          title="全屏（Esc 退出）"
+          className="shrink-0 text-mute transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+        >
+          <Maximize2 className="h-3.5 w-3.5" />
         </button>
         {playbackRate !== 1 && (
           <span className="shrink-0 rounded border border-hairline px-1.5 py-0.5 font-mono text-[10px] text-mute">

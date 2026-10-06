@@ -126,6 +126,8 @@ export interface AppSettings {
   defaultCutMode: CutMode;
   /** 入点吸附关键帧 */
   keyframeSnap: boolean;
+  /** 添加片段后入点自动接上次出点、出点推到视频结尾（M16-3） */
+  autoContinueClips: boolean;
   /** 代理预览策略 */
   proxyMode: ProxyMode;
   /** 重编码类任务的编码器 */

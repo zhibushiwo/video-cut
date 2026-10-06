@@ -9,6 +9,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultOutputDir: "",
   defaultCutMode: "fast",
   keyframeSnap: true,
+  autoContinueClips: true,
   proxyMode: "auto",
   encoder: "auto",
   quality: "balanced",
@@ -48,6 +49,8 @@ function sanitize(raw: unknown): AppSettings {
       ? (r.defaultCutMode as CutMode)
       : DEFAULT_SETTINGS.defaultCutMode,
     keyframeSnap: typeof r.keyframeSnap === "boolean" ? r.keyframeSnap : true,
+    autoContinueClips:
+      typeof r.autoContinueClips === "boolean" ? r.autoContinueClips : true,
     proxyMode: proxyModes.includes(r.proxyMode as ProxyMode)
       ? (r.proxyMode as ProxyMode)
       : DEFAULT_SETTINGS.proxyMode,

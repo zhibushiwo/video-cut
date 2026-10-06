@@ -15,6 +15,7 @@ export function CutModeView({
   source,
   active,
   snap,
+  autoContinue,
   useProxy,
   onAdd,
 }: {
@@ -22,6 +23,8 @@ export function CutModeView({
   /** M10-1 页面保活：本页是否为当前活动页（false = 被隐藏保活）；热键经它门控 */
   active: boolean;
   snap: boolean;
+  /** 添加片段自动续接（M16-3，设置项） */
+  autoContinue: boolean;
   useProxy: boolean;
   onAdd(seg: { start: number; end: number } | null): void;
 }) {
@@ -86,6 +89,10 @@ export function CutModeView({
       ? null
       : { start: sel.start, end: sel.end };
     onAdd(seg);
+    // 自动续接（M16-3 / CAND-025）：入点接本次出点、出点推到结尾；全段片段无"下一段"可言
+    if (autoContinue && seg && seg.end < info.durationSec) {
+      setSel({ start: seg.end, end: info.durationSec });
+    }
     setAddedMsg(
       seg
         ? `✓ 已添加片段 ${formatTime(seg.start, false)}–${formatTime(seg.end, false)}（入池并入轴末尾）`
