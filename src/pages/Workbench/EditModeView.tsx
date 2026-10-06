@@ -184,6 +184,11 @@ export function EditModeView({
                   onPlayStateChange={setPlaying}
                   onError={onError}
                   onLoadedMetadata={() => playerRef.current?.seek(clip.seg?.start ?? 0)}
+                  // 点画面 = 点「播放」按钮（同一条走带切换）：默认的"点画面只 play()"会绕过
+                  // 区间回退 —— 播完停在出点后点画面，位置仍在出点之外，越界判定下一帧就把
+                  // 自己按停，怎么点都只起播一帧（`BUG-023`；全段片段不参与越界判定，所以
+                  // 只有"从中间剪出来的片段"会这样）
+                  onVideoClick={togglePlay}
                 />
               </div>
             </div>

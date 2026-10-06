@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { formatTime } from "../../utils/time";
+import { appendFrontendLog } from "../../services/tauri";
 
 export interface VideoPlayerHandle {
   seek(t: number): void;
@@ -64,11 +65,19 @@ interface VideoPlayerProps {
   videoStyle?: CSSProperties;
   /** 播放状态变化（快捷键空格需要真实状态，M4-3） */
   onPlayStateChange?: (playing: boolean) => void;
+  /**
+   * 覆盖**视频本体**的点击语义（默认 = 点击切换播放/暂停，按 `<video>.paused` 判向）。
+   *
+   * 片段加工必须传入自己的走带切换：那里面画面点击默认只 `play()` 而不做「回到入点」——
+   * 播完停在出点后点画面，播放位置仍在出点之外，越界判定下一帧就把自己按停，怎么点都
+   * 只起播一帧（`BUG-023`；`seg = null` 的全段片段因为不参与越界判定而"看起来正常"）。
+   */
+  onVideoClick?: () => void;
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(
-    { src, onTime, onSeeked, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass, videoStyle, onPlayStateChange },
+    { src, onTime, onSeeked, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass, videoStyle, onPlayStateChange, onVideoClick },
     ref,
   ) {
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -79,6 +88,21 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     onSeekedRef.current = onSeeked;
     const onPlayStateRef = useRef(onPlayStateChange);
     onPlayStateRef.current = onPlayStateChange;
+    const onErrorRef = useRef(onError);
+    onErrorRef.current = onError;
+    /**
+     * 解码错误软重建（`BUG-024`）：`MEDIA_ERR_DECODE` 后元素进入永久故障态，
+     * `load()` 重建管线后按此意图落地（回原位 + 按需续播）；attempts = 连续失败计数。
+     */
+    const decodeRecoveryRef = useRef<{ t: number; resume: boolean } | null>(null);
+    const decodeAttemptsRef = useRef(0);
+    /**
+     * 播放意图：`play` 置 true，`pause`/`loadstart`/`ended` 置 false。error 时刻**不能**
+     * 直接拿 `!v.paused` 当"刚才在播"的依据——错误路径会先把 `paused` 属性置 true、
+     * `pause` 事件晚于 `error` 派发，第一版用 `!v.paused` 导致重建后永远不续播：
+     * 重播要点两下（第一下只回原点）、循环到出点回卷后停在入点（`BUG-024` 自愈版）。
+     */
+    const playIntentRef = useRef(false);
     const [cur, setCur] = useState(0);
     const [dur, setDur] = useState(0);
     const [vol, setVol] = useState(1);
@@ -141,10 +165,12 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         onTimeRef.current?.(v.currentTime);
       };
       const onPlay = () => {
+        playIntentRef.current = true;
         start();
         onPlayStateRef.current?.(true);
       };
       const onPause = () => {
+        playIntentRef.current = false;
         stop();
         report();
         onPlayStateRef.current?.(false);
@@ -166,20 +192,91 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
        * 此处只同步播放态；位置不在这里上报——换源后上层通常会在 `loadedmetadata` 重新定位。
        */
       const onLoad = () => {
+        playIntentRef.current = false;
         stop();
         onPlayStateRef.current?.(false);
       };
+      /**
+       * **自然播放到底**只触发 `ended`、**不触发 `pause`**（规范：到底后 `paused` 仍为 false，
+       * 只有 `ended` 置 true）——不补这条，播放态会停在 true：按钮显示「暂停」而画面已停在
+       * 末尾，再点一次只是空 `pause()`，要点两次才重播（`BUG-018` 同族；片段加工里
+       * `seg = null` 的全段片段正好走这条路径，即用户说的"全段可以播放"实际也要多点一下）。
+       */
+      const onEnded = () => {
+        playIntentRef.current = false;
+        stop();
+        report();
+        onPlayStateRef.current?.(false);
+      };
+      /**
+       * **解码管线错误自愈**（`BUG-024`）：WebView2 在"向后 seek 重解码 GOP"等场景下可能
+       * `PIPELINE_ERROR_DECODE`（code=3，解 GOP 内非关键帧包失败），此后 media element 进入
+       * **永久故障态**——`play` 事件照发但解码管线不再出帧（`play()` promise 永久 pending），
+       * 怎么点都播不起来。唯一自愈路径是 `v.load()` 重建管线：记下出错位置与播放意图，
+       * 重建完成（`loadedmetadata`）后 seek 回原位、原在播放则续播。**自愈路径不转发
+       * `onError`**——上层把 code=3 当"格式不支持"会误触发代理切换；连续
+       * `RECOVERY_MAX` 次重建仍失败才转交上层（真正出帧即清零计数，见 `onActuallyPlaying`）。
+       * code=4（格式不支持）等其他错误仍走 `onError` 既有语义。
+       */
+      const MEDIA_ERR_DECODE = 3; // MediaError 实例常量（lib.dom 无静态引用）
+      const RECOVERY_MAX = 3;
+      const onErr = () => {
+        const err = v.error;
+        stop();
+        onPlayStateRef.current?.(false);
+        if (err?.code !== MEDIA_ERR_DECODE) {
+          onErrorRef.current?.();
+          return;
+        }
+        if (decodeAttemptsRef.current >= RECOVERY_MAX) {
+          void appendFrontendLog(
+            "error",
+            `[decode] 连续 ${RECOVERY_MAX} 次软重建仍 MEDIA_ERR_DECODE，放弃自愈转交上层：${err.message}`,
+          );
+          onErrorRef.current?.();
+          return;
+        }
+        decodeAttemptsRef.current += 1;
+        // 续播判定：`!v.paused`（error 前无 pause）**或**播放意图仍为 true（错误路径已把
+        // `paused` 置 true 但 `pause` 事件尚未派发——两种事件序都覆盖；见 playIntentRef 注释）
+        decodeRecoveryRef.current = { t: v.currentTime, resume: !v.paused || playIntentRef.current };
+        void appendFrontendLog(
+          "warn",
+          `[decode] MEDIA_ERR_DECODE（第 ${decodeAttemptsRef.current} 次）→ 软重建 load()，落地后回 ${v.currentTime.toFixed(3)}s${v.paused ? "" : "并续播"}：${err.message}`,
+        );
+        v.load();
+      };
+      /** 软重建的落地动作：`load()` 后元素重走 `loadedmetadata`，此时回原位 + 按意图续播 */
+      const onRecoveredMeta = () => {
+        const rec = decodeRecoveryRef.current;
+        if (!rec) return;
+        decodeRecoveryRef.current = null;
+        v.currentTime = rec.t;
+        if (rec.resume) safePlay(v);
+      };
+      /** 真正出帧（`playing`）＝ 解码管线健康：软重建失败计数清零 */
+      const onActuallyPlaying = () => {
+        decodeAttemptsRef.current = 0;
+      };
       v.addEventListener("play", onPlay);
+      v.addEventListener("playing", onActuallyPlaying);
       v.addEventListener("pause", onPause);
       v.addEventListener("seeked", onStop);
       v.addEventListener("loadstart", onLoad);
+      v.addEventListener("ended", onEnded);
+      v.addEventListener("loadedmetadata", onRecoveredMeta);
+      v.addEventListener("error", onErr);
       return () => {
         ticking = false;
         cancelAnimationFrame(rafRef.current);
         v.removeEventListener("play", onPlay);
+        v.removeEventListener("playing", onActuallyPlaying);
         v.removeEventListener("pause", onPause);
         v.removeEventListener("seeked", onStop);
         v.removeEventListener("loadstart", onLoad);
+        v.removeEventListener("ended", onEnded);
+        v.removeEventListener("loadedmetadata", onRecoveredMeta);
+        v.removeEventListener("error", onErr);
       };
     }, []);
 
@@ -209,9 +306,16 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               : `mx-auto ${videoMaxClass ?? "max-h-[44vh]"} w-full cursor-pointer bg-black`
           }
           onClick={() => {
+            if (onVideoClick) {
+              onVideoClick();
+              return;
+            }
             const v = videoRef.current;
             if (!v) return;
-            if (v.paused) safePlay(v);
+            // `ended` 也要当作"可以起播"：到底后规范只置 `ended`、`paused` **仍是 false**
+            // （自然播放到底不触发 `pause`），只按 `paused` 判向会把"播完点画面"当成暂停，
+            // 用户要点两次才重播（`BUG-023` 同族）。
+            if (v.paused || v.ended) safePlay(v);
             else v.pause();
           }}
           onLoadedMetadata={(e) => {
@@ -219,7 +323,6 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             if (Number.isFinite(d) && d > 0) setDur(d);
             onLoadedMetadata?.(e.currentTarget.duration);
           }}
-          onError={() => onError?.()}
         />
         {overlay}
         {banner && (
