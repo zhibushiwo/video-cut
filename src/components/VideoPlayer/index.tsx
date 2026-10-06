@@ -23,6 +23,15 @@ interface VideoPlayerProps {
   src: string;
   /** 播放/seek 期间的时间上报（rAF 驱动，比 timeupdate 平滑） */
   onTime?: (sec: number) => void;
+  /**
+   * 一次 seek **完成**（`seeked` DOM 事件，非轮询）。
+   *
+   * 与 `onTime` 的关键区别：`onTime` 主要由 rAF 驱动，而 rAF 只在 `play` 事件之后才跑
+   * ——"还没起播、正在 seek"这个阶段只能靠 `pause`/`seeked` 的手动上报。
+   * 因此凡是"seek 落地后才能接着做"的逻辑（如区间回入点后起播，`BUG-017` 的重播），
+   * **必须挂在这里**，挂 `onTime` 会形成"等 rAF 起播 → rAF 要 play 后才跑"的死锁。
+   */
+  onSeeked?: () => void;
   onLoadedMetadata?: (duration: number) => void;
   /** 加载/播放失败回调（如编解码不被 WebView2 支持） */
   onError?: () => void;
@@ -48,13 +57,15 @@ interface VideoPlayerProps {
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(
-    { src, onTime, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass, videoStyle, onPlayStateChange },
+    { src, onTime, onSeeked, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass, videoStyle, onPlayStateChange },
     ref,
   ) {
     const videoRef = useRef<HTMLVideoElement>(null);
     const rafRef = useRef(0);
     const onTimeRef = useRef(onTime);
     onTimeRef.current = onTime;
+    const onSeekedRef = useRef(onSeeked);
+    onSeekedRef.current = onSeeked;
     const onPlayStateRef = useRef(onPlayStateChange);
     onPlayStateRef.current = onPlayStateChange;
     const [cur, setCur] = useState(0);
@@ -131,6 +142,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       // 否则时间上报永久冻结（播放头停住、方向键步进失效、M9-5 区间预览首次到出点即静默失效）。
       const onStop = () => {
         report();
+        // seeked 是"seek 已落地"的确定信号：上层靠它接续 seek 之后要做的事（见 onSeeked 注释）
+        onSeekedRef.current?.();
         if (v.paused || v.ended) stop();
         else start();
       };

@@ -388,6 +388,8 @@
 - [x] **T-008 片段加工：播完出点后无法重播 + 进度条到不了终点**（缺陷修复，[BUGS.md](./BUGS.md) `BUG-017`，用户 2026-10-05 反馈）：① 起播回退改为 `pendingPlayRef`——`seek(入点)` 后**不立刻** `play()`，等 `onTime` 报出已落回入点附近再起播（期间不参与越界判定）；seek 迟迟不落地时标志保持、`playing` 仍 false，用户再点一次走直通分支自愈，不会卡死。② 进度条 `step=0.05` → `step="any"`（区间长度通常不是 0.05 的整数倍，吸附导致拇指到不了最右端） → **UI.md §9.8 · TC-050**　✅ **2026-10-05 落地**（真机复测：②已好；①的残留部分经真机定位为另一根因 → `T-009`）
 - [x] **T-009 播放态与 `<video>` 脱钩（换源/重载后按钮永久「暂停」且无法重播）**（缺陷修复，[BUGS.md](./BUGS.md) `BUG-018`，`T-008` 复测残留）：`components/VideoPlayer/index.tsx` 补 `loadstart` 监听——媒体**重新加载**会把 `paused` 置回 true 却不触发 `pause` 事件（规范如此），只靠 `onPause` 回写会让 `playing` 永远停在 true；此处补 `stop()` + `onPlayStateChange(false)`。`pages/Workbench/EditModeView.tsx` 去掉**乐观 `setPlaying`**（`play()` 没起来就先翻按钮），播放态改为**只由 `<video>` 事件回写**（单一真源）。真机触发路径：`useProxyPreview` 在代理任务完成时切 `src`（`useProxyPreview.ts:50`） → **UI.md §9.8 · TC-051**　✅ **2026-10-05 落地**（真机自测：重载后按钮回「播放」、点击即重新播放；用户序列复跑无回归）
 
+- [x] **T-010 「起播回退」门解除条件鸡生蛋 → 重播永久僵死**（缺陷修复，[BUGS.md](./BUGS.md) `BUG-020`，`T-008`/`T-009` 修复后用户仍复现）：`T-008` 引入的 `pendingPlayRef` 把解除条件写成"等 `onTime` 报出位置已落回入点附近"，但 `onTime` 主要由 **rAF** 驱动、而 rAF 只在 `play` 之后才启动——这里等的正是"还没播"的阶段（鸡生蛋）；解除只能寄望 `seeked` 的那一次手动上报，一旦丢失标志**永久挂着**，第二下点播放走直通分支时元素仍在 `seeking` 且 `preload="metadata"` 无可播数据 → `play()` 既不发 `play` 事件也不推进帧。改法：`VideoPlayer` 新增 `onSeeked`（`seeked` DOM 事件，与轮询无关）作为解除信号，并删掉"±0.3s 落点容差"这种靠猜的判定 → **UI.md §9.8 · TC-052**　✅ **2026-10-05 落地**（真机：修复前 6 轮压力第 1 轮必现 `btn=播放 t=7.00 paused=true`，修复后标准 3/3 + 换源变体 3/3 全过）
+
 ## 候选池（未排期）
 
 > **候选池的唯一真源是 [CANDIDATES.md](./CANDIDATES.md)**（原 DECISIONS.md §16，含每条说明与量级），此处只保留编号与去向，不复制说明。

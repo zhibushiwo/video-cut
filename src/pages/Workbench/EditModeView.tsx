@@ -55,20 +55,18 @@ export function EditModeView({
    * 「起播回退」待办（`BUG-017`）：`seek()` 是异步的，若 seek 回入点后**立刻** `play()`，
    * 播放器仍会先用**旧位置**（恰好停在出点）上报一次 → 命中下面的越界判定 → 刚起播就被
    * 自己按停（表现为"进度条回到原点、按钮没变、视频不动"，从中间剪的段因 seek 慢而稳定复现）。
-   * 故改成：置此标志 + seek 回入点，等 `onTime` 报出**已落回入点附近**再真正 `play()`。
+   *
+   * 故改成：置此标志 + seek 回入点，等 `VideoPlayer` 的 **`onSeeked`**（`seeked` DOM 事件）
+   * 报出落地再 `play()`。**不能靠 `onTime` 的时间值来解除**——`onTime` 主要由 rAF 驱动，
+   * 而 rAF 只在 `play` 事件之后才跑，这里等的恰恰是"还没播"的阶段（鸡生蛋）；一旦那一次
+   * 手动上报也丢了，标志就永久挂着，而第二次点播放走直通分支时元素仍在 `seeking`、
+   * `preload="metadata"` 也没有可播数据 → `play()` 既不发 `play` 事件也不推进帧
+   * （真机实测：`btn=播放 t=7.00 paused=true`，`BUG-017` 残留）。
    */
   const pendingPlayRef = useRef(false);
 
   const handleTime = (t: number) => {
     setCurrent(t);
-    if (pendingPlayRef.current) {
-      // 等 seek 落地：位置回到入点附近才起播；期间不参与越界判定
-      if (Math.abs(t - (seg ? seg.start : 0)) <= 0.3) {
-        pendingPlayRef.current = false;
-        playerRef.current?.play(); // 播放态由 play 事件回写（见 togglePlay 注释）
-      }
-      return;
-    }
     // 仅播放中触发：暂停态拖动进度越过出点不打断（再按播放会先回入点）
     if (seg && playing && t >= seg.end) {
       if (loop) {
@@ -78,6 +76,13 @@ export function EditModeView({
         playerRef.current?.seek(seg.end);
       }
     }
+  };
+
+  /** seek 落地：解除「起播回退」门并真正起播（`seeked` 只在真正落地时才来，见 VideoPlayer.onSeeked） */
+  const handleSeeked = () => {
+    if (!pendingPlayRef.current) return;
+    pendingPlayRef.current = false;
+    playerRef.current?.play(); // 播放态由 play 事件回写（见 togglePlay 注释）
   };
 
   /**
@@ -92,8 +97,8 @@ export function EditModeView({
       return;
     }
     // 区间内预览：起播点在区间外（含播完暂停在出点）时先回到入点。
-    // 这一步**不能** seek 完立刻 play（见 pendingPlayRef 注释）：交给 handleTime 在
-    // seek 落地后起播。若 seek 迟迟不落地，标志会保持、playing 仍为 false，
+    // 这一步**不能** seek 完立刻 play（见 pendingPlayRef 注释）：交给 handleSeeked 在
+    // `seeked` 落地后起播。若 seek 迟迟不落地，标志会保持、playing 仍为 false，
     // 用户再点一次走下面的直通分支即可自愈（不会卡死）。
     if (seg && (current < seg.start - 0.02 || current >= seg.end - 0.02)) {
       pendingPlayRef.current = true;
@@ -166,6 +171,7 @@ export function EditModeView({
                   src={fileSrc(proxyPath ?? source.path)}
                   banner={proxyPath ? "当前为代理预览画面，导出使用原始文件" : null}
                   onTime={handleTime}
+                  onSeeked={handleSeeked}
                   onPlayStateChange={setPlaying}
                   onError={onError}
                   onLoadedMetadata={() => playerRef.current?.seek(clip.seg?.start ?? 0)}
