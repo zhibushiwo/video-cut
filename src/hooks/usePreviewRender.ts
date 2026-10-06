@@ -30,8 +30,14 @@ export function usePreviewRender(opts: {
   items: PipelineItem[];
   quality: QualityPreset;
   encoder: string | null;
+  /**
+   * 自动渲染开关（M16-7/8）：工作台默认 `true`（编辑停顿即渲染）；合并/剪切页传
+   * `false`——文件可能很大，渲染只经「生成预览」按钮手动触发（renderNow），其余
+   * 状态机（终态采纳/签名失效回落）两条模式共用。
+   */
+  auto?: boolean;
 }) {
-  const { hasEntries, allLossless, items, quality, encoder } = opts;
+  const { hasEntries, allLossless, items, quality, encoder, auto = true } = opts;
   // 内容签名 = 载荷 JSON（时间线一变就变；与后端 `dedup_key` 同源口径）
   const key = useMemo(() => JSON.stringify(items), [items]);
 
@@ -78,6 +84,7 @@ export function usePreviewRender(opts: {
 
   // 自动渲染：编辑停顿 ~1.5s 后提交（含重编码 / 同签名已提交 / 同签名已失败 → 不提交）
   useEffect(() => {
+    if (!auto) return; // 手动模式（M16-7/8）：只经 renderNow 提交
     const d = decidePreview({
       hasEntries,
       allLossless,
@@ -94,7 +101,7 @@ export function usePreviewRender(opts: {
     }
     const timer = window.setTimeout(() => submit(key), PREVIEW_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
-  }, [hasEntries, allLossless, key, readyKey, failedKey, submit]);
+  }, [auto, hasEntries, allLossless, key, readyKey, failedKey, submit]);
 
   // 任务终态：完成 → 切真实成品文件；失败/取消 → 静默回退（FR-1761）
   useTauriEvent(() =>

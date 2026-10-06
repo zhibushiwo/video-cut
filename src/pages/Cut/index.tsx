@@ -9,6 +9,7 @@ import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlaye
 import { useConsumeInitialFiles } from "../../hooks/useConsumeInitialFiles";
 import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useHotkeys } from "../../hooks/useHotkeys";
+import { usePreviewRender } from "../../hooks/usePreviewRender";
 import { useProxyPreview } from "../../hooks/useProxyPreview";
 import {
   checkPipeline,
@@ -241,6 +242,33 @@ export default function CutPage({
       else setSegments((prev) => (prev.length > 0 ? prev.slice(0, -1) : prev));
     }
   }, active);
+
+  // 剪切预览（M16-8 / CAND-027②）：片段按顺序连成一条预览（pipeline preview 管线）；
+  // 导出仍是每片段一个独立文件——预览用于核对内容，手动触发（auto: false）
+  const previewItems = useMemo<PipelineItem[]>(
+    () =>
+      inputPath
+        ? segments.map((sg) => ({
+            input: inputPath,
+            segment: { startSec: sg.startSec, endSec: sg.endSec },
+            rotateDeg: 0,
+            hflip: false,
+            vflip: false,
+            crop: null,
+            outWidth: null,
+            outHeight: null,
+          }))
+        : [],
+    [inputPath, segments],
+  );
+  const cutPreview = usePreviewRender({
+    hasEntries: !!inputPath && segments.length > 0,
+    allLossless: true,
+    items: previewItems,
+    quality: settings.quality,
+    encoder: settings.encoder === "auto" ? null : settings.encoder,
+    auto: false,
+  });
 
   const canAdd =
     duration > 0 && selection.end - selection.start >= 0.1;
@@ -706,6 +734,40 @@ export default function CutPage({
         )}
       </div>
 
+      {/* 剪切预览（M16-8 / CAND-027②）：片段按顺序连播核对内容；导出仍为每片段一个独立文件 */}
+      <div className="shrink-0 border-t border-hairline px-4 py-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => cutPreview.renderNow()}
+            disabled={!inputPath || segments.length === 0}
+            className="rounded-md border border-hairline px-2.5 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:opacity-50"
+          >
+            生成预览
+          </button>
+          <span className="text-[11px] text-mute">
+            {cutPreview.phase === "rendering"
+              ? "渲染预览中…（不进任务面板与历史）"
+              : cutPreview.phase === "failed"
+                ? "上次渲染失败，可重试"
+                : cutPreview.renderedSrc
+                  ? "预览就绪"
+                  : segments.length === 0
+                    ? "先添加至少一个片段"
+                    : "点「生成预览」按片段顺序渲染连播"}
+          </span>
+        </div>
+        {cutPreview.renderedSrc && (
+          <video
+            src={fileSrc(cutPreview.renderedSrc)}
+            controls
+            className="mt-2 max-h-[30vh] w-full rounded bg-black"
+          />
+        )}
+        <p className="mt-1.5 text-[11px] leading-relaxed text-mute/70">
+          预览按片段顺序连续播放（copy/重编码判定与导出一致），用于导出前核对内容；导出仍为每个片段一个独立文件。
+        </p>
+      </div>
       <footer className="flex shrink-0 items-center gap-3 border-t border-hairline px-4 py-3">
         <span className="min-w-0 flex-1 truncate text-xs text-mute" title={outputDir}>
           输出到 {outputDir || "（未选择）"}

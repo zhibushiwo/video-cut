@@ -1,5 +1,5 @@
 import { Film, GripVertical, Plus, X } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   checkMerge,
   confirmDialog,
@@ -8,8 +8,9 @@ import {
   submitTask,
   submitToUniqueTarget,
 } from "../../services/tauri";
-import type { AppSettings, MergeComparison } from "../../types";
+import type { AppSettings, MergeComparison, PipelineItem } from "../../types";
 import { useDragSort } from "../../hooks/useDragSort";
+import { usePreviewRender } from "../../hooks/usePreviewRender";
 import { useThumbnails } from "../../hooks/useThumbnails";
 import { useConsumeInitialFiles } from "../../hooks/useConsumeInitialFiles";
 import { EmptyImport } from "../../components/EmptyImport";
@@ -32,6 +33,31 @@ export default function MergePage({
   initialFiles?: string[] | null;
 }) {
   const [files, setFiles] = useState<string[]>(initialFiles ?? []);
+
+  // 合并预览（M16-7 / CAND-027②）：文件列表 = pipeline 多输入条目（每文件全区间、无变换），
+  // 与导出走同一条 copy/归一化判定；文件可能很大 → 手动触发（auto: false）
+  const previewItems = useMemo<PipelineItem[]>(
+    () =>
+      files.map((path) => ({
+        input: path,
+        segment: null,
+        rotateDeg: 0,
+        hflip: false,
+        vflip: false,
+        crop: null,
+        outWidth: null,
+        outHeight: null,
+      })),
+    [files],
+  );
+  const preview = usePreviewRender({
+    hasEntries: files.length >= 2,
+    allLossless: true,
+    items: previewItems,
+    quality: settings.quality,
+    encoder: settings.encoder === "auto" ? null : settings.encoder,
+    auto: false,
+  });
   const [check, setCheck] = useState<MergeComparison | null>(null);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
@@ -319,6 +345,39 @@ export default function MergePage({
       <footer className="shrink-0 border-t border-hairline px-4 py-3">
         <div className="flex items-center gap-3">
           <span className="min-w-0 flex-1 truncate text-xs text-mute" title={outputDir}>
+<div className="rounded-md border border-hairline bg-panel/40 p-3">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => preview.renderNow()}
+                  disabled={files.length < 2}
+                  className="rounded-md border border-hairline px-2.5 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:opacity-50"
+                >
+                  生成预览
+                </button>
+                <span className="text-[11px] text-mute">
+                  {preview.phase === "rendering"
+                    ? "渲染预览中…（不进任务面板与历史）"
+                    : preview.phase === "failed"
+                      ? "上次渲染失败，可重试"
+                      : preview.renderedSrc
+                        ? "预览就绪"
+                        : files.length < 2
+                          ? "添加至少两个视频后可预览"
+                          : "点「生成预览」渲染真实合并结果"}
+                </span>
+              </div>
+              {preview.renderedSrc && (
+                <video
+                  src={fileSrc(preview.renderedSrc)}
+                  controls
+                  className="mt-2 max-h-[40vh] w-full rounded bg-black"
+                />
+              )}
+              <p className="mt-1.5 text-[11px] leading-relaxed text-mute/70">
+                预览按文件顺序连续播放，判定与导出一致（参数不一致时预览同样自动统一）。
+              </p>
+            </div>
             输出到 {outputDir || "（先添加视频）"}
           </span>
           <label className="flex items-center gap-1.5 text-xs text-mute">
