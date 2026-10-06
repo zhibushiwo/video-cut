@@ -572,7 +572,7 @@ Pending ──▶ Running ──▶ Completed
 ## 12. 配置与持久化 · NFR-012
 
 - 使用 `tauri-plugin-store`（JSON 文件），**不引入 SQLite**（v1 无关系型数据需求）
-- v1 配置项：默认输出目录、默认剪切模式（极速/精确）、关键帧吸附开关、代理预览三态（`ProxyMode`：`auto`/`always`/`off`，UI.md §9.9）、编码器选择（自动/锁定）、质量档位；后续追加：主题色（`accent`，M4-8）、任务浮层自动关闭秒数（`toastAutoCloseSec`，默认 0=不关闭，M7-5）。导出名时间戳**不是**配置项——"同名才追加"为固定行为（决策 #19）
+- v1 配置项：默认输出目录、默认剪切模式（极速/精确）、关键帧吸附开关、代理预览三态（`ProxyMode`：`auto`/`always`/`off`，UI.md §9.9）、编码器选择（自动/锁定）、质量档位；后续追加：主题色（`accent`，M4-8）、任务浮层自动关闭秒数（`toastAutoCloseSec`，默认 0=不关闭，M7-5）；添加片段自动续接开关（`autoContinueClips`，默认开，M16-3）。导出名时间戳**不是**配置项——"同名才追加"为固定行为（决策 #19）
 - 历史记录同样以 JSON 追加存储（已实现，见下方 M4-2 实现说明）
 - 实现（M4-1）：`settings.json`（app_config_dir）单键 `settings` 持有整个 `AppSettings`；读取时逐字段校验，非法/缺失回退默认值；App 层启动时一次加载，页面按导航条件挂载即拿到最终值，设置页改动即时回写
 - 实现（M4-2）：任务历史由 **Rust 侧终态回调**落盘 `app_data_dir/history.json`（`TaskManager::set_on_terminal`，lib.rs setup 接线），记录 id/kind/label/status/outputs/error/提交·开始·结束时间；上限 200 条、`.tmp`+rename 原子写、终态防重（取消与执行器并发只记首次）；`list_history`/`clear_history` 命令供历史页读取
