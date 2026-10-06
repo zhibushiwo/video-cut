@@ -13,7 +13,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTauriEvent } from "../../hooks/useTauriEvent";
 import { appendFrontendLog, fileSrc, generateProxy, onTaskStatus } from "../../services/tauri";
-import { Maximize2 } from "lucide-react";
+import { Maximize2, Volume2, VolumeX } from "lucide-react";
+import { useVolumeMemory } from "../../hooks/useVolumeMemory";
 import { beginFrameSampling, formatPerfLine, type PerfScene, type PerfSummary } from "../../utils/perf";
 import { displayedStageStyle } from "../RotateControls";
 import type { RotateState } from "../../types";
@@ -106,6 +107,23 @@ export default function ProductPreview({
   const videoB = useRef<HTMLVideoElement>(null);
   /** 全屏容器（M16-4）：整个预览组件（含控制行）进 Fullscreen API，Esc 退出 */
   const rootRef = useRef<HTMLDivElement>(null);
+  // 音量走会话级全局记忆（M16-2 / CAND-029 延伸）：与各 VideoPlayer 共用一份
+  const { volume, muted, setVolume, toggleMuted } = useVolumeMemory();
+  // 音量只作用于**活动槽**与渲染分支的成品文件；备用预载槽一律强制静音——
+  // 它虽处暂停态，但切槽瞬间/换装重载中任何意外出声都是串音
+  useEffect(() => {
+    for (const name of ["a", "b"] as const) {
+      const v = name === "a" ? videoA.current : videoB.current;
+      if (!v) continue;
+      if (name !== slot) {
+        v.muted = true;
+        continue;
+      }
+      v.volume = volume;
+      v.muted = muted;
+    }
+  }, [volume, muted, slot]);
+
   /** 进度条（非受控，§18.4）：rAF tick 每帧直写 .value，拖动经 seekInternal 通路 */
   const progressRef = useRef<HTMLInputElement>(null);
   /** 进度条拖动中：tick 暂停直写 .value，避免视频滞后位置回弹覆盖用户拖动值 */
@@ -465,6 +483,16 @@ export default function ProductPreview({
     if (v) v.playbackRate = playbackRate;
   }, [renderedActive, renderedSrc, playbackRate]);
 
+  // 渲染分支的音量（M16-2 延伸）：挂全局记忆；双槽分支的同款 effect 在上方（此处
+  // renderedActive 才刚声明，不能提前引用）
+  useEffect(() => {
+    const v = renderedVideoRef.current;
+    if (v) {
+      v.volume = volume;
+      v.muted = muted;
+    }
+  }, [volume, muted, renderedActive, renderedSrc]);
+
   // 外部 seek（时间轴点击 / 进度条）：成品时间即视频时间
   useEffect(() => {
     if (!renderedActive || !seekRequest) return;
@@ -744,6 +772,24 @@ export default function ProductPreview({
         <span className="shrink-0 font-mono text-[10px] text-mute">
           {formatTime(playhead, false)} / {formatTime(totalDuration, false)}
         </span>
+        <button
+          type="button"
+          onClick={() => toggleMuted()}
+          aria-label={muted || volume === 0 ? "取消静音" : "静音"}
+          className="shrink-0 text-mute transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+        >
+          {muted || volume === 0 ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={muted ? 0 : volume}
+          onChange={(e) => setVolume(Number(e.target.value))}
+          aria-label="音量"
+          className="h-1 w-16 shrink-0 cursor-pointer accent-signal"
+        />
         <button
           type="button"
           onClick={() => {

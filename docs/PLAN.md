@@ -344,7 +344,7 @@
 > **验收**：AC 待发号（UI 行为规格以 UI.md 对应节为准）· 每项手测点随提交说明
 
 - [x] **M16-1 完成提示自动关闭**（CAND-023）：任务行点「打开位置」后该行立即关闭（清掉其自动关闭定时器）　✅ **2026-10-07 落地**（`dismiss(id)` 复用，定时器一并清）
-- [x] **M16-2 预览音量全局记忆**（CAND-029）：会话级全局音量/静音单例（`useSyncExternalStore`），VideoPlayer 各实例共用；不入 settings.json　✅ **2026-10-07 落地**（`hooks/useVolumeMemory.ts`：滑块 0=静音语义沿用，任一实例调整其余即时同步）
+- [x] **M16-2 预览音量全局记忆**（CAND-029）：会话级全局音量/静音单例（`useSyncExternalStore`），VideoPlayer 各实例共用；不入 settings.json　✅ **2026-10-07 落地**（`hooks/useVolumeMemory.ts`：滑块 0=静音语义沿用，任一实例调整其余即时同步）。**同日延伸（用户反馈成品预览没有音量）**：ProductPreview 控制行补静音钮 + 音量滑块，接同一份全局记忆；音量只作用于活动槽与渲染分支成品，**备用预载槽强制静音**防串音（真机：滑块 0.3 → `v.volume=0.3`、静音钮 → `muted=true`）
 - [x] **M16-3 添加片段自动续接**（CAND-025）：设置 `autoContinueClips`（默认开，DESIGN §12 + §9.9）；剪切页与工作台源剪切添加成功后入点接出点、出点推到结尾　✅ **2026-10-07 落地**（全段片段/已到结尾时不续接；设置页新增开关行）
 - [x] **M16-4 预览全屏**（CAND-024）：VideoPlayer 控制条全屏按钮（Fullscreen API，Esc 退出）　✅ **2026-10-07 落地**（成品预览控制行同批加同款按钮——整块预览组件进全屏。**用户复测发现缺陷并当日修复**：全屏的是外层容器而 UA 不给全屏元素做布局，非 fill 模式视频停在 44vh 原尺寸缩在角落——global.css 补 `:fullscreen:has(>video)` flex 居中 + `:fullscreen > video` 铺满可用空间（真机复测 1080p 全屏视频 1820×1024 居中））
 - [x] **M16-5 成品预览点画面即播放/暂停**（CAND-027①）：ProductPreview 两分支视频 onClick 接走带　✅ **2026-10-07 落地**（真机：点画面播/停与按钮同步；非活动槽 `pointerEvents:none` 防透明层吃点击）
