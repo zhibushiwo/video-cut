@@ -17,6 +17,7 @@ import { Maximize2, Volume2, VolumeX } from "lucide-react";
 import { useVolumeMemory } from "../../hooks/useVolumeMemory";
 import { beginFrameSampling, formatPerfLine, type PerfScene, type PerfSummary } from "../../utils/perf";
 import { displayedStageStyle } from "../RotateControls";
+import { PLAYBACK_RATES } from "../VideoPlayer";
 import type { RotateState } from "../../types";
 import { cropPreviewTransform } from "../../utils/crop";
 import { beginPointerDrag } from "../../utils/pointerDrag";
@@ -57,9 +58,11 @@ interface ProductPreviewProps {
   scrollElRef: { current: HTMLElement | null };
   /** 页面级 PPS 的 ref 镜像（§18.3）：tick 连续帧之间不重渲染，必须读 ref */
   ppsRef: { current: number };
-  /** 播放倍率（M11-8 K/L 走带，复用 M7-6 档位 0.5/1/1.5/2；默认 1）。
+  /** 播放倍率（M11-8 K/L 走带，档位见 PLAYBACK_RATES 0.2~3；默认 1）。
    *  新媒体加载会把 playbackRate 重置回 1，故除 effect 外还要在 onLoadedMetadata 补挂 */
   playbackRate: number;
+  /** 速度选择的写回（T-020 下拉选择） */
+  onPlaybackRateChange(r: number): void;
   /**
    * **渲染即预览**（M12-2）：非空时播放这个**真实成品文件**（单文件分支），
    * 不再走双槽虚拟连播。播放头 = 视频自身时间，无需"成品内↔源内"映射。
@@ -93,6 +96,7 @@ export default function ProductPreview({
   scrollElRef,
   ppsRef,
   playbackRate,
+  onPlaybackRateChange,
   renderedSrc = null,
   fallbackHint,
 }: ProductPreviewProps) {
@@ -726,11 +730,19 @@ export default function ProductPreview({
         >
           {playing ? "暂停" : "播放"}
         </button>
-        {playbackRate !== 1 && (
-          <span className="shrink-0 rounded border border-hairline px-1.5 py-0.5 font-mono text-[10px] text-mute">
-            {playbackRate}×
-          </span>
-        )}
+        <select
+          value={playbackRate}
+          onChange={(e) => onPlaybackRateChange(Number(e.target.value))}
+          aria-label="播放速度"
+          title="播放速度"
+          className="shrink-0 cursor-pointer rounded border border-hairline bg-ink/80 px-1 py-0.5 font-mono text-[11px] text-mute focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+        >
+          {PLAYBACK_RATES.map((r) => (
+            <option key={r} value={r}>
+              {r}×
+            </option>
+          ))}
+        </select>
         <input
           ref={progressRef}
           type="range"

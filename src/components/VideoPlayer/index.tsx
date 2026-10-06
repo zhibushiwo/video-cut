@@ -18,8 +18,8 @@ export interface VideoPlayerHandle {
   pause(): void;
 }
 
-/** 倍速循环档位（M7-6）：0.5 → 1 → 1.5 → 2 → 0.5；工作台 K/L 走带（M11-8）复用同一档 */
-export const PLAYBACK_RATES = [0.5, 1, 1.5, 2];
+/** 播放速度档位（T-020 扩展：0.2~3 直接选择，不再循环点按）；工作台 K/L 走带（M11-8）复用同一档 */
+export const PLAYBACK_RATES = [0.2, 0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3];
 
 /**
  * 起播，并吞掉 `play()` 的 **AbortError**：`play()` 与 `pause()` / 后续 `seek` 竞态时规范
@@ -390,21 +390,19 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             >
               <Maximize2 className="h-4 w-4" />
             </button>
-            <button
-              type="button"
-              onClick={() =>
-                setRate((r) => {
-                  // r 恒来自 RATES（setRate 的唯一写入源），越界回退 r 仅为类型兜底
-                  const i = RATES.indexOf(r);
-                  return RATES[(i + 1) % RATES.length] ?? r;
-                })
-              }
+            <select
+              value={rate}
+              onChange={(e) => setRate(Number(e.target.value))}
               aria-label="播放速度"
               title="播放速度"
-              className="shrink-0 font-mono text-[11px] text-paper/80 transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+              className="shrink-0 cursor-pointer rounded border border-hairline bg-ink/80 px-1 py-0.5 font-mono text-[11px] text-paper/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
             >
-              {rate}x
-            </button>
+              {RATES.map((r) => (
+                <option key={r} value={r}>
+                  {r}x
+                </option>
+              ))}
+            </select>
           </div>
         )}
       </div>

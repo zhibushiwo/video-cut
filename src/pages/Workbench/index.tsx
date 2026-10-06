@@ -1142,6 +1142,7 @@ export default function WorkbenchPage({
                       scrollElRef={timelineScrollRef}
                       ppsRef={ppsRef}
                       playbackRate={playbackRate}
+                      onPlaybackRateChange={setPlaybackRate}
                       renderedSrc={preview.renderedSrc}
                       fallbackHint={
                         preview.phase === "failed"
