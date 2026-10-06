@@ -54,7 +54,6 @@ import {
   buildAppendToTimeline,
   buildComposite,
   buildCreateClip,
-  buildInsert,
   buildRemoveAndDelete,
   buildReorder,
   buildRemoveFromTimeline,
@@ -122,8 +121,6 @@ export default function WorkbenchPage({
   const [quality, setQuality] = useState<QualityPreset>(settings.quality);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  /** 池 → 时间轴的跨容器拖拽（M6-3） */
-  const [extDrag, setExtDrag] = useState<{ clipId: string } | null>(null);
   // 成品连播（M6-6）：播放头（成品内秒）与播放状态在页面层持有，与时间轴播放头联动
   const [playhead, setPlayhead] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -415,7 +412,6 @@ export default function WorkbenchPage({
     setPlayhead(0);
     setPlaying(false);
     setPlaybackRate(1);
-    setExtDrag(null);
     setMenu(null);
   }, [applyRaw, clearUndoStack, clearThumbs]);
 
@@ -602,14 +598,6 @@ export default function WorkbenchPage({
   const appendToTimeline = useCallback(
     (clipId: string) => {
       execute(buildAppendToTimeline(clipId));
-    },
-    [execute],
-  );
-
-  /** 池拖入/块拖动插入：已在轴内 = 移动，否则插入（M6-3） */
-  const insertToTimeline = useCallback(
-    (clipId: string, index: number) => {
-      execute(buildInsert(clipId, index));
     },
     [execute],
   );
@@ -1203,15 +1191,12 @@ export default function WorkbenchPage({
               clips={tlClips}
               active={active}
               onTrimSeek={productSeek}
-              externalDrag={extDrag}
               selectedId={selectedClipId}
               onSelect={(id) => {
                 setSelectedClipId(id);
                 setMode({ type: "edit", clipId: id });
               }}
               onReorder={reorderTimeline}
-              onInsert={insertToTimeline}
-              onExternalDragEnd={() => setExtDrag(null)}
               onRemove={removeFromTimeline}
               onSeek={(t) => {
                 // 点空白 = seek + 取消选择（§17.4 选择行）；块点击 stopPropagation 不会到这里
@@ -1246,7 +1231,6 @@ export default function WorkbenchPage({
               onOpen={(id) => setMode({ type: "edit", clipId: id })}
               onAppend={appendToTimeline}
               onRemove={deleteFromPool}
-              onDragStart={(id) => setExtDrag({ clipId: id })}
             />
 
             {/* ④ 素材卡片（含批量操作条，M6-8 = 原 M4-4） */}

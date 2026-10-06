@@ -72,14 +72,9 @@ interface ClipTimelineProps {
   /** M10-1 页面保活：宿主页是否为当前活动页（false = 被隐藏保活）；+/−/\ 键经它门控 */
   active?: boolean;
   /** 池→轴拖拽进行中的片段 id；null = 无 */
-  externalDrag: { clipId: string } | null;
   selectedId: string | null;
   onSelect(id: string): void;
   onReorder(from: number, to: number): void;
-  /** 池拖入/块拖动落点插入：目标 index 处放该片段（已在轴内则为移动语义） */
-  onInsert(clipId: string, index: number): void;
-  /** 池拖拽结束（无论是否落进轴内），父层据此清 externalDrag */
-  onExternalDragEnd(): void;
   /** 从成品移除（块 hover ✕） */
   onRemove(id: string): void;
   /** 点击空白处按渲染位置 seek（成品内时间，秒） */
@@ -151,12 +146,9 @@ interface TrimGesture {
 export default function ClipTimeline({
   clips,
   active,
-  externalDrag,
   selectedId,
   onSelect,
   onReorder,
-  onInsert,
-  onExternalDragEnd,
   onRemove,
   onSeek,
   fps,
@@ -205,7 +197,6 @@ export default function ClipTimeline({
   });
 
   /** 池拖入时的插入位置指示（目标块 index） */
-  const [extIndex, setExtIndex] = useState<number | null>(null);
 
   // 修剪手势（M11-6 §18.5）：预览/热区悬停是本地 state（逐 move 只重渲染本组件），
   // 手势进行中状态在 ref（跨渲染读取）；预览上抛/提交经 props 回调。
@@ -540,55 +531,7 @@ export default function ClipTimeline({
     setTrimHot((prev) => (prev === hot ? prev : hot));
   };
 
-  /** 指针所在块：与渲染块矩形做最近中线命中 */
-  const indexAtX = (clientX: number): number | null => {
-    const blocks = viewportRef.current?.querySelectorAll<HTMLElement>("[data-sort-row]");
-    if (!blocks || blocks.length === 0) return 0;
-    let best = 0;
-    let bestDist = Infinity;
-    blocks.forEach((el, i) => {
-      const r = el.getBoundingClientRect();
-      const d = Math.abs(clientX - (r.left + r.width / 2));
-      if (d < bestDist) {
-        bestDist = d;
-        best = i;
-      }
-    });
-    return best;
-  };
 
-  const insideViewport = (clientX: number, clientY: number): boolean => {
-    const el = viewportRef.current;
-    if (!el) return false;
-    const r = el.getBoundingClientRect();
-    return (
-      clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom
-    );
-  };
-
-  // 池→轴跨容器拖拽：拖拽期间监听指针，落点在轴内则插入
-  useEffect(() => {
-    if (!externalDrag) {
-      setExtIndex(null);
-      return;
-    }
-    // 收尾兜底（窗口外松手 / pointercancel）走公共实现（BUG-003 / AGENTS.md §3 第 20 条）
-    const detach = beginPointerDrag(
-      (ev) => {
-        setExtIndex(insideViewport(ev.clientX, ev.clientY) ? indexAtX(ev.clientX) : null);
-      },
-      (last) => {
-        if (last && insideViewport(last.clientX, last.clientY)) {
-          const idx = indexAtX(last.clientX);
-          if (idx !== null) onInsert(externalDrag.clipId, idx);
-        }
-        onExternalDragEnd();
-      },
-    );
-    // 卸载/依赖变化只摘监听、不触发落点处理（否则重挂载时会把上次的落点再插一遍）
-    return detach;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [externalDrag?.clipId, clips.length]);
 
   // 刻度步长：≥60px 对应的秒数向上取整刻度（§18.2）；i×step 逐项相乘避免浮点累加漂移
   const step = tickStep(TICK_MIN_PX / pps);
@@ -727,16 +670,6 @@ export default function ClipTimeline({
                 </div>
               );
             })}
-
-            {/* 池拖入的插入指示线：贴目标块左缘（或末块右缘 = 世界宽） */}
-            {extIndex !== null && (
-              <span
-                className="pointer-events-none absolute bottom-0 top-0 z-10 w-0.5 bg-signal"
-                style={{
-                  left: extIndex < clips.length ? geo.block(extIndex).left : geo.contentWidth,
-                }}
-              />
-            )}
 
             {/* 修剪预览 tooltip（§17.4）：新端点总帧数时间码 + 新时长 + copy/transcode 徽标
                 （徽标随 check_pipeline 防抖回包实时变化，§18.5 状态机 ③） */}
