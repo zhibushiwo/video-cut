@@ -518,35 +518,26 @@ fn keep_zip_entry(name: &str) -> bool {
 /// VAD 辅助模型文件名（随安装包 resource，ADR-039⑧；与 fetch 脚本同源）。
 const VAD_FILE_NAME: &str = "ggml-silero-v5.1.2.bin";
 
-/// whisper-cli 转写参数（M18，ADR-041：`-pp` 进度走 stderr）。参数序列有全序列断言。
+/// whisper-cli 转写参数（M18，ADR-041：`-pp` 进度走 stderr）。`vad_model = Some`
+/// 时启用 `--vad -vm` 强制预切分（FR-392）；None = 无 VAD 全量转写（VAD 空结果
+/// 回退用）。参数序列有全序列断言。
 fn whisper_cli_args(
     model: &str,
-    vad_model: &str,
+    vad_model: Option<&str>,
     wav: &str,
     srt_base: &str,
     language: &str,
     threads: usize,
 ) -> Vec<String> {
-    [
-        "-m",
-        model,
-        "-f",
-        wav,
-        "--vad",
-        "-vm",
-        vad_model,
-        "-osrt",
-        "-of",
-        srt_base,
-        "-l",
-        language,
-        "-t",
-        &threads.to_string(),
-        "-pp",
-    ]
-    .iter()
-    .map(|s| s.to_string())
-    .collect()
+    let threads_s = threads.to_string();
+    let mut args = vec!["-m", model, "-f", wav];
+    if let Some(vad) = vad_model {
+        args.extend(["--vad", "-vm", vad]);
+    }
+    args.extend([
+        "-osrt", "-of", srt_base, "-l", language, "-t", &threads_s, "-pp",
+    ]);
+    args.iter().map(|s| s.to_string()).collect()
 }
 
 /// 解析 whisper-cli stderr 的 `-pp` 进度行（ADR-041：红线 2"禁解析 stderr"为 FFmpeg
@@ -592,7 +583,7 @@ fn run_whisper(
     ctx: &TaskContext,
     whisper_exe: &Path,
     model: &str,
-    vad_model: &str,
+    vad_model: Option<&str>,
     wav: &str,
     srt_base: &str,
     language: &str,
@@ -777,7 +768,7 @@ fn smoke_gpu(gpu_exe: &Path, model: &Path, vad: &Path, ffmpeg: &Path) -> Result<
 
     let args = whisper_cli_args(
         &model.to_string_lossy(),
-        &vad.to_string_lossy(),
+        Some(&vad.to_string_lossy()),
         &tmp.to_string_lossy(),
         &out_base.to_string_lossy(),
         "auto",
@@ -1019,12 +1010,30 @@ pub(crate) fn submit_subtitle(
                 ctx,
                 Path::new(&whisper_exe),
                 &job_model,
-                &job_vad,
+                Some(&job_vad),
                 &job_wav,
                 &job_srt_base,
                 &job_lang,
-                &|p| ctx.set_progress(0.05 + 0.95 * p, None),
+                &|p| ctx.set_progress(0.05 + 0.90 * p, None),
             )?;
+            // VAD 空结果回退（真机缺陷 2026-10-07，用户报告"识别出 0KB"）：唱歌/重
+            // BGM 内容会被 silero 误判为零语音段（实测 `Final speech segments: 0`、
+            // whisper 退出 0 但 srt 为空）→ 回退一次无 VAD 全量转写；真静音素材回退
+            // 后仍为空 srt，属正确结果。同名 `-of` 截断重写已实测。
+            if !produced.exists() || std::fs::metadata(&produced).map(|m| m.len()).unwrap_or(0) == 0
+            {
+                log::warn!("VAD 未检出语音段，回退无 VAD 全量转写");
+                run_whisper(
+                    ctx,
+                    Path::new(&whisper_exe),
+                    &job_model,
+                    None,
+                    &job_wav,
+                    &job_srt_base,
+                    &job_lang,
+                    &|p| ctx.set_progress(0.05 + 0.90 * p + 0.04, None),
+                )?;
+            }
             // 落位：`.part.srt` → 最终产物（原子替换，`BUG-002` 同口径）
             if !produced.exists() {
                 return Err("转写完成但未产出字幕文件".to_string());
@@ -1139,7 +1148,7 @@ mod tests {
         assert_eq!(
             whisper_cli_args(
                 "C:\\models\\tiny.bin",
-                "C:\\models\\silero.bin",
+                Some("C:\\models\\silero.bin"),
                 "C:\\cache\\whisper\\t1.wav",
                 "C:\\cache\\whisper\\t1",
                 "auto",
@@ -1161,6 +1170,13 @@ mod tests {
                 "-t",
                 "8",
                 "-pp",
+            ]
+        );
+        // None = 无 VAD 全量转写（VAD 空结果回退路径，2026-10-07 用户报告 0KB 后引入）
+        assert_eq!(
+            whisper_cli_args("m.bin", None, "a.wav", "a", "auto", 4),
+            vec![
+                "-m", "m.bin", "-f", "a.wav", "-osrt", "-of", "a", "-l", "auto", "-t", "4", "-pp",
             ]
         );
     }
