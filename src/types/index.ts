@@ -11,6 +11,7 @@ export type PageName =
   | "cut"
   | "merge"
   | "editor"
+  | "subtitle"
   | "history"
   | "settings";
 
@@ -141,6 +142,10 @@ export interface AppSettings {
   accent: AccentChoice;
   /** 字幕转写后端：auto = GPU 可用则用（M18-6，试跑探测失败自动回退 CPU） */
   subtitleBackend: SubtitleBackendChoice;
+  /** AI 字幕默认模型档位（M18-7）：tiny / small / large-v3-turbo */
+  subtitleModel: string;
+  /** AI 字幕识别语言（M18-7）：auto / zh / en / ja */
+  subtitleLanguage: string;
 }/** 字幕转写后端选择（M18-6，ADR-041②） */
 export type SubtitleBackendChoice = "auto" | "cpu";
 

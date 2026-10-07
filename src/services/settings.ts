@@ -24,6 +24,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   toastAutoCloseSec: 0,
   accent: "green",
   subtitleBackend: "auto",
+  subtitleModel: "tiny",
+  subtitleLanguage: "auto",
 };
 
 const STORE_FILE = "settings.json";
@@ -53,6 +55,8 @@ function sanitize(raw: unknown): AppSettings {
   const qualities: QualityPreset[] = ["high", "balanced", "small"];
   const accents: AccentChoice[] = ["green", "blue", "violet", "rose"];
   const subtitleBackends: SubtitleBackendChoice[] = ["auto", "cpu"];
+  const subtitleModels = ["tiny", "small", "large-v3-turbo"];
+  const subtitleLanguages = ["auto", "zh", "en", "ja"];
   return {
     defaultOutputDir: typeof r.defaultOutputDir === "string" ? r.defaultOutputDir : "",
     defaultCutMode: cutModes.includes(r.defaultCutMode as CutMode)
@@ -80,6 +84,12 @@ function sanitize(raw: unknown): AppSettings {
     subtitleBackend: subtitleBackends.includes(r.subtitleBackend as SubtitleBackendChoice)
       ? (r.subtitleBackend as SubtitleBackendChoice)
       : DEFAULT_SETTINGS.subtitleBackend,
+    subtitleModel: subtitleModels.includes(r.subtitleModel as string)
+      ? (r.subtitleModel as string)
+      : DEFAULT_SETTINGS.subtitleModel,
+    subtitleLanguage: subtitleLanguages.includes(r.subtitleLanguage as string)
+      ? (r.subtitleLanguage as string)
+      : DEFAULT_SETTINGS.subtitleLanguage,
   };
 }
 

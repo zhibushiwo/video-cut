@@ -2,7 +2,7 @@
  * 工作台共享件（R2-1 拆分）：类型 / 常量 / 纯 helper。
  * 在主页面、各视图组件与 hook 之间复用；**不含 React 组件、不含状态**。
  */
-import { Layers, Pencil, Scissors } from "lucide-react";
+import { Captions, Layers, Pencil, Scissors } from "lucide-react";
 import { NO_ROTATE } from "../../components/RotateControls";
 import type { Clip, MediaInfo, PageName, RotateState } from "../../types";
 
@@ -31,6 +31,7 @@ export const NAV_ITEMS: { page: PageName; label: string; icon: typeof Scissors }
   { page: "cut", label: "剪切", icon: Scissors },
   { page: "merge", label: "合并", icon: Layers },
   { page: "editor", label: "编辑", icon: Pencil },
+  { page: "subtitle", label: "字幕", icon: Captions },
 ];
 
 /** 次级按钮统一样式（页脚 / 批量条 / 视图内多处复用） */

@@ -296,6 +296,45 @@ export default function SettingsPage({
           </div>
         </Row>
 
+        <Row title="字幕模型" desc="AI 字幕默认档位（M18）。tiny 随应用内置零下载；标准/高质量需联网下载，BGM 较响素材建议高质量档。">
+          <select
+            value={settings.subtitleModel}
+            onChange={(e) => onUpdate({ subtitleModel: e.target.value })}
+            aria-label="字幕模型"
+            className="rounded-md border border-hairline bg-panel px-2 py-1.5 text-xs text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+          >
+            <option value="tiny">极速（内置 32MB）</option>
+            <option value="small">标准（190MB）</option>
+            <option value="large-v3-turbo">高质量（574MB）</option>
+          </select>
+        </Row>
+
+        <Row title="字幕语言" desc="语音语言；自动检测支持日文等（转写为语音原文，不做翻译）。">
+          <select
+            value={settings.subtitleLanguage}
+            onChange={(e) => onUpdate({ subtitleLanguage: e.target.value })}
+            aria-label="字幕语言"
+            className="rounded-md border border-hairline bg-panel px-2 py-1.5 text-xs text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+          >
+            <option value="auto">自动检测</option>
+            <option value="zh">中文</option>
+            <option value="en">英语</option>
+            <option value="ja">日语</option>
+          </select>
+        </Row>
+
+        <Row title="字幕转写后端" desc="GPU 加速需先在字幕页下载 CUDA 加速包；无 N 卡或试跑失败自动回退 CPU，不影响使用。">
+          <Segmented
+            value={settings.subtitleBackend}
+            onChange={(v) => onUpdate({ subtitleBackend: v })}
+            label="字幕转写后端"
+            options={[
+              { value: "auto", label: "自动" },
+              { value: "cpu", label: "仅 CPU" },
+            ]}
+          />
+        </Row>
+
         <Row title="缓存管理" desc={cacheDesc}>
           {cacheMsg && <span className="text-xs text-signal">{cacheMsg}</span>}
           <button

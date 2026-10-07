@@ -25,6 +25,7 @@ import type {
   TaskSnapshot,
   TaskStatusPayload,
   VideoTask,
+  WhisperBackendStatus,
   WhisperModelInfo,
 } from "../types";
 import { resolveUniqueTarget } from "../utils/paths";
@@ -278,4 +279,9 @@ export function deleteWhisperModel(modelId: string): Promise<void> {
 /** 下载 GPU 加速包（CUDA 12.4 zip → 解压到缓存；返回 taskId） */
 export function downloadWhisperCuda(): Promise<string> {
   return invoke("download_whisper_cuda");
+}
+
+/** GPU 后端状态探测（M18-6，BackendBadge / 设置页；试跑冒烟约 1~2s） */
+export function probeWhisperBackend(): Promise<WhisperBackendStatus> {
+  return invoke("probe_whisper_backend");
 }
