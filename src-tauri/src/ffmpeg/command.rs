@@ -196,6 +196,34 @@ pub fn proxy_args(input: &str, output: &str) -> Vec<String> {
     args
 }
 
+/// 音频提取（M18 FR-392，红线 1——参数只在本文拼装）：产 whisper-cli 的标准输入
+/// 16kHz / mono / pcm_s16le wav。`-map 0:a:0` 显式取第一条音轨（多音轨源行为确定；
+/// 无音轨源硬失败——优于产出空转写）；`-vn` 丢视频。非 copy 类命令，不适用决策 #5。
+pub fn extract_audio_args(input: &str, output: &str) -> Vec<String> {
+    let mut args = base_args();
+    args.extend(
+        [
+            "-i",
+            input,
+            "-map",
+            "0:a:0",
+            "-vn",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-c:a",
+            "pcm_s16le",
+            "-y",
+            output,
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<Vec<String>>(),
+    );
+    args
+}
+
 /// 解析 ffprobe 的 time_base 字符串（"1/60000"）为 mp4 timescale（60000）。
 /// 非 "1/N" 形式返回 0（调用方省略 timescale 控制）。
 pub fn parse_timescale(video_time_base: &str) -> u32 {
@@ -767,6 +795,38 @@ mod tests {
             args.iter()
                 .any(|a| a == "scale=-2:min(720\\,ih),format=yuv420p"),
             "缺少滤镜参数，实际 {args:?}"
+        );
+    }
+
+    #[test]
+    fn extract_audio_args_follows_whisper_input_spec() {
+        // M18 FR-392（ADR-039）：whisper-cli 标准输入 = 16kHz / mono / pcm_s16le，
+        // 显式取第一条音轨（多音轨源行为确定）；红线 1 —— 全序列逐字断言
+        assert_eq!(
+            extract_audio_args("in.avi", "out.wav"),
+            vec![
+                "-hide_banner",
+                "-nostats",
+                "-loglevel",
+                "error",
+                "-progress",
+                "pipe:1",
+                "-stats_period",
+                "0.2",
+                "-i",
+                "in.avi",
+                "-map",
+                "0:a:0",
+                "-vn",
+                "-ac",
+                "1",
+                "-ar",
+                "16000",
+                "-c:a",
+                "pcm_s16le",
+                "-y",
+                "out.wav",
+            ]
         );
     }
 
