@@ -212,6 +212,16 @@ export type VideoTask =
       /** 渲染即预览（M12-2）：输出改写缓存目录、任务 internal/低优先级、新编辑取代旧任务。
        *  缺省 false（与 Rust 侧的 `#[serde(default)]` 对齐）。 */
       preview?: boolean;
+    }
+  | {
+      /** AI 字幕（M18，DESIGN §3.9）：本地 whisper.cpp 转写 → .srt 外挂 */
+      type: "subtitle";
+      input: string;
+      /** 三档之一：tiny（内置）/ small / large-v3-turbo */
+      modelId: string;
+      /** ISO 639-1 或 "auto"（自动检测，默认值） */
+      language: string;
+      outputDir: string;
     };
 
 /** 工作台单项配置（DESIGN §3.8）：裁剪矩形为显示空间像素坐标 */

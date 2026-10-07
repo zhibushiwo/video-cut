@@ -77,6 +77,12 @@ pub async fn submit_task(
             super::pipeline::submit_pipeline(app, &state, items, output, quality, encoder, preview)
                 .await
         }
+        VideoTask::Subtitle {
+            input,
+            model_id,
+            language,
+            output_dir,
+        } => super::subtitle::submit_subtitle(app, &state, input, model_id, language, output_dir),
     }
 }
 

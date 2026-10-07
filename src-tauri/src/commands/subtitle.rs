@@ -10,8 +10,10 @@
 //! 占并发位、**不入历史白名单**——见 lib.rs 的 kind 白名单），`.part.<令牌>` 半成品
 //! + 断点续传 + 失速重连（ADR-040）+ SHA256 硬编码校验表（ADR-039⑤）。
 
-use std::io::{Read, Seek, Write};
+use std::collections::VecDeque;
+use std::io::{BufRead, BufReader, Read, Seek, Write};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -19,11 +21,13 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use tauri::{AppHandle, Manager, State};
 
+use crate::ffmpeg::{command, probe};
 use crate::fs;
 use crate::task::manager::{Job, TaskContext, TauriEmitter};
+use crate::task::worker;
 use crate::{AppTasks, TaskStatus};
 
-use super::{require_disk_space, temp_token, ProgressThrottle};
+use super::{file_name, require_disk_space, temp_token, ProgressThrottle};
 
 /// 下载模型目录名：`<app_cache_dir>/models`（DESIGN §3.9）。
 const MODELS_SUBDIR: &str = "models";
@@ -509,6 +513,301 @@ fn keep_zip_entry(name: &str) -> bool {
     lower.ends_with("whisper-cli.exe") || lower.ends_with(".dll")
 }
 
+// ---------- 转写任务（M18-5，FR-392） ----------
+
+/// VAD 辅助模型文件名（随安装包 resource，ADR-039⑧；与 fetch 脚本同源）。
+const VAD_FILE_NAME: &str = "ggml-silero-v5.1.2.bin";
+
+/// whisper-cli 转写参数（M18，ADR-041：`-pp` 进度走 stderr）。参数序列有全序列断言。
+fn whisper_cli_args(
+    model: &str,
+    vad_model: &str,
+    wav: &str,
+    srt_base: &str,
+    language: &str,
+    threads: usize,
+) -> Vec<String> {
+    [
+        "-m",
+        model,
+        "-f",
+        wav,
+        "--vad",
+        "-vm",
+        vad_model,
+        "-osrt",
+        "-of",
+        srt_base,
+        "-l",
+        language,
+        "-t",
+        &threads.to_string(),
+        "-pp",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
+/// 解析 whisper-cli stderr 的 `-pp` 进度行（ADR-041：红线 2"禁解析 stderr"为 FFmpeg
+/// 专属口径，本函数是差异化裁决的落点）：
+/// `whisper_print_progress_callback: progress =  73%` → 0.73；其余行 → None。
+fn parse_whisper_progress(line: &str) -> Option<f64> {
+    let idx = line.find("progress = ")?;
+    let rest = line[idx + "progress = ".len()..].trim();
+    let rest = rest.strip_suffix('%')?;
+    rest.parse::<f64>()
+        .ok()
+        .map(|p| (p / 100.0).clamp(0.0, 1.0))
+}
+
+/// 转写线程数：物理并行度（spike 同款实测口径）；取不到按 4。
+fn transcribe_threads() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+}
+
+/// 产物名防覆盖（决策 #19"同名才追加时间戳"）：`<dir>/<stem>.srt`，冲突 →
+/// `<stem>_<YYYYMMDD_HHMMSS>.srt`，同一秒内再冲突 → 序号 `_2`/`_3`。
+fn reserve_srt_output(dir: &Path, stem: &str) -> Result<PathBuf, String> {
+    let candidate = dir.join(format!("{stem}.srt"));
+    if !candidate.exists() {
+        return Ok(candidate);
+    }
+    let stamp = chrono::Local::now().format("%Y%m%d_%H%M%S");
+    for n in 1u32.. {
+        let candidate = dir.join(format!("{stem}_{stamp}_{n}.srt"));
+        if !candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    unreachable!("循环内必然返回");
+}
+
+/// 运行 whisper-cli：`--vad` 强制预切分（FR-392）→ stderr 逐行解析 `-pp` 进度
+/// （ADR-041）并保留尾部 30 行作失败提示（worker.rs 同法）；killer 注册支持取消。
+fn run_whisper(
+    ctx: &TaskContext,
+    model: &str,
+    vad_model: &str,
+    wav: &str,
+    srt_base: &str,
+    language: &str,
+    report: &dyn Fn(f64),
+) -> Result<(), String> {
+    let whisper = command::resolve_sidecar("whisper-cli")?;
+    let args = whisper_cli_args(
+        model,
+        vad_model,
+        wav,
+        srt_base,
+        language,
+        transcribe_threads(),
+    );
+    log::debug!("whisper-cli argv：{} {}", whisper.display(), args.join(" "));
+    let mut spawn_cmd = Command::new(&whisper);
+    command::spawn_hidden(&mut spawn_cmd); // 红线 3
+    let mut child = spawn_cmd
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("无法启动 whisper-cli：{e}"))?;
+
+    let stderr = child.stderr.take();
+    let child = Arc::new(parking_lot::Mutex::new(child));
+    {
+        let c = child.clone();
+        ctx.set_killer(Box::new(move || {
+            let _ = c.lock().kill();
+        }));
+    }
+
+    let tail: Arc<parking_lot::Mutex<VecDeque<String>>> =
+        Arc::new(parking_lot::Mutex::new(VecDeque::new()));
+    // stderr 线程只写共享状态（report 闭包不保证 Send，不能跨线程）；
+    // 上报由主循环按 200ms 轮询节流（与 PROGRESS_INTERVAL_MS 同量级）。
+    let latest: Arc<parking_lot::Mutex<f64>> = Arc::new(parking_lot::Mutex::new(0.0));
+    if let Some(stderr) = stderr {
+        let tail = tail.clone();
+        let latest = latest.clone();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                if let Some(p) = parse_whisper_progress(&line) {
+                    *latest.lock() = p;
+                }
+                let mut t = tail.lock();
+                if t.len() >= 30 {
+                    t.pop_front();
+                }
+                t.push_back(line);
+            }
+        });
+    }
+
+    // 等待子进程退出，同时响应取消（killer 由 cancel() 触发，这里兜底轮询）
+    loop {
+        if ctx.is_cancelled() {
+            let mut c = child.lock();
+            let _ = c.kill();
+            let _ = c.wait();
+            return Err("已取消".into());
+        }
+        match child.lock().try_wait() {
+            Ok(Some(status)) => {
+                if ctx.is_cancelled() {
+                    return Err("已取消".into());
+                }
+                if !status.success() {
+                    let tail = {
+                        let t = tail.lock();
+                        t.iter().map(String::as_str).collect::<Vec<_>>().join("\n")
+                    };
+                    return Err(if tail.trim().is_empty() {
+                        format!("whisper-cli 以非零状态退出（{:?}）", status.code())
+                    } else {
+                        format!("转写失败：\n{}", tail.trim())
+                    });
+                }
+                report(*latest.lock());
+                return Ok(());
+            }
+            Ok(None) => {
+                report(*latest.lock());
+                std::thread::sleep(Duration::from_millis(200));
+            }
+            Err(e) => return Err(format!("等待 whisper-cli 退出失败：{e}")),
+        }
+    }
+}
+
+/// 提交 AI 字幕转写任务（M18-5）：模型解析 → 两阶段作业（音频提取 0~5% → whisper
+/// 转写 5~100%）→ `.part.srt` 原子落位 `<output_dir>/<源同名>.srt`（防覆盖命名）。
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn submit_subtitle(
+    app: AppHandle,
+    state: &State<'_, AppTasks>,
+    input: String,
+    model_id: String,
+    language: String,
+    output_dir: String,
+) -> Result<String, String> {
+    // 模型解析：内置 → resource；下载档 → 缓存 models 目录（不存在即拒绝，UI 引导下载）
+    let spec = find_spec(&model_id)?;
+    let base = if spec.bundled {
+        resource_models_dir(&app)?
+    } else {
+        download_models_dir(&app)?
+    };
+    let model_path = base.join(spec.file_name);
+    if !model_path.exists() {
+        return Err(if spec.bundled {
+            "内置模型缺失（安装不完整），请重新安装应用".to_string()
+        } else {
+            format!("模型「{}」未下载，请先在模型列表下载", spec.label)
+        });
+    }
+    // VAD 模型随包（FR-392 强制预切分），缺失 = 安装不完整
+    let vad_path = resource_models_dir(&app)?.join(VAD_FILE_NAME);
+    if !vad_path.exists() {
+        return Err("VAD 模型缺失（安装不完整），请重新安装应用".to_string());
+    }
+
+    let input_path = Path::new(&input);
+    if !input_path.exists() {
+        return Err(format!("输入文件不存在：{input}"));
+    }
+    let Some(stem) = input_path.file_stem().and_then(|s| s.to_str()) else {
+        return Err("输入文件名无效".to_string());
+    };
+    let out_dir = Path::new(&output_dir);
+    std::fs::create_dir_all(out_dir).map_err(|e| format!("无法创建输出目录：{e}"))?;
+    let final_srt = reserve_srt_output(out_dir, stem)?;
+
+    // wav 临时文件与转写半成品都在 `<app_cache_dir>/whisper/`，任务终了删除（FR-392）
+    let cache = app
+        .path()
+        .app_cache_dir()
+        .map_err(|e| format!("无法定位缓存目录：{e}"))?;
+    let whisper_tmp = cache.join("whisper");
+    std::fs::create_dir_all(&whisper_tmp).map_err(|e| format!("无法创建临时目录：{e}"))?;
+    let token = temp_token(&input);
+    let wav = whisper_tmp.join(format!("{token}.wav"));
+    // whisper-cli 的 `-of` 取基名（无扩展名），产物 = `<base>.srt`
+    let srt_base = whisper_tmp.join(&token);
+
+    let ffmpeg = command::resolve_sidecar("ffmpeg")?;
+    let ffprobe = command::resolve_sidecar("ffprobe")?;
+    let total_sec = probe::probe_duration_sync(&ffprobe, &input).unwrap_or(0.0);
+
+    let job_model = model_path.to_string_lossy().into_owned();
+    let job_vad = vad_path.to_string_lossy().into_owned();
+    let job_wav = wav.to_string_lossy().into_owned();
+    let job_srt_base = srt_base.to_string_lossy().into_owned();
+    let job_final = final_srt.clone();
+    let job_input = input.clone();
+    let job_lang = language;
+    let threads = transcribe_threads();
+    let label = format!(
+        "AI 字幕 {} → {}",
+        file_name(&input),
+        final_srt
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("字幕")
+    );
+
+    let job: Job = Box::new(move |ctx: &TaskContext| {
+        let produced = PathBuf::from(format!("{job_srt_base}.srt"));
+        let result = (|| -> Result<(), String> {
+            // 阶段一：提取音频（映射总进度 0~5%）
+            let throttle = ProgressThrottle::new();
+            worker::run_ffmpeg(
+                ctx,
+                &ffmpeg,
+                &command::extract_audio_args(&job_input, &job_wav),
+                total_sec,
+                &|local, speed| {
+                    if throttle.update(local * 0.05) {
+                        ctx.set_progress(local * 0.05, speed);
+                    }
+                },
+            )?;
+            if ctx.is_cancelled() {
+                return Err("已取消".into());
+            }
+            // 阶段二：whisper 转写（5~100%，stderr `-pp` 进度，ADR-041）
+            run_whisper(
+                ctx,
+                &job_model,
+                &job_vad,
+                &job_wav,
+                &job_srt_base,
+                &job_lang,
+                &|p| ctx.set_progress(0.05 + 0.95 * p, None),
+            )?;
+            // 落位：`.part.srt` → 最终产物（原子替换，`BUG-002` 同口径）
+            if !produced.exists() {
+                return Err("转写完成但未产出字幕文件".to_string());
+            }
+            fs::atomic_replace(&produced, &job_final)?;
+            ctx.add_output(job_final.to_string_lossy().into_owned());
+            Ok(())
+        })();
+        // 任务终了清理（FR-392）：wav 与转写半成品（转写半成品无续传价值，取消/失败一并删）
+        let _ = std::fs::remove_file(&job_wav);
+        if result.is_err() {
+            let _ = std::fs::remove_file(&produced);
+        }
+        result
+    });
+
+    let emitter = Arc::new(TauriEmitter(app.clone()));
+    Ok(state.0.submit(emitter, "subtitle", &label, job))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -552,6 +851,78 @@ mod tests {
         assert!(!keep_zip_entry("Release/bench.exe"));
         assert!(!keep_zip_entry("Release/whisper-server.exe"));
         assert!(!keep_zip_entry("Release/README"));
+    }
+
+    #[test]
+    fn parse_whisper_progress_extracts_percent_lines() {
+        // ADR-041：`-pp` 行格式实测（spire/whisper 1.8.4，百分号前可有空格）
+        assert_eq!(
+            parse_whisper_progress("whisper_print_progress_callback: progress =  73%"),
+            Some(0.73)
+        );
+        assert_eq!(parse_whisper_progress("progress = 100%"), Some(1.0));
+        assert_eq!(parse_whisper_progress("progress = 0%"), Some(0.0));
+        assert_eq!(parse_whisper_progress("其他日志行"), None);
+        assert_eq!(parse_whisper_progress("progress = abc%"), None);
+    }
+
+    #[test]
+    fn whisper_cli_args_follow_vad_mandatory_spec() {
+        // FR-392 强制 VAD 预切分（--vad -vm）+ ADR-041 stderr 进度（-pp）——全序列逐字断言
+        assert_eq!(
+            whisper_cli_args(
+                "C:\\models\\tiny.bin",
+                "C:\\models\\silero.bin",
+                "C:\\cache\\whisper\\t1.wav",
+                "C:\\cache\\whisper\\t1",
+                "auto",
+                8,
+            ),
+            vec![
+                "-m",
+                "C:\\models\\tiny.bin",
+                "-f",
+                "C:\\cache\\whisper\\t1.wav",
+                "--vad",
+                "-vm",
+                "C:\\models\\silero.bin",
+                "-osrt",
+                "-of",
+                "C:\\cache\\whisper\\t1",
+                "-l",
+                "auto",
+                "-t",
+                "8",
+                "-pp",
+            ]
+        );
+    }
+
+    #[test]
+    fn reserve_srt_output_appends_timestamp_only_on_conflict() {
+        let dir = std::env::temp_dir().join(format!("vc-srt-name-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // 无冲突：直接用原名
+        let first = reserve_srt_output(&dir, "video").unwrap();
+        assert_eq!(first.file_name().unwrap().to_str(), Some("video.srt"));
+
+        // 冲突：追加时间戳（决策 #19）；同秒内再冲突：序号 _2
+        std::fs::write(&first, b"x").unwrap();
+        let second = reserve_srt_output(&dir, "video").unwrap();
+        let name2 = second.file_name().unwrap().to_str().unwrap().to_string();
+        assert!(
+            name2.starts_with("video_") && name2.ends_with(".srt"),
+            "时间戳命名：{name2}"
+        );
+        std::fs::write(&second, b"x").unwrap();
+        let third = reserve_srt_output(&dir, "video").unwrap();
+        let name3 = third.file_name().unwrap().to_str().unwrap().to_string();
+        assert_ne!(name2, name3, "同秒再冲突应序号递增：{name3}");
+        assert!(name3.contains("_2"), "第二个冲突应为 _2：{name3}");
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ---------- 下载内核（本地 HTTP 服务器，无外网依赖） ----------

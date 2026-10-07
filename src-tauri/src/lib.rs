@@ -195,6 +195,15 @@ pub enum VideoTask {
         #[serde(default)]
         preview: bool,
     },
+    /// AI 字幕（M18，§3.9）：本地 whisper.cpp 转写 → .srt 外挂；model_id 对应 §3.9 三档之一，
+    /// language = ISO 639-1 或 "auto"（自动检测，默认值）；产物 = <output_dir>/<源同名>.srt
+    #[serde(rename_all = "camelCase")]
+    Subtitle {
+        input: String,
+        model_id: String,
+        language: String,
+        output_dir: String,
+    },
 }
 
 /// 全局任务管理器，经 tauri State 注入（DESIGN §8.2）。
@@ -231,7 +240,7 @@ pub fn run() {
                     }
                     if !matches!(
                         h.kind.as_str(),
-                        "cut" | "merge" | "rotate" | "crop_zoom" | "pipeline"
+                        "cut" | "merge" | "rotate" | "crop_zoom" | "pipeline" | "subtitle"
                     ) {
                         return;
                     }
