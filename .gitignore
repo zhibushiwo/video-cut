@@ -36,3 +36,6 @@ src-tauri/icons/ios/
 
 .workbuddy
 .zcodeignore
+# whisper sidecar DLL 与内置模型（由 scripts/fetch-whisper.ps1 下载，ADR-039）
+src-tauri/binaries/whisper-dll/
+src-tauri/resources/models/
