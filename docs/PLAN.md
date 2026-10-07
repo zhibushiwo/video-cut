@@ -403,7 +403,7 @@
 > **验收**：models 目录中自备 `*.bin`（如 F16 turbo）出现在列表并可选用/删除；白名单下载档与 SHA256 下载校验不回归
 
 - [x] **M18-10-1 文档晋升批**：`ADR-042`（白名单档位 + 动态扫描并列，推翻 `ADR-039`⑦）+ DESIGN §3.9 FR-391 修订 + §7 model_id 语义 + CANDIDATES `CAND-033` → M18-10 + PLAN 本节 → `pnpm check:docs` 全绿
-- [ ] **M18-10-2 实现**：`list_whisper_models` 动态扫描 models 目录其余 `*.bin`（"自定义"徽标/体积/可删除）+ `submit_subtitle` 模型解析扩展（tiny→resource / 白名单→已知名 / 其余→models 文件名，拒绝路径穿越）+ `delete_whisper_model` 支持自定义 + `WhisperModelInfo.custom` TS 双写 + ModelPicker"自定义"徽标 + 设置 sanitize 放宽 → 验收：F16 模型放入后列表可见可选用；白名单下载/SHA256 不回归
+- [x] **M18-10-2 实现**：`list_whisper_models` 动态扫描 models 目录其余 `*.bin`（"自定义"徽标/体积/可删除）+ `submit_subtitle` 模型解析扩展（tiny→resource / 白名单→已知名 / 其余→models 文件名，拒绝路径穿越）+ `delete_whisper_model` 支持自定义 + `WhisperModelInfo.custom` TS 双写 + ModelPicker"自定义"徽标 + 设置 sanitize 放宽 → 验收：F16 模型放入后列表可见可选用；白名单下载/SHA256 不回归　✅ **2026-10-07 落地**（`scan_custom_models`（白名单文件名排除 + `.bin` 后缀过滤 + label=文件主名 + 排序）+ `resolve_model_path`（tiny→resource / 白名单→已知名 / 其余→models 文件名，`valid_custom_model_id` 拒绝路径穿越）+ delete 兼容自定义 id；单测 = 扫描过滤（白名单排除/非 bin/半成品/子目录不命中）+ 解析四态（tiny/白名单/自定义/穿越拒绝）；真机预验证 = 用户 models 目录中的 F16 turbo 将在重启后以"自定义"出现；cargo test 116+8 · vitest 153 · tsc/eslint/check:docs 全绿）
 
 **验收**：AC-390-1 · AC-391-1 · AC-392-1 · AC-393-1 —— 口径见 DESIGN.md §3.9，执行见 TESTING.md（TC 随 M18-9 建）。
 

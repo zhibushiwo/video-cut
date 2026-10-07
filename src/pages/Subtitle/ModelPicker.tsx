@@ -62,6 +62,11 @@ export function ModelPicker({
                     已内置
                   </span>
                 )}
+                {m.custom && (
+                  <span className="rounded bg-panel px-1.5 py-0.5 text-[10px] text-mute">
+                    自定义
+                  </span>
+                )}
                 {!m.ready && !busy && (
                   <span className="text-[10px] text-mute">未下载</span>
                 )}

@@ -55,7 +55,6 @@ function sanitize(raw: unknown): AppSettings {
   const qualities: QualityPreset[] = ["high", "balanced", "small"];
   const accents: AccentChoice[] = ["green", "blue", "violet", "rose"];
   const subtitleBackends: SubtitleBackendChoice[] = ["auto", "cpu"];
-  const subtitleModels = ["tiny", "small", "large-v3-turbo"];
   const subtitleLanguages = ["auto", "zh", "en", "ja"];
   return {
     defaultOutputDir: typeof r.defaultOutputDir === "string" ? r.defaultOutputDir : "",
@@ -84,8 +83,10 @@ function sanitize(raw: unknown): AppSettings {
     subtitleBackend: subtitleBackends.includes(r.subtitleBackend as SubtitleBackendChoice)
       ? (r.subtitleBackend as SubtitleBackendChoice)
       : DEFAULT_SETTINGS.subtitleBackend,
-    subtitleModel: subtitleModels.includes(r.subtitleModel as string)
-      ? (r.subtitleModel as string)
+    // 字幕模型 id（ADR-042 动态列表后可为自定义模型文件名）：非空即接受，
+    // 失效 id（模型已删）由字幕页在列表中高亮失败自然暴露
+    subtitleModel: typeof r.subtitleModel === "string" && r.subtitleModel !== ""
+      ? r.subtitleModel
       : DEFAULT_SETTINGS.subtitleModel,
     subtitleLanguage: subtitleLanguages.includes(r.subtitleLanguage as string)
       ? (r.subtitleLanguage as string)

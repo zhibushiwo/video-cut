@@ -105,6 +105,8 @@ pub struct WhisperModelInfo {
     pub file_name: String,
     pub size_bytes: u64,
     pub bundled: bool,
+    /// 自定义模型（models 目录动态扫描，ADR-042）：无哈希门、可删除
+    pub custom: bool,
     /// 内置档 = resource 文件存在；下载档 = models 目录文件存在
     pub ready: bool,
     /// 就绪时的绝对路径（M18-5 转写直接使用）
@@ -145,7 +147,7 @@ fn cuda_dir(app: &AppHandle) -> Result<PathBuf, String> {
 pub fn list_whisper_models(app: AppHandle) -> Result<Vec<WhisperModelInfo>, String> {
     let resource_dir = resource_models_dir(&app)?;
     let download_dir = download_models_dir(&app)?;
-    Ok(MODELS
+    let mut out: Vec<WhisperModelInfo> = MODELS
         .iter()
         .map(|m| {
             let base = if m.bundled {
@@ -161,11 +163,84 @@ pub fn list_whisper_models(app: AppHandle) -> Result<Vec<WhisperModelInfo>, Stri
                 file_name: m.file_name.to_string(),
                 size_bytes: m.size_bytes,
                 bundled: m.bundled,
+                custom: false,
                 ready,
                 path: ready.then(|| path.to_string_lossy().into_owned()),
             }
         })
-        .collect())
+        .collect();
+    // 动态扫描：models 目录中白名单文件名之外的 `*.bin`（ADR-042①）
+    let curated: Vec<&str> = MODELS.iter().map(|m| m.file_name).collect();
+    out.extend(scan_custom_models(&download_dir, &curated));
+    Ok(out)
+}
+
+/// 动态扫描 models 目录：白名单文件名之外的 `*.bin` 以"自定义模型"列出
+/// （label = 文件主名、体积取 FS、ready 恒真、可删除；`.part` 半成品不结尾不命中）。
+fn scan_custom_models(dir: &Path, exclude: &[&str]) -> Vec<WhisperModelInfo> {
+    let mut out = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if exclude.contains(&name) || !name.to_ascii_lowercase().ends_with(".bin") {
+            continue;
+        }
+        let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+        let label = Path::new(name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(name)
+            .to_string();
+        out.push(WhisperModelInfo {
+            id: name.to_string(),
+            label,
+            file_name: name.to_string(),
+            size_bytes: size,
+            bundled: false,
+            custom: true,
+            ready: true,
+            path: Some(path.to_string_lossy().into_owned()),
+        });
+    }
+    out.sort_by(|a, b| a.label.cmp(&b.label));
+    out
+}
+
+/// 自定义模型 id 合法性：仅 models 目录下的 `.bin` 文件名（拒绝路径穿越，`ADR-042`②）。
+fn valid_custom_model_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.to_ascii_lowercase().ends_with(".bin")
+        && !id.contains('/')
+        && !id.contains('\\')
+        && !id.contains("..")
+}
+
+/// 转写提交的模型解析（`ADR-042`②）：`tiny` → resource；白名单下载档 → models
+/// 已知文件名；其余 id → models 目录文件名（须合法且存在）。
+/// 返回 (模型路径, 是否内置)。
+fn resolve_model_path(
+    resource_dir: &Path,
+    models_dir: &Path,
+    model_id: &str,
+) -> Result<(PathBuf, bool), String> {
+    if model_id == "tiny" {
+        return Ok((resource_dir.join("ggml-tiny-q5_1.bin"), true));
+    }
+    if let Some(spec) = MODELS.iter().find(|m| m.id == model_id && !m.bundled) {
+        return Ok((models_dir.join(spec.file_name), false));
+    }
+    if !valid_custom_model_id(model_id) {
+        return Err(format!("非法模型标识：{model_id}"));
+    }
+    Ok((models_dir.join(model_id), false))
 }
 
 /// 活动的同名下载任务（提交幂等：重复点击返回既有 taskId 而不是再起一个）。
@@ -240,12 +315,19 @@ pub fn download_whisper_model(
 /// 删除下载的模型档位（FR-391）：内置档不可删；连 `.part` 残留一并清理。
 #[tauri::command]
 pub fn delete_whisper_model(app: AppHandle, model_id: String) -> Result<(), String> {
-    let spec = find_spec(&model_id)?;
-    if spec.bundled {
-        return Err("内置模型不可删除".to_string());
-    }
+    // 目标文件名：白名单档取规格；自定义模型 id 即文件名（校验防穿越，`ADR-042`②）
+    let file_name = match find_spec(&model_id) {
+        Ok(spec) if spec.bundled => return Err("内置模型不可删除".to_string()),
+        Ok(spec) => spec.file_name.to_string(),
+        Err(_) => {
+            if !valid_custom_model_id(&model_id) {
+                return Err(format!("非法模型标识：{model_id}"));
+            }
+            model_id
+        }
+    };
     let dir = download_models_dir(&app)?;
-    let final_path = dir.join(spec.file_name);
+    let final_path = dir.join(&file_name);
     let mut removed = false;
     if final_path.exists() {
         std::fs::remove_file(&final_path).map_err(|e| format!("删除失败：{e}"))?;
@@ -256,7 +338,7 @@ pub fn delete_whisper_model(app: AppHandle, model_id: String) -> Result<(), Stri
         for entry in entries.flatten() {
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if name.starts_with(&format!("{}.part.", spec.file_name)) {
+            if name.starts_with(&format!("{file_name}.part.")) {
                 let _ = std::fs::remove_file(entry.path());
                 removed = true;
             }
@@ -886,19 +968,18 @@ pub(crate) fn submit_subtitle(
     backend: String,
     output_dir: String,
 ) -> Result<String, String> {
-    // 模型解析：内置 → resource；下载档 → 缓存 models 目录（不存在即拒绝，UI 引导下载）
-    let spec = find_spec(&model_id)?;
-    let base = if spec.bundled {
-        resource_models_dir(&app)?
-    } else {
-        download_models_dir(&app)?
-    };
-    let model_path = base.join(spec.file_name);
+    // 模型解析（`ADR-042`②）：tiny → resource；白名单下载档 → models 已知名；
+    // 其余 id → models 目录文件名（自定义模型）。不存在即拒绝，UI 引导下载。
+    let (model_path, bundled) = resolve_model_path(
+        &resource_models_dir(&app)?,
+        &download_models_dir(&app)?,
+        &model_id,
+    )?;
     if !model_path.exists() {
-        return Err(if spec.bundled {
+        return Err(if bundled {
             "内置模型缺失（安装不完整），请重新安装应用".to_string()
         } else {
-            format!("模型「{}」未下载，请先在模型列表下载", spec.label)
+            format!("模型「{model_id}」未下载，请先在模型列表下载或手动放置")
         });
     }
     // VAD 模型随包（FR-392 强制预切分），缺失 = 安装不完整
@@ -947,7 +1028,6 @@ pub(crate) fn submit_subtitle(
     let job_backend = backend;
     let job_cpu_exe = cpu_exe.to_string_lossy().into_owned();
     let job_cuda_exe = cuda_exe.map(|p| p.to_string_lossy().into_owned());
-    let threads = transcribe_threads();
     let label = format!(
         "AI 字幕 {} → {}",
         file_name(&input),
@@ -1128,6 +1208,56 @@ mod tests {
         );
         // 无输出其他退出码：带 code
         assert!(gpu_failure_reason(Some(-1), "").contains("code -1"));
+    }
+
+    #[test]
+    fn scan_custom_models_lists_only_foreign_bin_files() {
+        // ADR-042①：白名单文件名之外的 *.bin 动态列出；非 bin 与半成品不命中
+        let d = std::env::temp_dir().join(format!("vc-scan-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join("ggml-small-q5_1.bin"), b"curated").unwrap(); // 白名单 → 排除
+        std::fs::write(d.join("ggml-large-v3-turbo.bin"), b"custom-f16").unwrap();
+        std::fs::write(d.join("ggml-small-q5_1.bin.part.t9"), b"part").unwrap();
+        std::fs::write(d.join("notes.txt"), b"not a model").unwrap();
+        std::fs::create_dir_all(d.join("subdir")).unwrap();
+        std::fs::write(d.join("subdir").join("nested.bin"), b"nested").unwrap();
+
+        let got = scan_custom_models(&d, &["ggml-small-q5_1.bin"]);
+        assert_eq!(got.len(), 1, "只应列出 1 个自定义模型：{got:?}");
+        let m = &got[0];
+        assert_eq!(m.file_name, "ggml-large-v3-turbo.bin");
+        assert!(m.custom && m.ready && !m.bundled);
+        assert_eq!(m.label, "ggml-large-v3-turbo");
+        assert_eq!(m.size_bytes, "custom-f16".len() as u64);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn resolve_model_path_rejects_traversal_and_maps_tiers() {
+        let res = Path::new("/res/models");
+        let dir = Path::new("/cache/models");
+
+        // tiny → resource 内置
+        let (p, bundled) = resolve_model_path(res, dir, "tiny").unwrap();
+        assert!(bundled);
+        assert_eq!(p, res.join("ggml-tiny-q5_1.bin"));
+
+        // 白名单下载档 → models 已知文件名
+        let (p, bundled) = resolve_model_path(res, dir, "small").unwrap();
+        assert!(!bundled);
+        assert_eq!(p, dir.join("ggml-small-q5_1.bin"));
+
+        // 自定义：id 即文件名
+        let (p, bundled) = resolve_model_path(res, dir, "ggml-large-v3-turbo.bin").unwrap();
+        assert!(!bundled);
+        assert_eq!(p, dir.join("ggml-large-v3-turbo.bin"));
+
+        // 路径穿越 / 目录分隔符 / 非 bin 一律拒绝
+        assert!(resolve_model_path(res, dir, "../../etc/passwd.bin").is_err());
+        assert!(resolve_model_path(res, dir, "a/b.bin").is_err());
+        assert!(resolve_model_path(res, dir, "a\\b.bin").is_err());
+        assert!(resolve_model_path(res, dir, "model.txt").is_err());
     }
 
     #[test]

@@ -345,6 +345,8 @@ export interface WhisperModelInfo {
   sizeBytes: number;
   /** 随安装包内置（tiny）；其余按需下载 */
   bundled: boolean;
+  /** 自定义模型（models 目录动态扫描，ADR-042）：无哈希门、可删除 */
+  custom: boolean;
   /** 内置档 = resource 文件存在；下载档 = models 目录文件存在 */
   ready: boolean;
   /** 就绪时的绝对路径 */
