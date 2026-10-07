@@ -27,7 +27,9 @@ use crate::task::manager::{Job, TaskContext, TauriEmitter};
 use crate::task::worker;
 use crate::{AppTasks, TaskStatus};
 
-use super::{file_name, require_disk_space, temp_token, ProgressThrottle};
+use super::{
+    file_name, prepare_output, require_disk_space, temp_token, PreparedOutput, ProgressThrottle,
+};
 
 /// 下载模型目录名：`<app_cache_dir>/models`（DESIGN §3.9）。
 const MODELS_SUBDIR: &str = "models";
@@ -760,6 +762,96 @@ fn run_whisper(
             Err(e) => return Err(format!("等待 whisper-cli 退出失败：{e}")),
         }
     }
+}
+
+// ---------- 字幕烧录（M18-11，FR-394，重编码 warn 路径） ----------
+
+/// 提交字幕烧录任务：`subtitles`（libass）滤镜渲染进画面 + 视频 重编码 + 音频 copy。
+/// 输出固定 mp4（`ADR-033`②），前端防覆盖命名 + `output_path_for` 兜底；
+/// 子进程 CWD = 字幕目录（`ADR-043`②），滤镜以裸文件名取字幕。
+pub(crate) fn submit_subtitle_burn(
+    app: AppHandle,
+    state: &State<'_, AppTasks>,
+    input: String,
+    subtitle_path: String,
+    output: String,
+    quality: crate::QualityPreset,
+    locked_encoder: Option<String>,
+) -> Result<String, String> {
+    if !Path::new(&input).is_file() {
+        return Err(format!("输入文件不存在：{input}"));
+    }
+    if !Path::new(&subtitle_path).is_file() {
+        return Err(format!("字幕文件不存在：{subtitle_path}"));
+    }
+    // 输出不得落在输入上；重编码固定 mp4 + 同名不静默覆盖兜底（`ADR-033` ②③）
+    crate::fs::reject_if_input_equals(Path::new(&output), &[&input])?;
+    let out = crate::fs::output_path_for(&PathBuf::from(&output), "mp4");
+    crate::fs::reject_if_input_equals(&out, &[&input])?;
+    let PreparedOutput {
+        out_dir,
+        out_name,
+        token,
+        ffmpeg,
+        ffprobe,
+    } = super::prepare_output(&out, &output)?;
+    let part = out_dir.join(format!("{out_name}.part.{token}.mp4"));
+
+    // 滤镜以裸文件名取字幕：进程 CWD = 字幕目录（`ADR-043`②）
+    let srt_dir = Path::new(&subtitle_path)
+        .parent()
+        .ok_or_else(|| "字幕路径无效".to_string())?
+        .to_path_buf();
+    let srt_name = Path::new(&subtitle_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| "字幕文件名无效".to_string())?
+        .to_string();
+
+    let total_sec = probe::probe_duration_sync(&ffprobe, &input).unwrap_or(0.0);
+
+    let job_input = input.clone();
+    let job_srt_name = srt_name;
+    let job_srt_dir = srt_dir;
+    let job_part = part.to_string_lossy().into_owned();
+    let job_final = out.clone();
+    let label = format!("字幕烧录 {}", file_name(&input));
+
+    let job: Job = Box::new(move |ctx: &TaskContext| {
+        // 磁盘空间预检（DESIGN §8.2）：重编码同码率量级上界
+        super::require_disk_space(&job_srt_dir, super::file_size(&job_input))?;
+        let facts = probe::probe_merge_facts_sync(&ffprobe, &job_input)
+            .map_err(|e| format!("{}：{e}", file_name(&job_input)))?;
+        let duration = facts.info.duration_sec;
+        let pix_fmt = facts.info.video.pix_fmt.clone();
+        let encoder = command::effective_encoder(locked_encoder.as_deref(), &pix_fmt);
+        let args =
+            command::subtitle_burn_args(&job_input, &job_srt_name, &job_part, &encoder, quality);
+        let throttle = ProgressThrottle::new();
+        let r = worker::run_ffmpeg_in(
+            ctx,
+            &ffmpeg,
+            &args,
+            duration,
+            Some(&job_srt_dir),
+            &|local, speed| {
+                if throttle.update(local) {
+                    ctx.set_progress(local, speed);
+                }
+            },
+        );
+        if r.is_err() {
+            let _ = std::fs::remove_file(&job_part);
+        }
+        r?;
+        // 原子落位：`.part` → 最终产物（`BUG-002` 同口径）
+        crate::fs::atomic_replace(Path::new(&job_part), Path::new(&job_final))?;
+        ctx.add_output(job_final.to_string_lossy().into_owned());
+        Ok(())
+    });
+
+    let emitter = Arc::new(TauriEmitter(app.clone()));
+    Ok(state.0.submit(emitter, "subtitle_burn", &label, job))
 }
 
 // ---------- GPU 后端（M18-6，ADR-041②） ----------

@@ -617,3 +617,37 @@ fn subtitle_extract_and_transcribe_chain() {
         srt.metadata().unwrap().len()
     );
 }
+
+/// M18-11（FR-394，`ADR-043`）：字幕烧录链路——`subtitle_burn_args` 真跑
+/// （CWD = 字幕目录裸文件名，中文 + 空格文件名覆盖非 ASCII 场景），
+/// 产物可解码、时长 ≈ 源。ffmpeg 缺失时 skip（setup 兜底）。
+#[test]
+fn subtitle_burn_chain() {
+    let Some(fx) = setup() else {
+        eprintln!("skip: ffmpeg sidecar 缺失（先运行 scripts/fetch-ffmpeg.ps1）");
+        return;
+    };
+    // 中文 + 空格文件名：覆盖非 ASCII 路径场景（`ADR-043`② 的核心风险点）
+    let srt_name = "burn 测试.srt";
+    let srt = fx.dir.join(srt_name);
+    std::fs::write(&srt, "1\n00:00:00,500 --> 00:01:00,000\n测试字幕 Hello\n").unwrap();
+    let out = fx.dir.join("burned.mp4");
+
+    let mut command = Command::new(&fx.ffmpeg);
+    command.current_dir(&fx.dir); // ADR-043②：CWD = 字幕目录，滤镜传裸文件名
+    let r = command.args(cmd::subtitle_burn_args(
+        &s(&fx.src_a),
+        srt_name,
+        &s(&out),
+        "libx264",
+        QualityPreset::Small,
+    ));
+    let o = r.output().expect("启动 ffmpeg 失败");
+    assert!(
+        o.status.success(),
+        "烧录失败：{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert_duration(fx, &out, 6.0, 0.3);
+    assert_decodable(fx, &out);
+}

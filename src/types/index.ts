@@ -225,13 +225,22 @@ export type VideoTask =
       /** AI 字幕（M18，DESIGN §3.9）：本地 whisper.cpp 转写 → .srt 外挂 */
       type: "subtitle";
       input: string;
-      /** 三档之一：tiny（内置）/ small / large-v3-turbo */
+      /** 三档之一：tiny（内置）/ small / large-v3-turbo，或自定义模型文件名（ADR-042） */
       modelId: string;
       /** ISO 639-1 或 "auto"（自动检测，默认值） */
       language: string;
       /** 转写后端：auto（GPU 可用则用，失败回退 CPU）/ cpu（M18-6） */
       backend: SubtitleBackendChoice;
       outputDir: string;
+    }
+  | {
+      /** 字幕烧录（M18-11，FR-394，重编码 warn）：subtitles 滤镜渲染进画面 + 音频 copy */
+      type: "subtitle_burn";
+      input: string;
+      subtitlePath: string;
+      output: string;
+      quality: QualityPreset;
+      encoder: string | null;
     };
 
 /** 工作台单项配置（DESIGN §3.8）：裁剪矩形为显示空间像素坐标 */

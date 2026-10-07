@@ -299,3 +299,13 @@ export async function readTextFile(path: string): Promise<string> {
   }
   return res.text();
 }
+
+/** 系统文件对话框：选择一个 .srt 字幕文件（M18-11 烧录用） */
+export async function pickSrt(): Promise<string | null> {
+  const picked = await open({
+    multiple: false,
+    directory: false,
+    filters: [{ name: "字幕", extensions: ["srt"] }],
+  });
+  return typeof picked === "string" ? picked : null;
+}

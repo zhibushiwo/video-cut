@@ -224,6 +224,49 @@ pub fn extract_audio_args(input: &str, output: &str) -> Vec<String> {
     args
 }
 
+/// 字幕烧录的滤镜路径值（M18 FR-394，`ADR-043`②）：调用方把进程 CWD 设为字幕
+/// 目录并传裸文件名——本函数只转义文件名内对滤镜有义的字元：`\` → `/`（Windows
+/// 分隔）、`:` → `\:`（选项分隔）、`'` → `\'`（quote）。全路径的转义雷区（盘符
+/// 冒号、反斜杠）因 CWD 技巧整体消失。
+pub fn subtitles_filter_value(srt_file_name: &str) -> String {
+    srt_file_name
+        .replace('\\', "/")
+        .replace(':', "\\:")
+        .replace('\'', "\\'")
+}
+
+/// 字幕烧录（M18 FR-394，重编码 warn 路径）：`subtitles`（libass）滤镜渲染进画面，
+/// 视频 重编码、音频 copy（决策 #8）。调用方负责把进程 CWD 设为字幕目录（`ADR-043`②）。
+pub fn subtitle_burn_args(
+    input: &str,
+    srt_file_name: &str,
+    output: &str,
+    encoder: &str,
+    quality: QualityPreset,
+) -> Vec<String> {
+    let mut args = base_args();
+    args.extend([
+        "-i".to_string(),
+        input.to_string(),
+        "-map".to_string(),
+        "0:v:0".to_string(),
+        "-map".to_string(),
+        "0:a:0?".to_string(),
+        "-vf".to_string(),
+        format!("subtitles={}", subtitles_filter_value(srt_file_name)),
+        "-c:v".to_string(),
+        encoder.to_string(),
+    ]);
+    args.extend(encoder_quality_args(encoder, quality));
+    args.extend([
+        "-c:a".to_string(),
+        "copy".to_string(),
+        "-y".to_string(),
+        output.to_string(),
+    ]);
+    args
+}
+
 /// 解析 ffprobe 的 time_base 字符串（"1/60000"）为 mp4 timescale（60000）。
 /// 非 "1/N" 形式返回 0（调用方省略 timescale 控制）。
 pub fn parse_timescale(video_time_base: &str) -> u32 {
@@ -826,6 +869,59 @@ mod tests {
                 "pcm_s16le",
                 "-y",
                 "out.wav",
+            ]
+        );
+    }
+
+    #[test]
+    fn subtitles_filter_value_escapes_meaningful_chars() {
+        // ADR-043②：CWD 技巧后仅文件名内的 \/: ' 需转义；中文/空格原样
+        assert_eq!(subtitles_filter_value("a.srt"), "a.srt");
+        assert_eq!(subtitles_filter_value("a b.srt"), "a b.srt");
+        assert_eq!(subtitles_filter_value("中文字幕.srt"), "中文字幕.srt");
+        assert_eq!(subtitles_filter_value("a\\b.srt"), "a/b.srt");
+        assert_eq!(subtitles_filter_value("12:30.srt"), "12\\:30.srt");
+        assert_eq!(subtitles_filter_value("it's.srt"), "it\\'s.srt");
+    }
+
+    #[test]
+    fn subtitle_burn_args_follows_design_template() {
+        // FR-394：重编码 + 音频 copy（决策 #8）+ subtitles 滤镜；红线 1 全序列断言
+        assert_eq!(
+            subtitle_burn_args(
+                "in.mp4",
+                "sub.srt",
+                "out.mp4",
+                "libx264",
+                QualityPreset::Balanced
+            ),
+            vec![
+                "-hide_banner",
+                "-nostats",
+                "-loglevel",
+                "error",
+                "-progress",
+                "pipe:1",
+                "-stats_period",
+                "0.2",
+                "-i",
+                "in.mp4",
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a:0?",
+                "-vf",
+                "subtitles=sub.srt",
+                "-c:v",
+                "libx264",
+                "-crf",
+                "20",
+                "-preset",
+                "medium",
+                "-c:a",
+                "copy",
+                "-y",
+                "out.mp4",
             ]
         );
     }

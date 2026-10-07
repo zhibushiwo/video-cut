@@ -86,6 +86,21 @@ pub async fn submit_task(
         } => super::subtitle::submit_subtitle(
             app, &state, input, model_id, language, backend, output_dir,
         ),
+        VideoTask::SubtitleBurn {
+            input,
+            subtitle_path,
+            output,
+            quality,
+            encoder,
+        } => super::subtitle::submit_subtitle_burn(
+            app,
+            &state,
+            input,
+            subtitle_path,
+            output,
+            quality,
+            encoder,
+        ),
     }
 }
 

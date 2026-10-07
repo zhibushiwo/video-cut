@@ -13,15 +13,17 @@ import {
   deleteWhisperModel,
   downloadWhisperCuda,
   downloadWhisperModel,
+  fileExists,
   listWhisperModels,
   onTaskProgress,
   onTaskStatus,
   openModelsDir,
+  pickSrt,
   pickVideo,
   probeWhisperBackend,
   submitTask,
 } from "../../services/tauri";
-import { basename, resolveOutputDir } from "../../utils/paths";
+import { basename, resolveOutputDir, resolveUniqueTarget, stemOf } from "../../utils/paths";
 import type {
   AppSettings,
   TaskStatus,
@@ -61,6 +63,13 @@ export default function SubtitlePage({
   const [subtitleTaskId, setSubtitleTaskId] = useState<string | null>(null);
   /** 最近一次识别产出的 .srt 绝对路径（任务完成事件 outputs[0]） */
   const [previewSrt, setPreviewSrt] = useState<string | null>(null);
+  /** 烧录用的字幕文件（默认跟随最近识别产物，可手动选择 .srt） */
+  const [burnSrt, setBurnSrt] = useState<string | null>(null);
+  const [burnSubmitted, setBurnSubmitted] = useState(false);
+
+  useEffect(() => {
+    if (previewSrt) setBurnSrt(previewSrt);
+  }, [previewSrt]);
   /** 进行中的下载任务（模型 / CUDA 加速包）：进度与完成回调 */
   const [dl, setDl] = useState<{
     id: string;
@@ -185,6 +194,31 @@ export default function SubtitlePage({
       .catch((e: unknown) => setError(String(e)));
   }, [filePath, settings]);
 
+  const submitBurn = useCallback(async () => {
+    if (!filePath || !burnSrt) return;
+    setError(null);
+    setBurnSubmitted(false);
+    try {
+      const dir = resolveOutputDir(filePath, settings.defaultOutputDir);
+      const output = await resolveUniqueTarget(
+        dir,
+        `${stemOf(filePath)}_subbed.mp4`,
+        fileExists,
+      );
+      await submitTask({
+        type: "subtitle_burn",
+        input: filePath,
+        subtitlePath: burnSrt,
+        output,
+        quality: settings.quality,
+        encoder: settings.encoder === "auto" ? null : settings.encoder,
+      });
+      setBurnSubmitted(true);
+    } catch (e: unknown) {
+      setError(String(e));
+    }
+  }, [filePath, burnSrt, settings]);
+
   return (
     <div className="flex h-full flex-col">
       <PageHeader
@@ -293,6 +327,49 @@ export default function SubtitlePage({
               <section aria-label="字幕预览">
                 <h2 className="mb-2 text-xs font-medium text-mute">字幕预览</h2>
                 <SrtPreview videoPath={filePath} srtPath={previewSrt} />
+              </section>
+            )}
+
+            {filePath && (
+              <section aria-label="烧录字幕" className="rounded-lg border border-warn/40 p-3">
+                <h2 className="text-sm font-medium text-warn">烧录字幕到画面（重编码）</h2>
+                <p className="mt-1 text-xs leading-relaxed text-mute">
+                  把字幕渲染进画面导出新视频：
+                  <span className="text-warn">视频需重编码（有损、耗时）</span>
+                  ，音频原样复制；输出 <code className="font-mono">{`${stemOf(filePath)}_subbed.mp4`}</code>。
+                </p>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <div className="min-w-0 text-xs text-mute">
+                    字幕文件：
+                    {burnSrt ? (
+                      <span className="text-paper">{basename(burnSrt)}</span>
+                    ) : (
+                      "未选择"
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void pickSrt().then((p) => p && setBurnSrt(p))}
+                      className="rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                    >
+                      选择 .srt…
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!burnSrt}
+                      onClick={() => void submitBurn()}
+                      className="rounded-md border border-warn/60 px-3 py-1.5 text-xs text-warn transition-colors hover:bg-warn/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      导出烧录视频
+                    </button>
+                  </div>
+                </div>
+                {burnSubmitted && (
+                  <p className="mt-2 text-xs text-signal" role="status">
+                    已提交烧录任务，进度见任务面板。
+                  </p>
+                )}
               </section>
             )}
 

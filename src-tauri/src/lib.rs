@@ -197,9 +197,10 @@ pub enum VideoTask {
         #[serde(default)]
         preview: bool,
     },
-    /// AI 字幕（M18，§3.9）：本地 whisper.cpp 转写 → .srt 外挂；model_id 对应 §3.9 三档之一，
-    /// language = ISO 639-1 或 "auto"（自动检测，默认值）；backend = "auto"（GPU 试跑可用
-    /// 则用、失败回退 CPU，ADR-041②）或 "cpu"；产物 = <output_dir>/<源同名>.srt
+    /// AI 字幕（M18，§3.9）：本地 whisper.cpp 转写 → .srt 外挂；model_id 对应 §3.9 三档之一
+    /// 或 models 目录中的自定义模型文件名（`ADR-042`），language = ISO 639-1 或 "auto"
+    /// （自动检测，默认值）；backend = "auto"（GPU 试跑可用则用、失败回退 CPU，`ADR-041`②）
+    /// 或 "cpu"；产物 = <output_dir>/<源同名>.srt
     #[serde(rename_all = "camelCase")]
     Subtitle {
         input: String,
@@ -207,6 +208,16 @@ pub enum VideoTask {
         language: String,
         backend: String,
         output_dir: String,
+    },
+    /// 字幕烧录（M18-11，FR-394，重编码 warn）：subtitles（libass）滤镜渲染进画面 +
+    /// 音频 copy（决策 #8）；输出固定 mp4、前端防覆盖命名 + 后端 `output_path_for` 兜底
+    #[serde(rename_all = "camelCase")]
+    SubtitleBurn {
+        input: String,
+        subtitle_path: String,
+        output: String,
+        quality: QualityPreset,
+        encoder: Option<String>,
     },
 }
 

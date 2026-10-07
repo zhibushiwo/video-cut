@@ -28,9 +28,25 @@ pub(crate) fn run_ffmpeg(
     total_sec: f64,
     on_progress: &dyn Fn(f64, Option<f64>),
 ) -> Result<(), String> {
+    run_ffmpeg_in(ctx, ffmpeg, args, total_sec, None, on_progress)
+}
+
+/// 同 [`run_ffmpeg`]，但可指定子进程工作目录（M18-11 字幕烧录：CWD = 字幕目录，
+/// 让 `subtitles` 滤镜以裸文件名取字幕，规避 Windows 绝对路径转义/非 ASCII 坑，`ADR-043`②）。
+pub(crate) fn run_ffmpeg_in(
+    ctx: &TaskContext,
+    ffmpeg: &Path,
+    args: &[String],
+    total_sec: f64,
+    cwd: Option<&Path>,
+    on_progress: &dyn Fn(f64, Option<f64>),
+) -> Result<(), String> {
     let mut spawn_cmd = Command::new(ffmpeg);
     // GUI 子系统下防 CMD 弹窗（DESIGN §6.2）
     command::spawn_hidden(&mut spawn_cmd);
+    if let Some(dir) = cwd {
+        spawn_cmd.current_dir(dir);
+    }
     log::debug!("ffmpeg argv：{} {}", ffmpeg.display(), args.join(" "));
     let mut child = spawn_cmd
         .args(args)
