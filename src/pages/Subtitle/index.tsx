@@ -16,6 +16,7 @@ import {
   listWhisperModels,
   onTaskProgress,
   onTaskStatus,
+  openModelsDir,
   pickVideo,
   probeWhisperBackend,
   submitTask,
@@ -210,7 +211,18 @@ export default function SubtitlePage({
             </div>
 
             <section aria-label="识别模型">
-              <h2 className="mb-2 text-xs font-medium text-mute">识别模型</h2>
+              <div className="mb-2 flex items-center justify-between">
+                <h2 className="text-xs font-medium text-mute">识别模型</h2>
+                <button
+                  type="button"
+                  onClick={() => void openModelsDir().catch((e: unknown) => setError(String(e)))}
+                  title="把自行下载的模型文件（如 ggml-small-q5_1.bin）放进此目录即可被识别"
+                  className="flex items-center gap-1.5 rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                >
+                  <FolderOpen className="h-3.5 w-3.5" />
+                  打开模型文件夹
+                </button>
+              </div>
               {models ? (
                 <ModelPicker
                   models={models}

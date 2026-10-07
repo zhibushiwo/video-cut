@@ -842,6 +842,16 @@ fn smoke_gpu(gpu_exe: &Path, model: &Path, vad: &Path, ffmpeg: &Path) -> Result<
     }
 }
 
+/// 打开模型文件夹（FR-391 手动放置逃生舱的引导）：目录不存在则先创建再打开，
+/// 用户即可把自行下载的模型文件（如 `ggml-small-q5_1.bin`）放进来。
+#[tauri::command]
+pub fn open_models_dir(app: AppHandle) -> Result<(), String> {
+    let dir = download_models_dir(&app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("无法创建模型目录：{e}"))?;
+    tauri_plugin_opener::open_path(&dir, None::<&str>)
+        .map_err(|e| format!("打开模型文件夹失败：{e}"))
+}
+
 /// 探测 GPU 后端状态（FR-391，BackendBadge / 设置页消费）。未下载加速包 =
 /// `cuda_installed: false`（无 reason——这是正常状态不是失败）。
 #[tauri::command]

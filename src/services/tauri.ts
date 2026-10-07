@@ -285,3 +285,8 @@ export function downloadWhisperCuda(): Promise<string> {
 export function probeWhisperBackend(): Promise<WhisperBackendStatus> {
   return invoke("probe_whisper_backend");
 }
+
+/** 打开模型文件夹（手动放置模型文件的引导；目录不存在则先创建） */
+export function openModelsDir(): Promise<void> {
+  return invoke("open_models_dir");
+}

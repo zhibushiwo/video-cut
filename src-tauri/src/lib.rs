@@ -296,6 +296,7 @@ pub fn run() {
             commands::subtitle::delete_whisper_model,
             commands::subtitle::download_whisper_cuda,
             commands::subtitle::probe_whisper_backend,
+            commands::subtitle::open_models_dir,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
