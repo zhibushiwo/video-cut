@@ -25,6 +25,8 @@ pub(crate) struct PlanInput {
     pub hflip: bool,
     pub vflip: bool,
     pub has_crop: bool,
+    /// M17-2：用户强制重编码烘焙（true 时整批禁走规则 A）
+    pub force_transcode: bool,
 }
 
 /// 单片段处理计划：copy（元数据旋转）或 transcode（像素烘焙）。
@@ -60,7 +62,10 @@ pub fn plan_items(items: &[PlanInput]) -> Vec<ItemPlan> {
         .collect();
     let no_crop = items.iter().all(|it| !it.has_crop);
     let all_equal = targets.windows(2).all(|w| w[0] == w[1]);
-    if no_crop && all_equal {
+    // M17-2：任一片段强制烘焙即走规则 B——规则 A 的 copy+矩阵片段与烘焙片段拼不到一起
+    //（concat 取第一个文件的矩阵），强制片段在规则 A 下无法单独转码
+    let any_forced = items.iter().any(|it| it.force_transcode);
+    if no_crop && all_equal && !any_forced {
         return targets
             .iter()
             .map(|(deg, hf, vf)| ItemPlan {
@@ -565,6 +570,7 @@ fn plan_inputs(items: &[PipelineItem], facts: &[MergeFileFacts]) -> Vec<PlanInpu
             hflip: it.hflip,
             vflip: it.vflip,
             has_crop: it.crop.is_some(),
+            force_transcode: it.force_transcode,
         })
         .collect()
 }
@@ -580,6 +586,7 @@ mod tests {
             hflip: hf,
             vflip: vf,
             has_crop: crop,
+            force_transcode: false,
         }
     }
 
@@ -647,6 +654,34 @@ mod tests {
     fn source_metadata_is_included_in_target() {
         // 手机视频自带 90° 矩阵 + 用户 -90°（逆时针转正）→ 目标恒等 → copy
         let plans = plan_items(&[input(Some(90), 270, false, false, false)]);
+        assert!(plans[0].copy);
+        assert_eq!(plans[0].display_deg, 0);
+    }
+
+    fn forced_input(rotation: Option<i32>, deg: i32, hf: bool, vf: bool, crop: bool) -> PlanInput {
+        let mut it = input(rotation, deg, hf, vf, crop);
+        it.force_transcode = true;
+        it
+    }
+
+    #[test]
+    fn force_transcode_blocks_rule_a_and_bakes() {
+        // M17-2：全部片段无裁剪且朝向一致（本可全 copy + 矩阵覆写），任一勾选强制烘焙
+        // → 整批走规则 B：非恒等片段全部烘焙（copy+矩阵与烘焙片段 concat 拼接方向会错乱）
+        let plans = plan_items(&[
+            forced_input(None, 90, false, false, false),
+            input(None, 90, false, false, false),
+        ]);
+        assert!(!plans[0].copy, "强制片段必须烘焙");
+        assert_eq!(plans[0].bake_deg, 90);
+        assert!(!plans[1].copy);
+        assert_eq!(plans[1].bake_deg, 90);
+    }
+
+    #[test]
+    fn force_transcode_without_transform_keeps_copy() {
+        // 勾选了强制烘焙但无朝向变换、无裁剪 → 规则 B 下恒等朝向仍 copy（烘焙无从谈起）
+        let plans = plan_items(&[forced_input(None, 0, false, false, false)]);
         assert!(plans[0].copy);
         assert_eq!(plans[0].display_deg, 0);
     }

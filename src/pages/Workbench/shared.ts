@@ -24,7 +24,7 @@ export type PreviewMode =
  * 加工编辑（旁路状态）可改的字段：**不含 `seg`** —— 区间属于文档状态，只能经命令栈改
  * （plans/M11.md §18.1 的三类边界表）；收窄类型是为了让"绕过撤销栈改区间"在编译期就不可能。
  */
-export type ClipEdit = Partial<Pick<Clip, "rot" | "crop" | "lockRatio">>;
+export type ClipEdit = Partial<Pick<Clip, "rot" | "crop" | "lockRatio" | "bake">>;
 
 /** 右上角功能导航（DESIGN §9.2：工作台为落地页，其余功能经此跳转；M17-1：旋转/放大合并为「编辑」单入口） */
 export const NAV_ITEMS: { page: PageName; label: string; icon: typeof Scissors }[] = [

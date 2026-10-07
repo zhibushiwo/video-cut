@@ -94,6 +94,8 @@ export interface Clip {
   rot: RotateState;
   crop: CropRect | null;
   lockRatio: boolean;
+  /** M17-2：重编码旋转（把方向画进像素）；旁路状态（与 rot/crop 同类，不经撤销栈） */
+  bake?: boolean;
 }
 
 /** 编辑视图的工具页签（Editor 页的 `tool` 与工作台片段加工的 tab 共用，T-006 合一） */
@@ -224,6 +226,8 @@ export interface PipelineItem {
   crop: { x: number; y: number; width: number; height: number } | null;
   outWidth: number | null;
   outHeight: number | null;
+  /** M17-2：true = 强制重编码烘焙（lib.rs `PipelineItem::force_transcode` 镜像，serde default 缺省 false） */
+  forceTranscode?: boolean;
 }
 
 /** 工作台单片段检测结果 */

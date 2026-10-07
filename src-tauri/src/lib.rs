@@ -132,6 +132,10 @@ pub struct PipelineItem {
     /// 裁剪后放大输出尺寸，None = 放大回显示分辨率
     pub out_width: Option<u32>,
     pub out_height: Option<u32>,
+    /// true = 强制重编码把变换烘焙进像素（M17-2，兼容不支持方向元数据的播放器）；
+    /// 无朝向变换（且无裁剪）时无效果。任一片段为 true 即整批走规则 B（DESIGN §3.8）
+    #[serde(default)]
+    pub force_transcode: bool,
 }
 
 /// 统一任务定义：前端 submit_task 的入参（DESIGN §7）。

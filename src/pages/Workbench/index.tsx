@@ -677,6 +677,7 @@ export default function WorkbenchPage({
               : null,
           outWidth: null,
           outHeight: null,
+          forceTranscode: c.bake === true,
         };
       }),
     [timelineClips, clipSource, trimPreviewSeg],

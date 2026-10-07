@@ -139,6 +139,8 @@ export function EditModeView({
 
   const dims = displayedDims(info, clip.rot);
   const innerStyle = displayedStageStyle(dims, clip.rot);
+  /** M17-2：重编码旋转开关仅在有朝向变换时可用（UI.md §9.8） */
+  const hasOrient = clip.rot.deg !== 0 || clip.rot.hflip || clip.rot.vflip;
 
   // ---------- 放大：显示空间框选 / 移动（R1-4：与编辑器页共用 components/CropOverlay） ----------
   const stageRef = useRef<HTMLDivElement>(null);
@@ -279,9 +281,36 @@ export function EditModeView({
           <div className="flex flex-col gap-2">
             <RotateControls
               rot={clip.rot}
-              onChange={(rot) => onChange({ rot, crop: null })}
+              // 回到恒等朝向时一并清掉 bake（M17-2）：保持「bake ⇒ 有朝向变换」不变式，
+              // 否则会出现"开关勾着却禁用"的死状态（bake 无变换时后端本就无效果）
+              onChange={(rot) =>
+                onChange({
+                  rot,
+                  crop: null,
+                  bake: rot.deg === 0 && !rot.hflip && !rot.vflip ? false : clip.bake,
+                })
+              }
               currentRotation={info.rotation}
             />
+            <label
+              className={`flex w-fit items-center gap-1.5 text-xs ${
+                hasOrient ? "cursor-pointer text-mute" : "cursor-not-allowed text-mute/50"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={clip.bake === true}
+                disabled={!hasOrient}
+                onChange={(e) => onChange({ bake: e.target.checked })}
+                className="accent-signal"
+              />
+              重编码旋转（把方向画进像素）
+            </label>
+            {clip.bake === true && hasOrient && (
+              <p className="text-xs text-mute/70">
+                此片段强制重编码烘焙方向（质量用页脚档位权衡）；任一片段烘焙，整批都走重编码（时间线将不再自动预览）。
+              </p>
+            )}
             {clip.crop && (
               <p className="text-xs text-warn">修改旋转会清除已框选的放大区域（框选基于旋转后的画面）。</p>
             )}
