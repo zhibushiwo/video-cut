@@ -521,7 +521,8 @@ const VAD_FILE_NAME: &str = "ggml-silero-v5.1.2.bin";
 /// whisper-cli 转写参数（M18，ADR-041：`-pp` 进度走 stderr）。`vad_model = Some`
 /// 时启用 `--vad -vm` 强制预切分（FR-392）；None = 无 VAD 全量转写（VAD 空结果
 /// 回退用）。参数序列有全序列断言。
-fn whisper_cli_args(
+/// `pub` 供 tests/e2e.rs 复用（经 lib.rs 根重导出，同 ffmpeg 构建器口径）。
+pub fn whisper_cli_args(
     model: &str,
     vad_model: Option<&str>,
     wav: &str,

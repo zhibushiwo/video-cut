@@ -8,6 +8,7 @@ use std::sync::OnceLock;
 
 use video_cut_lib::ffmpeg::command as cmd;
 use video_cut_lib::ffmpeg::probe;
+use video_cut_lib::whisper_cli_args;
 use video_cut_lib::QualityPreset;
 
 /// 夹具：两个参数一致（可无损 concat）、内容不同的 320×240 H.264+AAC 源，
@@ -546,4 +547,73 @@ fn preview_pipeline_full_chain() {
     assert_duration(fx, &final_out, d1 + d2, 0.5);
     assert_container(fx, &final_out, "mp4");
     assert_decodable(fx, &final_out);
+}
+
+/// M18-9（FR-392，`ADR-039`/`ADR-041`）：字幕转写链路冒烟——
+/// ① `extract_audio_args` 真跑提取 16kHz mono wav（时长 ≈ 源）；
+/// ② `whisper_cli_args`（VAD 强制 + 内置 tiny）真跑转写，产出 .srt。
+/// sine 音源无人声：VAD 路径产出**空 srt 也算通过**——本用例验证的是
+/// 参数构建器 × sidecar × 模型 resource 的整链可用性，不是识别质量。
+/// whisper-cli 或内置模型缺失（未跑 fetch-whisper）时 skip。
+#[test]
+fn subtitle_extract_and_transcribe_chain() {
+    let Some(fx) = setup() else {
+        eprintln!("skip: ffmpeg sidecar 缺失（先运行 scripts/fetch-ffmpeg.ps1）");
+        return;
+    };
+    let Ok(whisper) = cmd::resolve_sidecar("whisper-cli") else {
+        eprintln!("skip: whisper-cli sidecar 缺失（先运行 scripts/fetch-whisper.ps1）");
+        return;
+    };
+    // 内置模型定位：e2e 二进制在 target/debug/deps → 上溯一级 = target/debug（resolve_sidecar 同法）
+    let mut exe_dir = std::env::current_exe()
+        .expect("无法定位测试二进制")
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    if exe_dir.ends_with("deps") {
+        exe_dir = exe_dir.parent().unwrap().to_path_buf();
+    }
+    let models = exe_dir.join("resources").join("models");
+    let model = models.join("ggml-tiny-q5_1.bin");
+    let vad = models.join("ggml-silero-v5.1.2.bin");
+    if !model.exists() || !vad.exists() {
+        eprintln!("skip: 内置模型缺失（先运行 scripts/fetch-whisper.ps1）");
+        return;
+    }
+
+    // ① 音频提取：16kHz mono pcm_s16le（红线 1 构建器 × 真实 sidecar）
+    let wav = fx.dir.join("subtitle.wav");
+    run_ffmpeg(
+        fx,
+        &cmd::extract_audio_args(&s(&fx.src_a), &s(&wav)),
+        "音频提取",
+    );
+    assert!(wav.exists(), "wav 必须产出");
+    let dur = assert_duration(fx, &wav, 6.0, 0.5);
+
+    // ② 转写：sine 无人声，VAD 路径空 srt 也通过（见用例头注释）
+    let srt_base = fx.dir.join("subtitle");
+    let out = Command::new(&whisper)
+        .args(whisper_cli_args(
+            &s(&model),
+            Some(&s(&vad)),
+            &s(&wav),
+            &s(&srt_base),
+            "auto",
+            4,
+        ))
+        .output()
+        .expect("启动 whisper-cli 失败");
+    assert!(
+        out.status.success(),
+        "转写失败：{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let srt = fx.dir.join("subtitle.srt");
+    assert!(srt.exists(), "必须产出 .srt：{}", srt.display());
+    eprintln!(
+        "字幕链路 e2e：{dur:.2}s 音频转写完成，srt {} 字节",
+        srt.metadata().unwrap().len()
+    );
 }

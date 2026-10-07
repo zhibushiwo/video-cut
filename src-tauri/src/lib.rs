@@ -3,6 +3,8 @@ mod commands;
 pub mod ffmpeg;
 /// pub 同上：`atomic_replace` 要能在 e2e 里按真实输出收尾路径验证（`BUG-002`）。
 pub mod fs;
+/// pub 同上：M18-9 字幕转写链 e2e 复用 whisper-cli 参数构建器（AGENTS §3 第 1 条）。
+pub use commands::subtitle::whisper_cli_args;
 mod history;
 mod logger;
 mod task;
