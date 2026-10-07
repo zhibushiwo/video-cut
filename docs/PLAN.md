@@ -407,6 +407,14 @@
 
 **验收**：AC-390-1 · AC-391-1 · AC-392-1 · AC-393-1 —— 口径见 DESIGN.md §3.9，执行见 TESTING.md（TC 随 M18-9 建）。
 
+## M18-11 字幕烧录（`CAND-031` 晋升，2026-10-07 立项并实施）
+
+> **关联**：`FR-394`（[DESIGN.md](./DESIGN.md) §3.9 + §4 矩阵行）· `ADR-043` · [CANDIDATES.md](./CANDIDATES.md)（`CAND-031` 去向）· **重编码 warn 路径**
+> **验收**：AC-394-1
+
+- [x] **M18-11-1 文档晋升批**：`ADR-043`（subtitles 滤镜 + CWD 裸文件名 + 音频 copy + warn 语义）+ DESIGN §3.9 FR-394 + AC-394-1 + §4 矩阵行 + CANDIDATES `CAND-031` → M18-11 + PLAN 本节 → `pnpm check:docs` 全绿
+- [ ] **M18-11-2 实现**：`command.rs` `subtitles_filter_value`（转义）+ `subtitle_burn_args`（重编码 + 音频 copy，红线 1）+ 参数/转义单测 + `VideoTask::SubtitleBurn`（TS 双写）+ `submit_subtitle_burn`（prepare_output/原子替换，CWD=字幕目录）+ 字幕页烧录区（warn 明示 + 手选 .srt）+ e2e 烧录用例 → 验收：AC-394-1
+
 ## M13 打磨（可选，视 M11/M12 体验决定，决策 #31）
 
 > **关联**：FR-17xx（随 M11 首个功能批次发号）　·　**验收**：视 M11/M12 体验决定　——　执行：TESTING.md TC 待建
