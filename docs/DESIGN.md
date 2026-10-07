@@ -5,7 +5,7 @@
 > **读时机**：任何改动前的上位规格；新会话先读本文（地图见 [INDEX.md](./INDEX.md)）。
 > **写规则**：行为规格变化就地改本文并同步对应 FR/AC（一条一行）；实现级方案进 `plans/`，进度进 [PLAN.md](./PLAN.md)，决策进 [DECISIONS.md](./DECISIONS.md)。
 > **关联**：[INDEX.md](./INDEX.md)（地图与 ID 规范） · [../AGENTS.md](../AGENTS.md)（工程红线） · 下位：FFMPEG / UI / TIMELINE / plans
-> **最后更新**：2026-10-06（头部改一行式——规则见 [INDEX.md](./INDEX.md) §7）；近期规格变化：§3.8 成品预览补写**重播落点**（播到末尾再按播放＝回成品起点，`BUG-021`）；§3.7 已知限制 + `ADR-038`、§7/§8.2 随 `M12-2` 更新（2026-10-05）；明细见对应章节与 [CHANGELOG.md](./CHANGELOG.md)
+> **最后更新**：2026-10-07（**M17 立项规格**：§7 `PipelineItem` 加 `force_transcode`（工作台重编码旋转，`CAND-022`① 契约子集）· §3.8 规则 A 加 force 前置条件、规则 B 补强制语义 · §5.2 组件树清两处陈旧描述（遗留空目录已随 T-002 删除、池↔轴拖入已随 T-017 移除）（头部改一行式——规则见 [INDEX.md](./INDEX.md) §7）；近期规格变化：§3.8 成品预览补写**重播落点**（播到末尾再按播放＝回成品起点，`BUG-021`）；§3.7 已知限制 + `ADR-038`、§7/§8.2 随 `M12-2` 更新（2026-10-05）；明细见对应章节与 [CHANGELOG.md](./CHANGELOG.md)
 
 > 状态：M0–M9 已实现（M4-5 实机冒烟、M6-7 e2e 与 M7/M9 验收归用户手测）；M10（保活+深浅主题）已立项**暂缓**（决策 #32）；M11–M13（单轨装配时间线）——`M11` 实施全部完成（`M11-0`–`M11-9` ✅，帧预算真机半 ⏳ 待用户发起）；行为规格见 [TIMELINE.md](./TIMELINE.md)、实施方案见 [plans/M11.md](./plans/M11.md)；**`M12` 实施中**（`M12-2` 渲染即预览，规格 `FR-1760`~`FR-1762`，方案见 [plans/M12.md](./plans/M12.md)）、`M12-1`/`M12-3` 与 `M13` 待实施。**M14（交互完善批次）已立项**（2026-09-28，用户六条反馈：页面重置/换素材 · 默认命名 · 入出点快捷键按钮 · 放大双态预览 · 片段池手柄语义 · 连播缺陷），方案见 [plans/M14.md](./plans/M14.md)、任务见 [PLAN.md](./PLAN.md)。**M15（保留式裁剪）已立项并列为最高优先级**（2026-09-28，`CAND-020` 晋升），方案见 [plans/M15.md](./plans/M15.md)。
 >
@@ -193,10 +193,10 @@ WebView2 的 `<video>` 对部分格式无法直接播放（详见第 10 节）�
 **片段处理计划（plan_items，纯函数，核心规则）**：
 
 - 每个片段的"目标朝向" T_i =（源方向元数据 + 用户增量）mod 360，翻转独立叠加
-- **规则 A（全程无损）**：所有片段均无裁剪且所有 T_i 相同 → 每个片段一条 copy 命令
+- **规则 A（全程无损）**：所有片段均无裁剪、所有 T_i 相同、且无片段勾选「重编码旋转」（`forceTranscode`，M17-2）→ 每个片段一条 copy 命令
   （剪切 `-ss/-t` + 元数据旋转 `-display_rotation T_i` 同命令完成），concat copy 拼接
 - **规则 B（其余情况）**：以"无变换"为基准。无裁剪且 T_i 为恒等 → copy（显式覆写矩阵为 0）；
-  其余片段重编码，把**绝对变换**烘焙进像素（`-display_rotation 0` 剥离源矩阵防双重旋转）
+  其余片段重编码，把**绝对变换**烘焙进像素（`-display_rotation 0` 剥离源矩阵防双重旋转）。任一片段勾选 `forceTranscode` 即强制本批走规则 B——T_i 非恒等的勾选片段必然重编码（规则 A 的 copy + 矩阵路径不可与烘焙片段拼接）
 - 拼接正确性依据：concat 输出的显示矩阵取自第一个文件；copy 片段渲染朝向 = 矩阵，
   重编码片段渲染朝向 = 烘焙像素 + 矩阵(0)。规则 B 下全片矩阵恒等，恒成立
 - **参数统一兜底**：中间文件产出后逐个与第 1 个片段做九项比对，不一致者
@@ -254,13 +254,12 @@ src/
 ├── components/
 │   ├── VideoPlayer/     # <video> 封装：播放/暂停/倍速/时间上报/overlay 插槽/代理切换
 │   ├── Timeline/        # 源内时间轴：区间双手柄、关键帧刻度与吸附
-│   ├── ClipTimeline/    # 工作台合成时间轴：片段块编排（UI.md §9.8）、池↔轴拖入、播放头
+│   ├── ClipTimeline/    # 工作台合成时间轴：片段块编排（UI.md §9.8）、播放头
 │   ├── ProductPreview/  # 工作台成品虚拟连播（M6-6）：双 video 轮换预加载
 │   ├── CutEditor/       # 剪切页片段列表与导出配置
 │   ├── CropOverlay/     # 裁剪框选：useCropSelect / CropOverlay / CropBox / CropFields（R1-4，与 utils/crop.ts 配套）
 │   ├── RotateControls/  # 旋转组合按钮（Editor 页与工作台共享）
 │   ├── TaskProgress/    # 全局任务面板：进度/速度/取消/复制日志/自动关闭
-│   └── （遗留空目录）    # MergeEditor/ · RotateEditor/ · CropEditor/ 为 2026-09-13 遗留、git 不跟踪，去留见 PLAN `T-002`
 ├── pages/
 │   ├── Workbench/       # 工作台（落地页，UI.md §9.8：素材卡/片段池/时间轴/三态预览）
 │   ├── Cut/             # 剪切页 = VideoPlayer + Timeline
@@ -429,6 +428,7 @@ pub struct PipelineItem {
     pub crop: Option<CropRect>,     // None = 不裁剪
     pub out_width: Option<u32>,     // 裁剪后放大输出尺寸，None = 显示分辨率
     pub out_height: Option<u32>,
+    pub force_transcode: bool,   // M17-2：true = 强制重编码把变换烘焙进像素（无变换时无效果；serde default 向后兼容）
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
