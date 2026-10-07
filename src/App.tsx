@@ -85,8 +85,8 @@ export default function App() {
         M10-1 页面保活（UI.md §9.2 / 决策 #24，`BUG-026`）：四个工作页（Cut/Merge/
         Editor/Workbench）离开时**隐藏不卸载**（display:none，状态全保留）——工作台
         素材/片段/时间轴/撤销栈重建成本高，且页面重置总则（§9.2 M14-2）只允许用户
-        显式发起的清空。旋转与放大是两个 PageName，按**两个实例**保活，各自保留
-        文件与加工态（与既有"进入即重置"语义一致，不互相串状态）。
+        显式发起的清空。编辑页（M17-1 起 `rotate`/`crop` 收敛为 `editor`）是**单实例**保活，
+        旋转 / 放大两个工具的加工态在页内 tab 各自保留、互不覆盖。
         `initialFiles` 只喂**当前活动页**——保活页常驻挂载，不门控会让隐藏页把同一次
         拖入也消费掉。History/Settings 无状态，维持条件挂载。
       */}
@@ -110,24 +110,13 @@ export default function App() {
         </div>
       )}
       {settingsReady && (
-        <>
-          <div className={page === "rotate" ? "" : "hidden"}>
-            <EditorPage
-              tool="rotate"
-              settings={settings}
-              onBack={() => navigate("workbench")}
-              initialFiles={page === "rotate" ? pending : null}
-            />
-          </div>
-          <div className={page === "crop" ? "" : "hidden"}>
-            <EditorPage
-              tool="crop"
-              settings={settings}
-              onBack={() => navigate("workbench")}
-              initialFiles={page === "crop" ? pending : null}
-            />
-          </div>
-        </>
+        <div className={page === "editor" ? "" : "hidden"}>
+          <EditorPage
+            settings={settings}
+            onBack={() => navigate("workbench")}
+            initialFiles={page === "editor" ? pending : null}
+          />
+        </div>
       )}
       {page === "settings" && (
         <SettingsPage

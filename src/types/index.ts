@@ -5,13 +5,12 @@
  * ② **前端自有类型**——导航/偏好/编辑模型，Rust 侧没有对应结构，见文内「前端编辑模型」分区。
  */
 
-/** 前端导航状态（App 顶层 state 切换，DESIGN §9.2；工作台 = 落地页） */
+/** 前端导航状态（App 顶层 state 切换，DESIGN §9.2；工作台 = 落地页；M17-1：rotate/crop 收敛为 editor 单页） */
 export type PageName =
   | "workbench"
   | "cut"
   | "merge"
-  | "rotate"
-  | "crop"
+  | "editor"
   | "history"
   | "settings";
 

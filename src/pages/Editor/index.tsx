@@ -29,12 +29,10 @@ import { basename, defaultOutputName, resolveOutputDir, resolveUniqueTarget } fr
 import { QUALITY_LABELS } from "../../utils/quality";
 
 export default function EditorPage({
-  tool,
   settings,
   onBack,
   initialFiles,
 }: {
-  tool: EditorToolTab;
   settings: AppSettings;
   onBack: () => void;
   initialFiles?: string[] | null;
@@ -44,6 +42,10 @@ export default function EditorPage({
   const [probeError, setProbeError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // 工具 tab（M17-1）：旋转 / 放大同页切换——切工具保留文件与各自加工态（rot 与 rect 独立 state，
+  // 天然互不覆盖）；换素材（loadFile）与重置（resetAll）仍把两个工具一并复位
+  const [tool, setTool] = useState<EditorToolTab>("rotate");
 
   // 旋转
   const [rot, setRot] = useState<RotateState>(NO_ROTATE);
@@ -96,9 +98,9 @@ export default function EditorPage({
     if (path) void loadFile(path);
   }, [loadFile]);
 
-  /** 未导出的操作产物（决定「重置」是否二次确认）：非恒等旋转 或 已框选区域 */
-  const hasWork =
-    tool === "rotate" ? rot.deg !== 0 || rot.hflip || rot.vflip : rect !== null;
+  /** 未导出的操作产物（决定「重置」是否二次确认）：M17-1 起两个工具各自的加工态一并算——
+   *  重置会同时清掉旋转与选区，任一存在都该确认 */
+  const hasWork = rot.deg !== 0 || rot.hflip || rot.vflip || rect !== null;
 
   /**
    * 重置（`M14-2`，UI.md §9.2）：**卸载当前文件、回到本页空态**（可再点「打开视频文件」），
@@ -106,8 +108,10 @@ export default function EditorPage({
    */
   const resetAll = useCallback(async () => {
     if (hasWork) {
-      const what = tool === "rotate" ? "已做的旋转" : "已框选的区域";
-      const ok = await confirmDialog(`重置将关闭当前视频，并清空${what}。`, "重置");
+      const ok = await confirmDialog(
+        "重置将关闭当前视频，并清空已做的旋转与已框选的区域。",
+        "重置",
+      );
       if (!ok) return;
     }
     playerRef.current?.pause();
@@ -120,7 +124,7 @@ export default function EditorPage({
     setRotateTranscode(false);
     setQuality(settings.quality);
     setCropView("edit");
-  }, [hasWork, tool, settings.quality]);
+  }, [hasWork, settings.quality]);
 
   // 拖拽导入：每次新的拖入都加载第一个文件（App 层原地分发，页面不跳转）
   useConsumeInitialFiles(initialFiles, (fs) => {
@@ -190,7 +194,7 @@ export default function EditorPage({
   if (!inputPath) {
     return (
       <div className="flex h-full flex-col">
-        <EditorHeader tool={tool} onBack={onBack} />
+        <EditorHeader tool={tool} onToolChange={setTool} onBack={onBack} />
         <div className="flex flex-1 items-center justify-center p-6">
           <EmptyImport
             onOpen={() => void openFile()}
@@ -227,6 +231,7 @@ export default function EditorPage({
     <div className="flex h-full flex-col">
       <EditorHeader
         tool={tool}
+        onToolChange={setTool}
         onBack={onBack}
         filePath={inputPath}
         onOpenOther={() => void openFile()}
@@ -395,12 +400,15 @@ export default function EditorPage({
 
 function EditorHeader({
   tool,
+  onToolChange,
   onBack,
   filePath,
   onOpenOther,
   onReset,
 }: {
   tool: EditorToolTab;
+  /** 工具 tab 切换（M17-1）：旋转 / 放大同页切换 */
+  onToolChange: (t: EditorToolTab) => void;
   onBack: () => void;
   filePath?: string;
   /** 换素材（M14-2）：与空态那个入口同一处理函数 */
@@ -408,37 +416,58 @@ function EditorHeader({
   /** 重置（M14-2）：卸载文件回空态；确认规则见 UI.md §9.2 */
   onReset?: () => void;
 }) {
+  const tabs: { id: EditorToolTab; label: string }[] = [
+    { id: "rotate", label: "旋转" },
+    { id: "crop", label: "局部放大" },
+  ];
   return (
-    <PageHeader
-      title={tool === "rotate" ? "旋转" : "局部放大"}
-      onBack={onBack}
-      right={
-        filePath ? (
-          <>
-            <span className="ml-auto min-w-0 truncate text-xs text-mute" title={filePath}>
-              {basename(filePath)}
-            </span>
-            {onOpenOther && (
-              <button
-                type="button"
-                onClick={onOpenOther}
-                className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-              >
-                打开其他视频
-              </button>
-            )}
-            {onReset && (
-              <button
-                type="button"
-                onClick={onReset}
-                className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-warn hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-              >
-                重置
-              </button>
-            )}
-          </>
-        ) : undefined
-      }
-    />
+    <>
+      <PageHeader
+        title={tool === "rotate" ? "旋转" : "局部放大"}
+        onBack={onBack}
+        right={
+          filePath ? (
+            <>
+              <span className="ml-auto min-w-0 truncate text-xs text-mute" title={filePath}>
+                {basename(filePath)}
+              </span>
+              {onOpenOther && (
+                <button
+                  type="button"
+                  onClick={onOpenOther}
+                  className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                >
+                  打开其他视频
+                </button>
+              )}
+              {onReset && (
+                <button
+                  type="button"
+                  onClick={onReset}
+                  className="shrink-0 rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-warn hover:text-warn focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                >
+                  重置
+                </button>
+              )}
+            </>
+          ) : undefined
+        }
+      />
+      <div className="flex shrink-0 items-center gap-1 border-b border-hairline px-4 pb-2">
+        {tabs.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => onToolChange(id)}
+            aria-pressed={tool === id}
+            className={`rounded-md px-2.5 py-1 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-signal ${
+              tool === id ? "bg-panel text-paper" : "text-mute hover:text-paper"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+    </>
   );
 }
