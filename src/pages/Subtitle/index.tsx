@@ -30,6 +30,7 @@ import type {
 } from "../../types";
 import { ModelPicker } from "./ModelPicker";
 import { BackendBadge } from "./BackendBadge";
+import { SrtPreview } from "./SrtPreview";
 
 const LANGUAGES: { value: string; label: string }[] = [
   { value: "auto", label: "自动检测" },
@@ -56,6 +57,10 @@ export default function SubtitlePage({
   const [backend, setBackend] = useState<WhisperBackendStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  /** 已提交转写任务的 id（用于捕获完成事件里的真实产物路径，M18-8 预览数据源） */
+  const [subtitleTaskId, setSubtitleTaskId] = useState<string | null>(null);
+  /** 最近一次识别产出的 .srt 绝对路径（任务完成事件 outputs[0]） */
+  const [previewSrt, setPreviewSrt] = useState<string | null>(null);
   /** 进行中的下载任务（模型 / CUDA 加速包）：进度与完成回调 */
   const [dl, setDl] = useState<{
     id: string;
@@ -105,6 +110,15 @@ export default function SubtitlePage({
         }
         return d;
       });
+      // 转写任务完成 → 捕获真实产物路径（outputs[0]，M18-8 预览数据源；
+      // 不猜文件名——防覆盖时间戳、换目录都不影响）
+      if (
+        s.taskId === subtitleTaskId &&
+        s.status === "completed" &&
+        s.outputs.length > 0
+      ) {
+        setPreviewSrt(s.outputs[0] ?? null);
+      }
     }),
   );
 
@@ -164,7 +178,10 @@ export default function SubtitlePage({
       backend: settings.subtitleBackend,
       outputDir: resolveOutputDir(filePath, settings.defaultOutputDir),
     })
-      .then(() => setSubmitted(true))
+      .then((taskId) => {
+        setSubtitleTaskId(taskId);
+        setSubmitted(true);
+      })
       .catch((e: unknown) => setError(String(e)));
   }, [filePath, settings]);
 
@@ -270,6 +287,13 @@ export default function SubtitlePage({
               <div className="rounded-lg border border-signal/40 bg-signal/10 px-3 py-2 text-xs text-signal" role="status">
                 已提交识别任务，进度见下方任务面板；完成后 .srt 与视频同目录同名。
               </div>
+            )}
+
+            {previewSrt && filePath && (
+              <section aria-label="字幕预览">
+                <h2 className="mb-2 text-xs font-medium text-mute">字幕预览</h2>
+                <SrtPreview videoPath={filePath} srtPath={previewSrt} />
+              </section>
             )}
 
             <button

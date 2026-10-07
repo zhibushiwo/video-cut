@@ -290,3 +290,12 @@ export function probeWhisperBackend(): Promise<WhisperBackendStatus> {
 export function openModelsDir(): Promise<void> {
   return invoke("open_models_dir");
 }
+
+/** 读取本地文本文件（asset 协议；M18-8 字幕预览用） */
+export async function readTextFile(path: string): Promise<string> {
+  const res = await fetch(fileSrc(path));
+  if (!res.ok) {
+    throw new Error(`读取文件失败（HTTP ${res.status}）：${path}`);
+  }
+  return res.text();
+}
