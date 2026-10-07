@@ -280,6 +280,10 @@ pub fn run() {
             commands::media::open_log_dir,
             commands::history::list_history,
             commands::history::clear_history,
+            commands::subtitle::list_whisper_models,
+            commands::subtitle::download_whisper_model,
+            commands::subtitle::delete_whisper_model,
+            commands::subtitle::download_whisper_cuda,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

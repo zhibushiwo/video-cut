@@ -121,13 +121,15 @@ pub(crate) fn preview_cache_dir(app: &AppHandle) -> Result<std::path::PathBuf, S
         .map_err(|e| format!("无法定位缓存目录：{e}"))
 }
 
-/// 缓存占用（M4-8，DESIGN §9.9）：代理、缩略图与**渲染预览**（M12-2）三个缓存目录。
+/// 缓存占用（M4-8，DESIGN §9.9）：代理、缩略图、**渲染预览**（M12-2）与
+/// **字幕模型/加速包**（M18-3，ADR-039——内置模型与 sidecar 不在缓存目录，天然不计）。
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CacheUsage {
     pub proxy_bytes: u64,
     pub thumb_bytes: u64,
     pub preview_bytes: u64,
+    pub model_bytes: u64,
 }
 
 /// 缓存清理结果：被占用跳过的文件数（Windows 文件占用常态）。
@@ -162,6 +164,8 @@ pub fn cache_usage(app: AppHandle) -> Result<CacheUsage, String> {
         proxy_bytes: dir_size(&cache.join("proxy")),
         thumb_bytes: dir_size(&cache.join("thumbs")),
         preview_bytes: dir_size(&cache.join(PREVIEW_SUBDIR)),
+        model_bytes: dir_size(&cache.join("models"))
+            + dir_size(&cache.join("bin").join("whisper-cuda")),
     })
 }
 
@@ -177,6 +181,9 @@ pub fn clear_cache(app: AppHandle) -> Result<CacheClearResult, String> {
         cache.join("proxy"),
         cache.join("thumbs"),
         cache.join(PREVIEW_SUBDIR),
+        // M18-3：字幕下载模型与 CUDA 加速包（均为平铺文件目录；内置模型在 resource，不受影响）
+        cache.join("models"),
+        cache.join("bin").join("whisper-cuda"),
     ] {
         let Ok(entries) = std::fs::read_dir(&dir) else {
             continue;

@@ -30,6 +30,11 @@ log = "0.4"
 fern = "0.7"
 chrono = "0.4"
 parking_lot = "0.12.5"
+# M18-3（ADR-040）：模型/加速包下载。blocking 在任务作业线程同步跑；rustls 免 OpenSSL
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+sha2 = "0.10"
+# CUDA 加速包 zip 解压（仅 deflate——GitHub release 的 zip 格式）
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

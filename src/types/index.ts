@@ -317,3 +317,16 @@ export interface FileThumbnail {
   input: string;
   thumbPath: string;
 }
+/** 字幕模型档位信息（M18，FR-391；与 Rust `WhisperModelInfo` 字段一一对应） */
+export interface WhisperModelInfo {
+  id: string;
+  label: string;
+  fileName: string;
+  sizeBytes: number;
+  /** 随安装包内置（tiny）；其余按需下载 */
+  bundled: boolean;
+  /** 内置档 = resource 文件存在；下载档 = models 目录文件存在 */
+  ready: boolean;
+  /** 就绪时的绝对路径 */
+  path: string | null;
+}

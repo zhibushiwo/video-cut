@@ -25,6 +25,7 @@ import type {
   TaskSnapshot,
   TaskStatusPayload,
   VideoTask,
+  WhisperModelInfo,
 } from "../types";
 import { resolveUniqueTarget } from "../utils/paths";
 
@@ -257,4 +258,24 @@ export function listHistory(): Promise<HistoryEntry[]> {
 /** 历史记录：清空 */
 export function clearHistory(): Promise<void> {
   return invoke("clear_history");
+}
+
+/** 字幕模型档位列表与就绪状态（M18，FR-391；silero VAD 不进列表） */
+export function listWhisperModels(): Promise<WhisperModelInfo[]> {
+  return invoke("list_whisper_models");
+}
+
+/** 下载字幕模型档位（走任务系统，面板可见可取消；返回 taskId） */
+export function downloadWhisperModel(modelId: string): Promise<string> {
+  return invoke("download_whisper_model", { modelId });
+}
+
+/** 删除已下载的模型档位（内置档不可删） */
+export function deleteWhisperModel(modelId: string): Promise<void> {
+  return invoke("delete_whisper_model", { modelId });
+}
+
+/** 下载 GPU 加速包（CUDA 12.4 zip → 解压到缓存；返回 taskId） */
+export function downloadWhisperCuda(): Promise<string> {
+  return invoke("download_whisper_cuda");
 }
