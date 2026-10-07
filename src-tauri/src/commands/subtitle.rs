@@ -15,7 +15,7 @@ use std::io::{BufRead, BufReader, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -587,8 +587,10 @@ fn reserve_srt_output(dir: &Path, stem: &str) -> Result<PathBuf, String> {
 
 /// 运行 whisper-cli：`--vad` 强制预切分（FR-392）→ stderr 逐行解析 `-pp` 进度
 /// （ADR-041）并保留尾部 30 行作失败提示（worker.rs 同法）；killer 注册支持取消。
+/// `whisper_exe` 由后端选择决定（CPU sidecar 或 CUDA 加速包，M18-6）。
 fn run_whisper(
     ctx: &TaskContext,
+    whisper_exe: &Path,
     model: &str,
     vad_model: &str,
     wav: &str,
@@ -596,7 +598,6 @@ fn run_whisper(
     language: &str,
     report: &dyn Fn(f64),
 ) -> Result<(), String> {
-    let whisper = command::resolve_sidecar("whisper-cli")?;
     let args = whisper_cli_args(
         model,
         vad_model,
@@ -605,8 +606,12 @@ fn run_whisper(
         language,
         transcribe_threads(),
     );
-    log::debug!("whisper-cli argv：{} {}", whisper.display(), args.join(" "));
-    let mut spawn_cmd = Command::new(&whisper);
+    log::debug!(
+        "whisper-cli argv：{} {}",
+        whisper_exe.display(),
+        args.join(" ")
+    );
+    let mut spawn_cmd = Command::new(whisper_exe);
     command::spawn_hidden(&mut spawn_cmd); // 红线 3
     let mut child = spawn_cmd
         .args(&args)
@@ -683,8 +688,192 @@ fn run_whisper(
     }
 }
 
+// ---------- GPU 后端（M18-6，ADR-041②） ----------
+
+/// GPU 试跑冒烟超时（正常 1~2s；超时按失败处理并 kill）
+const GPU_SMOKE_TIMEOUT: Duration = Duration::from_secs(30);
+/// 0xC0000135 STATUS_DLL_NOT_FOUND：无 N 卡机器的实测失败形态——加载器直接失败
+/// （nvcuda.dll 缺失）、stderr 全空（2026-10-07 真机取值）
+const STATUS_DLL_NOT_FOUND: i32 = -1073741515;
+
+/// GPU 后端状态（UI BackendBadge 数据源；TS 侧 `WhisperBackendStatus` 双写）。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WhisperBackendStatus {
+    pub cuda_installed: bool,
+    pub gpu_available: bool,
+    /// 不可用原因（已安装但冒烟失败时给出）
+    pub reason: Option<String>,
+}
+
+/// 后端选择纯逻辑（可测）。
+#[derive(Debug, PartialEq, Eq)]
+enum BackendDecision {
+    UseGpu,
+    UseCpu,
+    /// 已装加速包但试跑失败 → 回退并携带原因
+    UseCpuFallback,
+}
+
+fn decide_backend(setting: &str, cuda_installed: bool, smoke_ok: bool) -> BackendDecision {
+    match setting {
+        "cpu" => BackendDecision::UseCpu,
+        _ if !cuda_installed => BackendDecision::UseCpu,
+        _ if smoke_ok => BackendDecision::UseGpu,
+        _ => BackendDecision::UseCpuFallback,
+    }
+}
+
+/// 失败原因可判读化（NFR-004 口径）：无 N 卡 = 加载器失败（0xC0000135、无输出）
+fn gpu_failure_reason(exit_code: Option<i32>, stderr_tail: &str) -> String {
+    if exit_code == Some(STATUS_DLL_NOT_FOUND) {
+        return "未检测到 NVIDIA 驱动/CUDA 运行库，本机无法使用 GPU 加速".to_string();
+    }
+    if !stderr_tail.trim().is_empty() {
+        return stderr_tail.trim().to_string();
+    }
+    match exit_code {
+        Some(code) => format!("whisper-cli(GPU) 异常退出（code {code}）"),
+        None => "whisper-cli(GPU) 未能启动".to_string(),
+    }
+}
+
+/// GPU 试跑冒烟（照抄 M3 硬件编码器先例）：生成 0.3s 静音 wav，用内置 tiny 真跑
+/// 一次推理（CUDA 初始化发生在模型加载，静音输入即可覆盖），30s 超时判失败。
+fn smoke_gpu(gpu_exe: &Path, model: &Path, vad: &Path, ffmpeg: &Path) -> Result<(), String> {
+    let token = temp_token("gpu-probe");
+    let tmp = std::env::temp_dir().join(format!("vc-gpu-probe-{token}.wav"));
+    let out_base = std::env::temp_dir().join(format!("vc-gpu-probe-{token}"));
+    let cleanup = || {
+        let _ = std::fs::remove_file(&tmp);
+        let _ = std::fs::remove_file(out_base.with_extension("srt"));
+    };
+
+    // 探测音频：0.3s 静音（lavfi，无输入依赖）
+    let mut gen = Command::new(ffmpeg);
+    command::spawn_hidden(&mut gen);
+    let gen_ok = gen
+        .args([
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=r=16000:cl=mono",
+            "-t",
+            "0.3",
+            "-c:a",
+            "pcm_s16le",
+        ])
+        .arg(&tmp)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !gen_ok {
+        return Err("探测音频生成失败".to_string());
+    }
+
+    let args = whisper_cli_args(
+        &model.to_string_lossy(),
+        &vad.to_string_lossy(),
+        &tmp.to_string_lossy(),
+        &out_base.to_string_lossy(),
+        "auto",
+        transcribe_threads(),
+    );
+    let mut spawn_cmd = Command::new(gpu_exe);
+    command::spawn_hidden(&mut spawn_cmd);
+    let mut child = match spawn_cmd
+        .args(&args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            cleanup();
+            return Err(format!("无法启动 GPU 版 whisper-cli：{e}"));
+        }
+    };
+    // stderr 尾部收集（后台线程，失败原因来源）
+    let stderr_tail = Arc::new(parking_lot::Mutex::new(String::new()));
+    if let Some(stderr) = child.stderr.take() {
+        let t = stderr_tail.clone();
+        std::thread::spawn(move || {
+            let mut s = String::new();
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                s.push_str(&line);
+                s.push('\n');
+                if s.len() > 8192 {
+                    break;
+                }
+            }
+            *t.lock() = s;
+        });
+    }
+    let deadline = Instant::now() + GPU_SMOKE_TIMEOUT;
+    let exit_code = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break st.code(),
+            Ok(None) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                cleanup();
+                return Err("GPU 推理超时（30s）".to_string());
+            }
+            Err(e) => {
+                cleanup();
+                return Err(format!("等待 GPU 推理失败：{e}"));
+            }
+        }
+    };
+    cleanup();
+    let tail = stderr_tail.lock().clone();
+    if exit_code == Some(0) {
+        Ok(())
+    } else {
+        Err(gpu_failure_reason(exit_code, &tail))
+    }
+}
+
+/// 探测 GPU 后端状态（FR-391，BackendBadge / 设置页消费）。未下载加速包 =
+/// `cuda_installed: false`（无 reason——这是正常状态不是失败）。
+#[tauri::command]
+pub fn probe_whisper_backend(app: AppHandle) -> Result<WhisperBackendStatus, String> {
+    let exe = cuda_dir(&app)?.join("whisper-cli.exe");
+    if !exe.exists() {
+        return Ok(WhisperBackendStatus {
+            cuda_installed: false,
+            gpu_available: false,
+            reason: None,
+        });
+    }
+    let model = resource_models_dir(&app)?.join("ggml-tiny-q5_1.bin");
+    let vad = resource_models_dir(&app)?.join(VAD_FILE_NAME);
+    let ffmpeg = command::resolve_sidecar("ffmpeg")?;
+    match smoke_gpu(&exe, &model, &vad, &ffmpeg) {
+        Ok(()) => Ok(WhisperBackendStatus {
+            cuda_installed: true,
+            gpu_available: true,
+            reason: None,
+        }),
+        Err(reason) => Ok(WhisperBackendStatus {
+            cuda_installed: true,
+            gpu_available: false,
+            reason: Some(reason),
+        }),
+    }
+}
+
 /// 提交 AI 字幕转写任务（M18-5）：模型解析 → 两阶段作业（音频提取 0~5% → whisper
 /// 转写 5~100%）→ `.part.srt` 原子落位 `<output_dir>/<源同名>.srt`（防覆盖命名）。
+/// `backend` = "auto"（GPU 已装且试跑通过则用，失败回退 CPU，ADR-041②）或 "cpu"。
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn submit_subtitle(
     app: AppHandle,
@@ -692,6 +881,7 @@ pub(crate) fn submit_subtitle(
     input: String,
     model_id: String,
     language: String,
+    backend: String,
     output_dir: String,
 ) -> Result<String, String> {
     // 模型解析：内置 → resource；下载档 → 缓存 models 目录（不存在即拒绝，UI 引导下载）
@@ -741,6 +931,9 @@ pub(crate) fn submit_subtitle(
     let ffmpeg = command::resolve_sidecar("ffmpeg")?;
     let ffprobe = command::resolve_sidecar("ffprobe")?;
     let total_sec = probe::probe_duration_sync(&ffprobe, &input).unwrap_or(0.0);
+    // 后端选择的两个候选（M18-6）：CPU sidecar + CUDA 加速包 exe（未下载则 None）
+    let cpu_exe = command::resolve_sidecar("whisper-cli")?;
+    let cuda_exe = cuda_dir(&app).ok().map(|d| d.join("whisper-cli.exe"));
 
     let job_model = model_path.to_string_lossy().into_owned();
     let job_vad = vad_path.to_string_lossy().into_owned();
@@ -749,6 +942,9 @@ pub(crate) fn submit_subtitle(
     let job_final = final_srt.clone();
     let job_input = input.clone();
     let job_lang = language;
+    let job_backend = backend;
+    let job_cpu_exe = cpu_exe.to_string_lossy().into_owned();
+    let job_cuda_exe = cuda_exe.map(|p| p.to_string_lossy().into_owned());
     let threads = transcribe_threads();
     let label = format!(
         "AI 字幕 {} → {}",
@@ -778,9 +974,40 @@ pub(crate) fn submit_subtitle(
             if ctx.is_cancelled() {
                 return Err("已取消".into());
             }
-            // 阶段二：whisper 转写（5~100%，stderr `-pp` 进度，ADR-041）
+            // 阶段二：whisper 转写（5~100%，stderr `-pp` 进度，ADR-041）。
+            // 后端选择（M18-6，ADR-041②）：auto 且已装加速包 → 试跑冒烟真跑一次，
+            // 通过走 GPU、失败回退 CPU（原因入日志，UI 徽标经 probe 命令同口径）。
+            let cuda_installed = job_cuda_exe
+                .as_ref()
+                .map(|p| Path::new(p).exists())
+                .unwrap_or(false);
+            let need_smoke = job_backend != "cpu" && cuda_installed;
+            let (smoke_ok, fallback_reason) = if need_smoke {
+                let cuda = job_cuda_exe.clone().unwrap();
+                match smoke_gpu(
+                    Path::new(&cuda),
+                    Path::new(&job_model),
+                    Path::new(&job_vad),
+                    &ffmpeg,
+                ) {
+                    Ok(()) => (true, None),
+                    Err(reason) => (false, Some(reason)),
+                }
+            } else {
+                (false, None)
+            };
+            let (whisper_exe, fallback) =
+                match decide_backend(&job_backend, cuda_installed, smoke_ok) {
+                    BackendDecision::UseGpu => (job_cuda_exe.clone().unwrap(), None),
+                    BackendDecision::UseCpuFallback => (job_cpu_exe.clone(), fallback_reason),
+                    BackendDecision::UseCpu => (job_cpu_exe.clone(), None),
+                };
+            if let Some(reason) = &fallback {
+                log::warn!("GPU 不可用，本次转写回退 CPU：{reason}");
+            }
             run_whisper(
                 ctx,
+                Path::new(&whisper_exe),
                 &job_model,
                 &job_vad,
                 &job_wav,
@@ -851,6 +1078,36 @@ mod tests {
         assert!(!keep_zip_entry("Release/bench.exe"));
         assert!(!keep_zip_entry("Release/whisper-server.exe"));
         assert!(!keep_zip_entry("Release/README"));
+    }
+
+    #[test]
+    fn decide_backend_matches_adr_041_matrix() {
+        use BackendDecision::*;
+        // 强制 cpu：永远 CPU
+        assert_eq!(decide_backend("cpu", true, true), UseCpu);
+        assert_eq!(decide_backend("cpu", false, false), UseCpu);
+        // auto + 未装加速包：CPU（无回退语义——未装是正常状态）
+        assert_eq!(decide_backend("auto", false, false), UseCpu);
+        // auto + 已装 + 冒烟通过：GPU
+        assert_eq!(decide_backend("auto", true, true), UseGpu);
+        // auto + 已装 + 冒烟失败：回退 CPU
+        assert_eq!(decide_backend("auto", true, false), UseCpuFallback);
+    }
+
+    #[test]
+    fn gpu_failure_reason_is_actionable() {
+        // 真机实测形态：无 N 卡 → 0xC0000135 且 stderr 全空
+        assert_eq!(
+            gpu_failure_reason(Some(STATUS_DLL_NOT_FOUND), ""),
+            "未检测到 NVIDIA 驱动/CUDA 运行库，本机无法使用 GPU 加速"
+        );
+        // 有 stderr：原样透传（可判读）
+        assert_eq!(
+            gpu_failure_reason(Some(1), "cuda error: out of memory"),
+            "cuda error: out of memory"
+        );
+        // 无输出其他退出码：带 code
+        assert!(gpu_failure_reason(Some(-1), "").contains("code -1"));
     }
 
     #[test]

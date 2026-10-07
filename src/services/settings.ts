@@ -3,7 +3,15 @@
  * 存储于 app_config_dir/settings.json，单键 "settings" 持有整个 AppSettings。
  */
 import { load, type Store } from "@tauri-apps/plugin-store";
-import type { AccentChoice, AppSettings, CutMode, EncoderChoice, ProxyMode, QualityPreset } from "../types";
+import type {
+  AccentChoice,
+  AppSettings,
+  CutMode,
+  EncoderChoice,
+  ProxyMode,
+  QualityPreset,
+  SubtitleBackendChoice,
+} from "../types";
 
 export const DEFAULT_SETTINGS: AppSettings = {
   defaultOutputDir: "",
@@ -15,6 +23,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   quality: "balanced",
   toastAutoCloseSec: 0,
   accent: "green",
+  subtitleBackend: "auto",
 };
 
 const STORE_FILE = "settings.json";
@@ -43,6 +52,7 @@ function sanitize(raw: unknown): AppSettings {
   const proxyModes: ProxyMode[] = ["auto", "always", "off"];
   const qualities: QualityPreset[] = ["high", "balanced", "small"];
   const accents: AccentChoice[] = ["green", "blue", "violet", "rose"];
+  const subtitleBackends: SubtitleBackendChoice[] = ["auto", "cpu"];
   return {
     defaultOutputDir: typeof r.defaultOutputDir === "string" ? r.defaultOutputDir : "",
     defaultCutMode: cutModes.includes(r.defaultCutMode as CutMode)
@@ -67,6 +77,9 @@ function sanitize(raw: unknown): AppSettings {
     accent: accents.includes(r.accent as AccentChoice)
       ? (r.accent as AccentChoice)
       : DEFAULT_SETTINGS.accent,
+    subtitleBackend: subtitleBackends.includes(r.subtitleBackend as SubtitleBackendChoice)
+      ? (r.subtitleBackend as SubtitleBackendChoice)
+      : DEFAULT_SETTINGS.subtitleBackend,
   };
 }
 

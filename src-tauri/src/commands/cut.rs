@@ -81,8 +81,11 @@ pub async fn submit_task(
             input,
             model_id,
             language,
+            backend,
             output_dir,
-        } => super::subtitle::submit_subtitle(app, &state, input, model_id, language, output_dir),
+        } => super::subtitle::submit_subtitle(
+            app, &state, input, model_id, language, backend, output_dir,
+        ),
     }
 }
 

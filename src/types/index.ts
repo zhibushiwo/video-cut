@@ -139,7 +139,10 @@ export interface AppSettings {
   toastAutoCloseSec: number;
   /** 主题色预设（M4-8） */
   accent: AccentChoice;
-}
+  /** 字幕转写后端：auto = GPU 可用则用（M18-6，试跑探测失败自动回退 CPU） */
+  subtitleBackend: SubtitleBackendChoice;
+}/** 字幕转写后端选择（M18-6，ADR-041②） */
+export type SubtitleBackendChoice = "auto" | "cpu";
 
 /** 缓存占用（M4-8；M12-2 起含渲染预览，与 Rust CacheUsage 对齐） */
 export interface CacheUsage {
@@ -221,6 +224,8 @@ export type VideoTask =
       modelId: string;
       /** ISO 639-1 或 "auto"（自动检测，默认值） */
       language: string;
+      /** 转写后端：auto（GPU 可用则用，失败回退 CPU）/ cpu（M18-6） */
+      backend: SubtitleBackendChoice;
       outputDir: string;
     };
 
@@ -339,4 +344,12 @@ export interface WhisperModelInfo {
   ready: boolean;
   /** 就绪时的绝对路径 */
   path: string | null;
+}/** GPU 后端状态（M18-6，BackendBadge 数据源；与 Rust `WhisperBackendStatus` 对齐） */
+export interface WhisperBackendStatus {
+  /** CUDA 加速包已下载 */
+  cudaInstalled: boolean;
+  /** 试跑冒烟通过，可用 */
+  gpuAvailable: boolean;
+  /** 不可用原因（已安装但冒烟失败时给出） */
+  reason: string | null;
 }

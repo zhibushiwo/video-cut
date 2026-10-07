@@ -196,12 +196,14 @@ pub enum VideoTask {
         preview: bool,
     },
     /// AI 字幕（M18，§3.9）：本地 whisper.cpp 转写 → .srt 外挂；model_id 对应 §3.9 三档之一，
-    /// language = ISO 639-1 或 "auto"（自动检测，默认值）；产物 = <output_dir>/<源同名>.srt
+    /// language = ISO 639-1 或 "auto"（自动检测，默认值）；backend = "auto"（GPU 试跑可用
+    /// 则用、失败回退 CPU，ADR-041②）或 "cpu"；产物 = <output_dir>/<源同名>.srt
     #[serde(rename_all = "camelCase")]
     Subtitle {
         input: String,
         model_id: String,
         language: String,
+        backend: String,
         output_dir: String,
     },
 }
@@ -293,6 +295,7 @@ pub fn run() {
             commands::subtitle::download_whisper_model,
             commands::subtitle::delete_whisper_model,
             commands::subtitle::download_whisper_cuda,
+            commands::subtitle::probe_whisper_backend,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

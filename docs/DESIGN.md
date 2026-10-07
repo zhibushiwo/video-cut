@@ -480,8 +480,9 @@ pub enum VideoTask {
     // 低优先级排队；`output` 在 preview 模式下被忽略（由后端按令牌生成缓存路径）。见 TIMELINE.md §17.6
     Pipeline { items: Vec<PipelineItem>, output: String, quality: QualityPreset, encoder: Option<String>, preview: bool },
     // AI 字幕（M18，§3.9）：本地 whisper.cpp 转写 → .srt 外挂；model_id 对应 §3.9 三档之一，
-    // language = ISO 639-1 或 "auto"（自动检测，默认值）；产物 = <output_dir>/<源同名>.srt
-    Subtitle { input: String, model_id: String, language: String, output_dir: String },
+    // language = ISO 639-1 或 "auto"（自动检测，默认值）；backend = "auto"（GPU 试跑可用
+    // 则用、失败回退 CPU，ADR-041②）或 "cpu"（来自设置 subtitleBackend）；产物 = <output_dir>/<源同名>.srt
+    Subtitle { input: String, model_id: String, language: String, backend: String, output_dir: String },
 }
 
 // 各变体的 `encoder` = 设置中锁定的编码器（M4-1）；None = 按位深自动探测（UI.md §9.9）。
