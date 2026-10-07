@@ -14,14 +14,42 @@ use std::path::{Path, PathBuf};
 /// 失败则两个文件都原样保留（不会先删掉谁）。所以既不需要"先删目标"，也不需要中间备份名——
 /// 少一步就少一个失败窗口。
 ///
-/// 错误信息一律带 `.part` 的完整路径：用户至少要能找回刚跑出来的新产物、并知道旧文件还在。
+/// **跨磁盘卷降级**（M18-5 真机实测，用户报告 os error 17）：`rename` 无法跨卷——
+/// 字幕任务的 `.part.srt` 在缓存盘（C:）而输出目录可能在另一个盘。此时降级为
+/// copy 到**目标同目录**的临时名（同卷）→ 同卷 rename（对旧文件的替换保持原子）→ 删源；
+/// 任何一步失败旧文件都不动、新产物仍在源位置，错误信息照旧带源路径。
 pub fn atomic_replace(part: &Path, final_path: &Path) -> Result<(), String> {
-    std::fs::rename(part, final_path).map_err(|e| {
-        format!(
+    match std::fs::rename(part, final_path) {
+        Ok(()) => return Ok(()),
+        Err(e) if !is_cross_device(&e) => {
+            return Err(format!(
+                "替换输出失败：{e}；旧文件保持不变，新产物仍在 {}",
+                part.display()
+            ));
+        }
+        Err(_) => {} // 跨卷：走下方 copy 降级
+    }
+    let tmp = PathBuf::from(format!("{}.tmp", final_path.to_string_lossy()));
+    if let Err(e) = std::fs::copy(part, &tmp) {
+        return Err(format!(
+            "跨卷复制失败：{e}；旧文件保持不变，新产物仍在 {}",
+            part.display()
+        ));
+    }
+    if let Err(e) = std::fs::rename(&tmp, final_path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(format!(
             "替换输出失败：{e}；旧文件保持不变，新产物仍在 {}",
             part.display()
-        )
-    })
+        ));
+    }
+    let _ = std::fs::remove_file(part);
+    Ok(())
+}
+
+/// 跨卷 rename 失败的 OS 错误码：Windows `ERROR_NOT_SAME_DEVICE`(17)、Unix `EXDEV`(18)。
+fn is_cross_device(e: &std::io::Error) -> bool {
+    matches!(e.raw_os_error(), Some(17) | Some(18))
 }
 
 /// 输出**容器扩展名**（`ADR-033` ①）：copy 类跟随源容器，取不到扩展名时退回 `mp4`。
