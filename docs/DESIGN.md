@@ -5,7 +5,7 @@
 > **读时机**：任何改动前的上位规格；新会话先读本文（地图见 [INDEX.md](./INDEX.md)）。
 > **写规则**：行为规格变化就地改本文并同步对应 FR/AC（一条一行）；实现级方案进 `plans/`，进度进 [PLAN.md](./PLAN.md)，决策进 [DECISIONS.md](./DECISIONS.md)。
 > **关联**：[INDEX.md](./INDEX.md)（地图与 ID 规范） · [../AGENTS.md](../AGENTS.md)（工程红线） · 下位：FFMPEG / UI / TIMELINE / plans
-> **最后更新**：2026-10-07（**M17 立项规格**：§7 `PipelineItem` 加 `force_transcode`（工作台重编码旋转，`CAND-022`① 契约子集）· §3.8 规则 A 加 force 前置条件、规则 B 补强制语义 · §5.2 组件树清两处陈旧描述（遗留空目录已随 T-002 删除、池↔轴拖入已随 T-017 移除）（头部改一行式——规则见 [INDEX.md](./INDEX.md) §7）；近期规格变化：§3.8 成品预览补写**重播落点**（播到末尾再按播放＝回成品起点，`BUG-021`）；§3.7 已知限制 + `ADR-038`、§7/§8.2 随 `M12-2` 更新（2026-10-05）；明细见对应章节与 [CHANGELOG.md](./CHANGELOG.md)
+> **最后更新**：2026-10-07（**M18 AI 字幕立项规格**：§1.1 五功能/§1.2 联网边界/§1.3 "云端 AI"口径修订 + §3.9 新节 `FR-390`~`FR-393` + §5.1/§5.3/§5.4 whisper-cli sidecar 与命令 + §7 `VideoTask::Subtitle`（`ADR-039`~`ADR-041`）；同日 M17 立项规格：§7 `PipelineItem` 加 `force_transcode`（工作台重编码旋转，`CAND-022`① 契约子集）· §3.8 规则 A 加 force 前置条件、规则 B 补强制语义 · §5.2 组件树清两处陈旧描述（头部改一行式——规则见 [INDEX.md](./INDEX.md) §7）；近期规格变化：§3.8 成品预览补写**重播落点**（播到末尾再按播放＝回成品起点，`BUG-021`）；§3.7 已知限制 + `ADR-038`、§7/§8.2 随 `M12-2` 更新（2026-10-05）；明细见对应章节与 [CHANGELOG.md](./CHANGELOG.md)
 
 > 状态：M0–M9 已实现（M4-5 实机冒烟、M6-7 e2e 与 M7/M9 验收归用户手测）；M10（保活+深浅主题）已立项**暂缓**（决策 #32）；M11–M13（单轨装配时间线）——`M11` 实施全部完成（`M11-0`–`M11-9` ✅，帧预算真机半 ⏳ 待用户发起）；行为规格见 [TIMELINE.md](./TIMELINE.md)、实施方案见 [plans/M11.md](./plans/M11.md)；**`M12` 实施中**（`M12-2` 渲染即预览，规格 `FR-1760`~`FR-1762`，方案见 [plans/M12.md](./plans/M12.md)）、`M12-1`/`M12-3` 与 `M13` 待实施。**M14（交互完善批次）已立项**（2026-09-28，用户六条反馈：页面重置/换素材 · 默认命名 · 入出点快捷键按钮 · 放大双态预览 · 片段池手柄语义 · 连播缺陷），方案见 [plans/M14.md](./plans/M14.md)、任务见 [PLAN.md](./PLAN.md)。**M15（保留式裁剪）已立项并列为最高优先级**（2026-09-28，`CAND-020` 晋升），方案见 [plans/M15.md](./plans/M15.md)。
 >
@@ -19,26 +19,27 @@
 
 ### 1.1 定位
 
-**video-cut** 是一款面向 Windows 11 的本地视频处理工具，提供四个核心功能：
+**video-cut** 是一款面向 Windows 11 的本地视频处理工具，提供五个核心功能：
 
 - **剪切**：把一个视频切成多个片段，或截取其中的区间
 - **合并**：把多个视频按顺序拼接为一个
 - **旋转**：调整视频方向
 - **局部放大**：框选画面区域并放大输出
+- **AI 字幕**：本地语音识别转写，生成 .srt 字幕文件（M18，§3.9，`ADR-039`）
 
 ### 1.2 核心卖点
 
 > **无损优先：能不重新编码的绝不重新编码，保证画质与原视频一致、文件大小基本一致。**
 
-- 纯本地处理，无上传、无联网
-- 内置 FFmpeg，用户开箱即用
+- 纯本地处理，无上传——媒体数据永不离开本机；联网仅限**一次性下载** AI 字幕的模型/加速包（用户主动发起，`ADR-040`），断网环境下内置模型 + CPU 引擎可完整工作
+- 内置 FFmpeg 与 AI 字幕引擎 whisper.cpp（`ADR-039`），用户开箱即用
 - 所有操作向用户明示"无损"还是"重编码"，不偷偷转码
 
 ### 1.3 非目标（明确不做）
 
 - 不做 Premiere / 剪映式的多轨复杂时间线编辑器
 - 不做特效、调色、转场、字幕编辑
-- 不做云同步、素材库、AI 功能
+- 不做云同步、素材库、**云端** AI 功能——AI 仅限本地模型（AI 字幕，§3.9，`ADR-039`；中文字幕翻译另立 `CAND-032`）
 - 时间线不做音频轨编辑（波形/音量/分离/替换）、不做空隙模型——音频永远跟随片段（TIMELINE.md §17.1，决策 #26/#27）
 
 产品形态是"精准的瑞士军刀"，不是"全能编辑器"。UI 做简单工具型界面。
@@ -204,6 +205,36 @@ WebView2 的 `<video>` 对部分格式无法直接播放（详见第 10 节）�
   检测面板在导出前预先提示哪些片段必然/可能重编码
 - 已知取舍：若某片段裁剪放大而其他片段旋转到非恒等方向，后者也需重编码（保方向一致性优先）
 
+### 3.9 AI 字幕（本地语音识别转写） · FR-390
+
+**需求**：FR-390（组级）　·　FR-391 模型与后端管理　·　FR-392 音频提取与转写　·　FR-393 预览与导出
+**验收**：AC-390-1　·　AC-391-1　·　AC-392-1　·　AC-393-1　——　执行：TESTING.md TC 待建（随 M18-9）；口径以本节为准。
+**决策**：`ADR-039`（引擎与分发）· `ADR-040`（联网边界）· `ADR-041`（进度口径与后端选择）
+
+**产品流**：独立「字幕」页——导入视频 → 选择模型档位与语言 → 开始识别（提取音频 → whisper 转写）→ 页内「视频 + 字幕同步」只读预览 → `.srt` 落盘。**视频流零改动**：本功能不触碰源文件的任何流，只派生新的字幕文件，无损承诺（§4）天然满足。
+
+**模型档位（`ADR-039`）**：
+
+| 档位 | 模型 | 体积 | 分发 |
+| --- | --- | --- | --- |
+| 极速（默认） | ggml-tiny-q5_1 | 32MB | **随安装包内置**（Tauri resource），零下载开箱即用 |
+| 快 | ggml-base-q5_1 | 60MB | 应用内按需下载 |
+| 标准 | ggml-small-q5_1 | 190MB | 应用内按需下载 |
+| 高质量 | ggml-large-v3-turbo-q5_0 | 574MB | 应用内按需下载（质量最佳） |
+
+- **FR-391 模型与后端管理**：模型列表/下载/删除（内置档不可删、不可清）；下载走任务系统（面板可见、可取消、占并发位，**不入历史白名单**——非导出产物），`.part.<令牌>` 半成品 + **SHA256 硬编码校验表**（HF LFS 文件不可变，发布前取一次写入常量；不符删 `.part` 重下），字节进度复用 `task-progress` 事件；下载源 HuggingFace + **hf-mirror.com 镜像回退**（`ADR-040`），UI 明示"首次使用需联网下载模型"；**手动放置模型文件到 models 目录**为离线逃生舱。GPU 后端 = whisper-cublas-12.4.0 加速包（436MB，捆绑 CUDA 运行时 DLL，用户无需装 CUDA Toolkit）按需下载到缓存目录，与下载模型一并纳入 `cache_usage`/`clear_cache`（内置模型与 sidecar 二进制除外）
+- **FR-392 音频提取与转写**：FFmpeg 提取 16kHz mono PCM wav（`-vn -ac 1 -ar 16000 -c:a pcm_s16le`，参数唯一拼装点在 `ffmpeg/command.rs` 并补参数序列断言——红线 1）→ `whisper-cli` 转写（`-osrt` 直出 srt、`-l` 默认 `auto` 自动检测语言、`-pp` 进度，经 `spawn_hidden` 调用——红线 3）。转写进度解析 whisper-cli **stderr** 的 `progress = NN%` 行：决策 #6"禁止解析 stderr"是 **FFmpeg 专属口径**（它有 `-progress pipe:1` 结构化通道；whisper-cli 无 stdout 进度，`-pp` 是唯一干净进度源），差异化裁决见 `ADR-041`；进度经 ProgressThrottle 节流（200ms，同 §8）复用 `task-progress` 事件
+- **CPU/GPU 双轨（`ADR-041`）**：CPU 版随包 sidecar 兜底；GPU 版按需下载后走**试跑探测 + 失败自动回退**（照抄 M3 硬件编码器先例：无 N 卡 / 驱动 < 551 / DLL 缺失一律自动回退 CPU，不阻塞任务），设置项 `subtitleBackend`（默认 `auto`，可强制 `cpu`），UI 徽标如实标注本次实际使用的后端
+- **FR-393 预览与导出**：识别完成后页内用既有 VideoPlayer 播放源视频，`src/utils/srt.ts` 纯函数解析 srt 后按 `currentTime` 叠加当前字幕（**只读**——字幕编辑是 §1.3 非目标）；导出 = `<同名>.srt` 落到用户所选输出目录，同名防覆盖沿用决策 #19；产物不改变源文件
+- **边界（v1 明确不做）**：字幕编辑（§1.3 非目标维持）、硬字幕烧录（`CAND-031`，用户裁决优先级最低）、中文字幕翻译（whisper 原生只译英 → `CAND-032`）、批量队列；方言（与普通话差异大者）识别质量受模型档位限制，UI 如实标注"方言建议高质量档"
+
+**AC**：
+
+- AC-390-1：导入视频完成转写后，产物为用户所选输出目录下的 `<同名>.srt`，字幕时间轴与语音对齐；源视频文件内容与修改时间不变
+- AC-391-1：四档模型状态如实展示（内置档 = 已就绪；下载档含体积/进度/删除）；下载可取消、断网报错可判读、SHA256 不符自动删除重下；**断网环境下内置档 + CPU 引擎可完整完成一次转写**
+- AC-392-1：转写进度经 `task-progress` 推送且任务可取消（取消不留半成品）；无 N 卡/驱动过旧时自动回退 CPU 且徽标注明实际后端，GPU 可用时走 GPU
+- AC-393-1：预览页视频播放与字幕显示同步（只读，不提供编辑入口）；导出同名冲突自动追加时间戳
+
 ---
 
 ## 4. 无损性承诺矩阵 · NFR-002
@@ -246,6 +277,8 @@ WebView2 的 `<video>` 对部分格式无法直接播放（详见第 10 节）�
 ```
 
 职责边界：**Rust 不实现任何编解码逻辑**，只负责"根据用户操作智能生成正确的 FFmpeg 命令 + 管理任务生命周期"；前端不实现任何媒体处理，只负责交互与展示。
+
+M18 起 **whisper-cli**（AI 字幕引擎，§3.9）为第二个 sidecar 二进制，与 FFmpeg 同模式分发与调用（`ADR-039`）。
 
 ### 5.2 前端结构（对应已建目录）
 
@@ -309,7 +342,8 @@ src-tauri/src/
 │   ├── rotate.rs        # 旋转任务载荷校验
 │   ├── crop.rs          # 放大任务载荷校验
 │   ├── pipeline.rs      # check_pipeline / temp_token（工作台流水线）
-│   └── history.rs       # list_history / clear_history
+│   ├── history.rs       # list_history / clear_history
+│   └── subtitle.rs      # AI 字幕（M18）：模型/CUDA 包管理 + 转写任务（§3.9，FR-391/392）
 ├── ffmpeg/
 │   ├── mod.rs           # 子模块导出 + spawn_hidden（CREATE_NO_WINDOW）
 │   ├── command.rs       # FFmpeg 命令构建器（核心模块，唯一拼命令的地方）
@@ -332,7 +366,7 @@ src-tauri/src/
 
 ### 5.4 前后端通信协议
 
-**invoke 命令清单**（与 `src-tauri/src/lib.rs` 的 `invoke_handler` 一一对应，共 20 个）：
+**invoke 命令清单**（与 `src-tauri/src/lib.rs` 的 `invoke_handler` 一一对应，共 25 个；M18 字幕新增 5 个，见末行）：
 
 | 命令 | 说明 | 入参 | 出参 |
 | --- | --- | --- | --- |
@@ -349,10 +383,11 @@ src-tauri/src/
 | `check_merge` / `check_pipeline` | 合并/工作台导出前检测（参数一致性 + 无损判定） | `inputs` / `items: Vec<PipelineItem>` | `MergeComparison` / `PipelineCheck` |
 | `expand_video_inputs` | 拖入目录递归展开为视频文件列表（M7-7，≤8 层、跳过隐藏项、排序） | `paths: Vec<String>` | `Vec<String>` |
 | `file_exists` | 导出前同名检测（M7-4，决定是否追加时间戳） | `path: String` | `bool` |
-| `cache_usage` / `clear_cache` | 缓存占用统计 / 一键清理（M4-8 含代理与缩略图；**M12-2 起含渲染预览** `preview/`，占用文件跳过并计数） | — | `CacheUsage` / `CacheClearResult` |
+| `cache_usage` / `clear_cache` | 缓存占用统计 / 一键清理（M4-8 含代理与缩略图；**M12-2 起含渲染预览** `preview/`，占用文件跳过并计数；**M18 起含字幕模型与 GPU 加速包**——内置模型与 sidecar 二进制除外） | — | `CacheUsage` / `CacheClearResult` |
 | `append_frontend_log` | 前端错误转发落盘（M4-7，失败静默防循环） | `level: String, message: String` | — |
 | `open_log_dir` | 打开日志目录（任务面板入口，plugin-opener） | — | — |
 | `list_history` / `clear_history` | 任务历史读取 / 清空（M4-2） | — | `Vec<HistoryEntry>` / — |
+| `list_whisper_models` / `download_whisper_model` / `delete_whisper_model` / `download_whisper_cuda` / `probe_whisper_backend` | AI 字幕模型与后端管理（M18，§3.9；下载走任务系统、进度复用 `task-progress`、不入历史白名单） | `modelId` 等（见 §3.9） | `Vec<WhisperModelInfo>` / `taskId` |
 
 文件/目录选择不做自定义命令，直接用 `tauri-plugin-dialog` 前端调用。
 
@@ -443,6 +478,9 @@ pub enum VideoTask {
     // preview = 渲染即预览（M12-2）：输出改写到 app_cache_dir/preview、任务 internal（不进历史与面板）、
     // 低优先级排队；`output` 在 preview 模式下被忽略（由后端按令牌生成缓存路径）。见 TIMELINE.md §17.6
     Pipeline { items: Vec<PipelineItem>, output: String, quality: QualityPreset, encoder: Option<String>, preview: bool },
+    // AI 字幕（M18，§3.9）：本地 whisper.cpp 转写 → .srt 外挂；model_id 对应 §3.9 四档之一，
+    // language = ISO 639-1 或 "auto"（自动检测，默认值）；产物 = <output_dir>/<源同名>.srt
+    Subtitle { input: String, model_id: String, language: String, output_dir: String },
 }
 
 // 各变体的 `encoder` = 设置中锁定的编码器（M4-1）；None = 按位深自动探测（UI.md §9.9）。
@@ -458,7 +496,7 @@ pub enum TaskStatus { Pending, Running, Completed, Failed, Cancelled }
 #[serde(rename_all = "camelCase")]
 pub struct TaskSnapshot {
     pub id: String,
-    pub kind: String,             // cut / merge / rotate / crop_zoom / pipeline（proxy 为内部任务，不出现在面板）
+    pub kind: String,             // cut / merge / rotate / crop_zoom / pipeline / subtitle（proxy 为内部任务，不出现在面板；模型/加速包下载任务入面板但不入历史白名单）
     pub status: TaskStatus,
     pub label: String,            // 展示名，如 "剪切 xxx.mp4 → part_001.mp4"
     pub progress: Option<f64>,    // 0..1

@@ -276,6 +276,8 @@ for (const [file, rows] of SCANNED) {
   const PLANNED = new Set([
     'docs/REVIEW.md',        // INDEX §6.2 升级口子：评审成常规流程时才建
     'docs/archive/bugs.md',  // BUGS.md §5：首次归档 verified 条目时按需创建
+    'scripts/fetch-whisper.ps1', // M18-2：AI 字幕引擎获取脚本（PLAN M18-2 实施时创建）
+    'src/utils/srt.ts',          // M18-8：srt 解析纯函数（PLAN M18-8 实施时创建）
   ]);
   const PREFIX = /^(src|src-tauri|scripts|docs|public|video)\//;
   let total = 0;
