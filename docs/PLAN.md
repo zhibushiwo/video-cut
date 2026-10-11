@@ -421,7 +421,7 @@
 > **背景**：VideoCaptioner 对比调研后立项——识别产物此前只有「烧录（重编码）」一条出口，缺"零重编码、播放器可开关"的软字幕形态；红线上**显式偏离红线 2 的 `-map 0`**（替换字幕轨语义，`ADR-044`①）
 
 - [x] **M18-12-1 文档晋升批**：`ADR-044`（copy 封装 + 显式映射偏离记录 + 容器按扩展名判定）+ DESIGN §3.9 `FR-395`/`AC-395-1` + §4 矩阵行 + UI.md §9.11 两个导出区 + CANDIDATES `CAND-034` → M18-12 + PLAN 本节 → `pnpm check:docs` 全绿　✅ **2026-10-11 落地**（§3.9 需求/验收/决策三行同步扩 FR-395/AC-395-1/ADR-044；§4 矩阵新增「字幕封装」行；UI.md §9.11 同批补记 M18-11 漏写的烧录区规格；`CAND-032` 补注 LLM 云翻译路线关闭）
-- [ ] **M18-12-2 实现**：`command.rs` `subtitle_mux_args`（copy + 按容器判定字幕编码，红线 1 全序列断言两形态）+ `VideoTask::SubtitleMux`（TS 双写）+ `submit_subtitle_mux`（prepare_output/原子替换/output_path_for 兜底）+ 字幕页封装区（signal 明示 mov_text 兼容性 + 与烧录区共用 .srt 选择）+ e2e 封装链（mp4 与 mkv 源、字幕流断言）→ 验收：AC-395-1
+- [x] **M18-12-2 实现**：`command.rs` `subtitle_mux_args`（copy + 按容器判定字幕编码，红线 1 全序列断言两形态）+ `VideoTask::SubtitleMux`（TS 双写）+ `submit_subtitle_mux`（prepare_output/原子替换/output_path_for 兜底）+ 字幕页封装区（signal 明示 mov_text 兼容性 + 与烧录区共用 .srt 选择）+ e2e 封装链（mp4 与 mkv 源、字幕流断言）→ 验收：AC-395-1　✅ **2026-10-11 落地**（`subtitle_mux_container`/`subtitle_mux_args` + 三条单测（容器判定 + mp4/mov_text 与 mkv/srt 全序列）；`utils/paths.ts` `subtitleMuxExt` 前端预判（无扩展名与后端同口径走 mkv）+ 2 条 Vitest；e2e `subtitle_mux_chain` 真跑（mp4→mov_text / mkv→subrip、可解码/时长断言；坑：mkv 容器时长取各流最大值，字幕轨末端会污染时长断言——测试 srt 末端收进视频时长内）；顺手清掉 M18-11 存量的两处编译警告（烧录函数未用 `total_sec` + 测试模块未用 `Read` 导入）；cargo test 121+10 · vitest 155 · tsc/eslint/fmt 全绿）
 
 ## M13 打磨（可选，视 M11/M12 体验决定，决策 #31）
 

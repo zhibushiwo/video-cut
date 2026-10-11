@@ -267,6 +267,50 @@ pub fn subtitle_burn_args(
     args
 }
 
+/// 软字幕封装的输出容器（M18-12 `FR-395`，`ADR-044`②）：mp4 系源 → mp4（字幕
+/// mov_text），其余一律 mkv（字幕 srt）——mp4 系容器只可能装 mp4 兼容编码，copy
+/// 无翻车面；mkv 对任意编码 + srt 全兼容，免探测零失败面。
+pub fn subtitle_mux_container(input_ext: &str) -> (&'static str, &'static str) {
+    match input_ext.to_ascii_lowercase().as_str() {
+        "mp4" | "m4v" | "mov" => ("mp4", "mov_text"),
+        _ => ("mkv", "srt"),
+    }
+}
+
+/// 软字幕封装（M18-12 `FR-395`，`ADR-044`）：视频/音频 stream copy + 字幕轨封装，
+/// 零重编码。显式映射 = 首视频流 + 全部音轨 + 本次字幕——**有意不 `-map 0`**（红线 2
+/// 的显式偏离，`ADR-044`①）：本操作语义是"替换字幕轨"，排除源自带字幕流（pgs 等
+/// 转 mov_text 可能失败）并避免与新字幕重复；多音轨以 `0:a?` 全量保留。
+pub fn subtitle_mux_args(
+    input: &str,
+    srt: &str,
+    output: &str,
+    subtitle_codec: &str,
+) -> Vec<String> {
+    let mut args = base_args();
+    args.extend([
+        "-i".to_string(),
+        input.to_string(),
+        "-i".to_string(),
+        srt.to_string(),
+        "-map".to_string(),
+        "0:v:0".to_string(),
+        "-map".to_string(),
+        "0:a?".to_string(),
+        "-map".to_string(),
+        "1:0".to_string(),
+        "-c:v".to_string(),
+        "copy".to_string(),
+        "-c:a".to_string(),
+        "copy".to_string(),
+        "-c:s".to_string(),
+        subtitle_codec.to_string(),
+        "-y".to_string(),
+        output.to_string(),
+    ]);
+    args
+}
+
 /// 解析 ffprobe 的 time_base 字符串（"1/60000"）为 mp4 timescale（60000）。
 /// 非 "1/N" 形式返回 0（调用方省略 timescale 控制）。
 pub fn parse_timescale(video_time_base: &str) -> u32 {
@@ -922,6 +966,91 @@ mod tests {
                 "copy",
                 "-y",
                 "out.mp4",
+            ]
+        );
+    }
+
+    #[test]
+    fn subtitle_mux_container_follows_input_ext() {
+        // ADR-044②：mp4 系源 → mp4/mov_text，其余（含大小写）一律 mkv/srt
+        assert_eq!(subtitle_mux_container("mp4"), ("mp4", "mov_text"));
+        assert_eq!(subtitle_mux_container("M4V"), ("mp4", "mov_text"));
+        assert_eq!(subtitle_mux_container("mov"), ("mp4", "mov_text"));
+        assert_eq!(subtitle_mux_container("mkv"), ("mkv", "srt"));
+        assert_eq!(subtitle_mux_container("avi"), ("mkv", "srt"));
+        assert_eq!(subtitle_mux_container("ts"), ("mkv", "srt"));
+        assert_eq!(subtitle_mux_container("webm"), ("mkv", "srt"));
+    }
+
+    #[test]
+    fn subtitle_mux_args_mp4_follows_design_template() {
+        // FR-395：视频/音频 copy + mov_text 字幕轨；红线 1 全序列断言
+        //（显式映射 = 0:v:0 + 0:a? + 1:0，红线 2 `-map 0` 的显式偏离，ADR-044①）
+        assert_eq!(
+            subtitle_mux_args("in.mp4", "sub.srt", "out.mp4", "mov_text"),
+            vec![
+                "-hide_banner",
+                "-nostats",
+                "-loglevel",
+                "error",
+                "-progress",
+                "pipe:1",
+                "-stats_period",
+                "0.2",
+                "-i",
+                "in.mp4",
+                "-i",
+                "sub.srt",
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a?",
+                "-map",
+                "1:0",
+                "-c:v",
+                "copy",
+                "-c:a",
+                "copy",
+                "-c:s",
+                "mov_text",
+                "-y",
+                "out.mp4",
+            ]
+        );
+    }
+
+    #[test]
+    fn subtitle_mux_args_mkv_uses_srt_codec() {
+        // mkv 兜底形态：仅字幕编码不同（srt），其余与 mp4 形态一致
+        assert_eq!(
+            subtitle_mux_args("in.mkv", "sub.srt", "out.mkv", "srt"),
+            vec![
+                "-hide_banner",
+                "-nostats",
+                "-loglevel",
+                "error",
+                "-progress",
+                "pipe:1",
+                "-stats_period",
+                "0.2",
+                "-i",
+                "in.mkv",
+                "-i",
+                "sub.srt",
+                "-map",
+                "0:v:0",
+                "-map",
+                "0:a?",
+                "-map",
+                "1:0",
+                "-c:v",
+                "copy",
+                "-c:a",
+                "copy",
+                "-c:s",
+                "srt",
+                "-y",
+                "out.mkv",
             ]
         );
     }

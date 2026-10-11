@@ -101,6 +101,11 @@ pub async fn submit_task(
             quality,
             encoder,
         ),
+        VideoTask::SubtitleMux {
+            input,
+            subtitle_path,
+            output,
+        } => super::subtitle::submit_subtitle_mux(app, &state, input, subtitle_path, output),
     }
 }
 

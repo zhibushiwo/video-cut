@@ -1,7 +1,8 @@
 /**
  * 字幕页（M18-7，DESIGN §3.9 / UI.md §9.11）：导入视频 → 选模型与语言 → 识别
  * → .srt 落盘（任务面板接管进度）。页面保活（M10-1 口径）：模型列表与选择状态
- * 离开不丢失。
+ * 离开不丢失。识别完成后两个导出区（M18-12 封装 = signal 无损 / M18-11 烧录 =
+ * warn 重编码）共用同一 .srt 选择。
  */
 import { useCallback, useEffect, useState } from "react";
 import { Captions, FolderOpen } from "lucide-react";
@@ -23,7 +24,7 @@ import {
   probeWhisperBackend,
   submitTask,
 } from "../../services/tauri";
-import { basename, resolveOutputDir, resolveUniqueTarget, stemOf } from "../../utils/paths";
+import { basename, resolveOutputDir, resolveUniqueTarget, stemOf, subtitleMuxExt } from "../../utils/paths";
 import type {
   AppSettings,
   TaskStatus,
@@ -63,12 +64,13 @@ export default function SubtitlePage({
   const [subtitleTaskId, setSubtitleTaskId] = useState<string | null>(null);
   /** 最近一次识别产出的 .srt 绝对路径（任务完成事件 outputs[0]） */
   const [previewSrt, setPreviewSrt] = useState<string | null>(null);
-  /** 烧录用的字幕文件（默认跟随最近识别产物，可手动选择 .srt） */
-  const [burnSrt, setBurnSrt] = useState<string | null>(null);
+  /** 两个导出区（封装/烧录）共用的字幕文件（默认跟随最近识别产物，可手动选择 .srt） */
+  const [exportSrt, setExportSrt] = useState<string | null>(null);
+  const [muxSubmitted, setMuxSubmitted] = useState(false);
   const [burnSubmitted, setBurnSubmitted] = useState(false);
 
   useEffect(() => {
-    if (previewSrt) setBurnSrt(previewSrt);
+    if (previewSrt) setExportSrt(previewSrt);
   }, [previewSrt]);
   /** 进行中的下载任务（模型 / CUDA 加速包）：进度与完成回调 */
   const [dl, setDl] = useState<{
@@ -194,8 +196,31 @@ export default function SubtitlePage({
       .catch((e: unknown) => setError(String(e)));
   }, [filePath, settings]);
 
+  const submitMux = useCallback(async () => {
+    if (!filePath || !exportSrt) return;
+    setError(null);
+    setMuxSubmitted(false);
+    try {
+      const dir = resolveOutputDir(filePath, settings.defaultOutputDir);
+      const output = await resolveUniqueTarget(
+        dir,
+        `${stemOf(filePath)}_softsub.${subtitleMuxExt(filePath)}`,
+        fileExists,
+      );
+      await submitTask({
+        type: "subtitle_mux",
+        input: filePath,
+        subtitlePath: exportSrt,
+        output,
+      });
+      setMuxSubmitted(true);
+    } catch (e: unknown) {
+      setError(String(e));
+    }
+  }, [filePath, exportSrt, settings]);
+
   const submitBurn = useCallback(async () => {
-    if (!filePath || !burnSrt) return;
+    if (!filePath || !exportSrt) return;
     setError(null);
     setBurnSubmitted(false);
     try {
@@ -208,7 +233,7 @@ export default function SubtitlePage({
       await submitTask({
         type: "subtitle_burn",
         input: filePath,
-        subtitlePath: burnSrt,
+        subtitlePath: exportSrt,
         output,
         quality: settings.quality,
         encoder: settings.encoder === "auto" ? null : settings.encoder,
@@ -217,7 +242,7 @@ export default function SubtitlePage({
     } catch (e: unknown) {
       setError(String(e));
     }
-  }, [filePath, burnSrt, settings]);
+  }, [filePath, exportSrt, settings]);
 
   return (
     <div className="flex h-full flex-col">
@@ -331,6 +356,53 @@ export default function SubtitlePage({
             )}
 
             {filePath && (
+              <section aria-label="封装字幕" className="rounded-lg border border-signal/40 p-3">
+                <h2 className="text-sm font-medium text-signal">封装字幕到容器（无损）</h2>
+                <p className="mt-1 text-xs leading-relaxed text-mute">
+                  把 .srt 作为软字幕轨封装进新容器：视频与音频原样复制（秒级、画质不变、多音轨全保留），
+                  播放器里可随时开关字幕。输出{" "}
+                  <code className="font-mono">{`${stemOf(filePath)}_softsub.${subtitleMuxExt(filePath)}`}</code>
+                  （{subtitleMuxExt(filePath) === "mp4" ? "mp4 源 → mov_text 字幕" : "非 mp4 源 → mkv 容器 + srt 字幕"}）。
+                  <span className="text-mute">
+                    字幕样式由播放器决定；mov_text 在部分老设备/硬件播放器上可能不显示。
+                  </span>
+                </p>
+                <div className="mt-2 flex items-center justify-between gap-3">
+                  <div className="min-w-0 text-xs text-mute">
+                    字幕文件：
+                    {exportSrt ? (
+                      <span className="text-paper">{basename(exportSrt)}</span>
+                    ) : (
+                      "未选择"
+                    )}
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void pickSrt().then((p) => p && setExportSrt(p))}
+                      className="rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                    >
+                      选择 .srt…
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!exportSrt}
+                      onClick={() => void submitMux()}
+                      className="rounded-md bg-signal px-3 py-1.5 text-xs font-medium text-ink transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      导出封装视频
+                    </button>
+                  </div>
+                </div>
+                {muxSubmitted && (
+                  <p className="mt-2 text-xs text-signal" role="status">
+                    已提交封装任务，进度见任务面板。
+                  </p>
+                )}
+              </section>
+            )}
+
+            {filePath && (
               <section aria-label="烧录字幕" className="rounded-lg border border-warn/40 p-3">
                 <h2 className="text-sm font-medium text-warn">烧录字幕到画面（重编码）</h2>
                 <p className="mt-1 text-xs leading-relaxed text-mute">
@@ -341,8 +413,8 @@ export default function SubtitlePage({
                 <div className="mt-2 flex items-center justify-between gap-3">
                   <div className="min-w-0 text-xs text-mute">
                     字幕文件：
-                    {burnSrt ? (
-                      <span className="text-paper">{basename(burnSrt)}</span>
+                    {exportSrt ? (
+                      <span className="text-paper">{basename(exportSrt)}</span>
                     ) : (
                       "未选择"
                     )}
@@ -350,14 +422,14 @@ export default function SubtitlePage({
                   <div className="flex shrink-0 items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => void pickSrt().then((p) => p && setBurnSrt(p))}
+                      onClick={() => void pickSrt().then((p) => p && setExportSrt(p))}
                       className="rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
                     >
                       选择 .srt…
                     </button>
                     <button
                       type="button"
-                      disabled={!burnSrt}
+                      disabled={!exportSrt}
                       onClick={() => void submitBurn()}
                       className="rounded-md border border-warn/60 px-3 py-1.5 text-xs text-warn transition-colors hover:bg-warn/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-not-allowed disabled:opacity-40"
                     >

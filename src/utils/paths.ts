@@ -73,3 +73,17 @@ export function defaultOutputName(
 ): string {
   return `${stemOf(sourcePath)}_${suffix}.${predictedExt(sourcePath, lossless)}`;
 }
+
+/**
+ * 软字幕封装的输出扩展名预判（M18-12 `FR-395`，`ADR-044`②）：**不跟随源容器**——
+ * mp4 系源（mp4/m4v/mov）→ mp4（字幕 mov_text），其余一律 mkv（字幕 srt）。
+ * 无扩展名按"其余"走 mkv（与 Rust 侧 `unwrap_or("")` 同口径）。
+ * ⚠ 真源在 Rust `command::subtitle_mux_container`（单测锁定）；前端这份预判只为让
+ * 界面写的名字与落盘名一致，与 [`predictedExt`] 同一口径。
+ */
+export function subtitleMuxExt(sourcePath: string): "mp4" | "mkv" {
+  const base = basename(sourcePath);
+  const dot = base.lastIndexOf(".");
+  const ext = dot > 0 && dot < base.length - 1 ? base.slice(dot + 1).toLowerCase() : "";
+  return ["mp4", "m4v", "mov"].includes(ext) ? "mp4" : "mkv";
+}

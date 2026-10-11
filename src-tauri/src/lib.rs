@@ -219,6 +219,15 @@ pub enum VideoTask {
         quality: QualityPreset,
         encoder: Option<String>,
     },
+    /// 软字幕封装（M18-12，FR-395，无损 signal，`ADR-044`）：视频/音频 stream copy +
+    /// .srt 字幕轨封装（零重编码）；输出容器按输入扩展名判定（mp4 系 → mov_text，
+    /// 其余 → mkv + srt），前端防覆盖命名 + 后端 `output_path_for` 兜底
+    #[serde(rename_all = "camelCase")]
+    SubtitleMux {
+        input: String,
+        subtitle_path: String,
+        output: String,
+    },
 }
 
 /// 全局任务管理器，经 tauri State 注入（DESIGN §8.2）。

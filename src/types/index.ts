@@ -241,6 +241,13 @@ export type VideoTask =
       output: string;
       quality: QualityPreset;
       encoder: string | null;
+    }
+  | {
+      /** 软字幕封装（M18-12，FR-395，无损 signal，ADR-044）：视频/音频 copy + .srt 字幕轨封装 */
+      type: "subtitle_mux";
+      input: string;
+      subtitlePath: string;
+      output: string;
     };
 
 /** 工作台单项配置（DESIGN §3.8）：裁剪矩形为显示空间像素坐标 */

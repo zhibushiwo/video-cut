@@ -651,3 +651,100 @@ fn subtitle_burn_chain() {
     assert_duration(fx, &out, 6.0, 0.3);
     assert_decodable(fx, &out);
 }
+
+/// 探测第一条字幕流的编码名（无字幕流返回 None）。
+fn probe_subtitle_codec(fx: &Fixtures, p: &Path) -> Option<String> {
+    let o = Command::new(&fx.ffprobe)
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "s",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "csv=p=0",
+        ])
+        .arg(p)
+        .output()
+        .unwrap();
+    let out = String::from_utf8_lossy(&o.stdout).trim().to_string();
+    out.lines()
+        .next()
+        .filter(|l| !l.is_empty())
+        .map(String::from)
+}
+
+/// 链路 6（M18-12 FR-395）：软字幕封装——mp4 源 → mp4 + mov_text；mkv 源 → mkv + srt。
+/// 断言：可解码、时长 ≈ 源、含一条目标编码的软字幕轨（`AC-395-1`）。
+#[test]
+fn subtitle_mux_chain() {
+    let Some(fx) = setup() else {
+        eprintln!("skip: ffmpeg sidecar 缺失（先运行 scripts/fetch-ffmpeg.ps1）");
+        return;
+    };
+    // 中文 + 空格文件名：非 ASCII 路径以普通输入文件传入（无滤镜转义面，`ADR-044`）。
+    // 字幕结束时间落在视频时长内——mkv 容器时长取各流最大值，字幕轨拖长会污染时长断言
+    let srt = fx.dir.join("mux 测试.srt");
+    std::fs::write(&srt, "1\n00:00:00,500 --> 00:00:05,500\n测试字幕 Hello\n").unwrap();
+
+    // ① mp4 源 → mp4 + mov_text
+    let out_mp4 = fx.dir.join("muxed.mp4");
+    let o = Command::new(&fx.ffmpeg)
+        .args(cmd::subtitle_mux_args(
+            &s(&fx.src_a),
+            &s(&srt),
+            &s(&out_mp4),
+            "mov_text",
+        ))
+        .output()
+        .expect("启动 ffmpeg 失败");
+    assert!(
+        o.status.success(),
+        "mp4 封装失败：{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert_duration(fx, &out_mp4, 6.0, 0.3);
+    assert_decodable(fx, &out_mp4);
+    assert_eq!(
+        probe_subtitle_codec(fx, &out_mp4).as_deref(),
+        Some("mov_text")
+    );
+
+    // ② mkv 源（由夹具 remux 而来）→ mkv + srt
+    let src_mkv = fx.dir.join("src_a.mkv");
+    let o = Command::new(&fx.ffmpeg)
+        .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+        .arg(&fx.src_a)
+        .args(["-c", "copy"])
+        .arg(&src_mkv)
+        .output()
+        .unwrap();
+    assert!(
+        o.status.success(),
+        "mkv 夹具生成失败：{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    let out_mkv = fx.dir.join("muxed.mkv");
+    let o = Command::new(&fx.ffmpeg)
+        .args(cmd::subtitle_mux_args(
+            &s(&src_mkv),
+            &s(&srt),
+            &s(&out_mkv),
+            "srt",
+        ))
+        .output()
+        .expect("启动 ffmpeg 失败");
+    assert!(
+        o.status.success(),
+        "mkv 封装失败：{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert_duration(fx, &out_mkv, 6.0, 0.3);
+    assert_decodable(fx, &out_mkv);
+    // ffprobe 对 mkv 里的 srt 轨报规范名 subrip
+    assert_eq!(
+        probe_subtitle_codec(fx, &out_mkv).as_deref(),
+        Some("subrip")
+    );
+}

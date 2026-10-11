@@ -27,9 +27,7 @@ use crate::task::manager::{Job, TaskContext, TauriEmitter};
 use crate::task::worker;
 use crate::{AppTasks, TaskStatus};
 
-use super::{
-    file_name, prepare_output, require_disk_space, temp_token, PreparedOutput, ProgressThrottle,
-};
+use super::{file_name, require_disk_space, temp_token, PreparedOutput, ProgressThrottle};
 
 /// 下载模型目录名：`<app_cache_dir>/models`（DESIGN §3.9）。
 const MODELS_SUBDIR: &str = "models";
@@ -808,8 +806,6 @@ pub(crate) fn submit_subtitle_burn(
         .ok_or_else(|| "字幕文件名无效".to_string())?
         .to_string();
 
-    let total_sec = probe::probe_duration_sync(&ffprobe, &input).unwrap_or(0.0);
-
     let job_input = input.clone();
     let job_srt_name = srt_name;
     let job_srt_dir = srt_dir;
@@ -852,6 +848,80 @@ pub(crate) fn submit_subtitle_burn(
 
     let emitter = Arc::new(TauriEmitter(app.clone()));
     Ok(state.0.submit(emitter, "subtitle_burn", &label, job))
+}
+
+// ---------- 软字幕封装（M18-12，FR-395，无损 signal 路径） ----------
+
+/// 提交软字幕封装任务：视频/音频 stream copy + `.srt` 字幕轨封装，零重编码
+/// （`ADR-044`）。输出容器按输入扩展名判定（mp4 系 → mp4 + mov_text，其余 →
+/// mkv + srt）；前端防覆盖命名 + `output_path_for` 兜底。无 CWD 需求——字幕走
+/// 普通输入文件，无滤镜转义面。
+pub(crate) fn submit_subtitle_mux(
+    app: AppHandle,
+    state: &State<'_, AppTasks>,
+    input: String,
+    subtitle_path: String,
+    output: String,
+) -> Result<String, String> {
+    if !Path::new(&input).is_file() {
+        return Err(format!("输入文件不存在：{input}"));
+    }
+    if !Path::new(&subtitle_path).is_file() {
+        return Err(format!("字幕文件不存在：{subtitle_path}"));
+    }
+    crate::fs::reject_if_input_equals(Path::new(&output), &[&input])?;
+    let input_ext = Path::new(&input)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("");
+    let (container, subtitle_codec) = command::subtitle_mux_container(input_ext);
+    // 同名不静默覆盖兜底（`ADR-033` ②③）：前端提出 .mp4 名时按探测容器校正扩展名
+    let out = crate::fs::output_path_for(&PathBuf::from(&output), container);
+    crate::fs::reject_if_input_equals(&out, &[&input])?;
+    let PreparedOutput {
+        out_dir,
+        out_name,
+        token,
+        ffmpeg,
+        ffprobe,
+    } = super::prepare_output(&out, &output)?;
+    let part = out_dir.join(format!("{out_name}.part.{token}.{container}"));
+
+    let total_sec = probe::probe_duration_sync(&ffprobe, &input).unwrap_or(0.0);
+
+    let job_input = input.clone();
+    let job_srt = subtitle_path.clone();
+    let job_part = part.to_string_lossy().into_owned();
+    let job_final = out.clone();
+    let label = format!("字幕封装 {}", file_name(&input));
+
+    let job: Job = Box::new(move |ctx: &TaskContext| {
+        // 磁盘空间预检（DESIGN §8.2）：copy 任务体积 ≈ 源 + 字幕
+        super::require_disk_space(
+            Path::new(&job_final)
+                .parent()
+                .ok_or_else(|| "输出路径无效".to_string())?,
+            super::file_size(&job_input) + super::file_size(&job_srt),
+        )?;
+        let args = command::subtitle_mux_args(&job_input, &job_srt, &job_part, subtitle_codec);
+        let throttle = ProgressThrottle::new();
+        let r = worker::run_ffmpeg(ctx, &ffmpeg, &args, total_sec, &|local, speed| {
+            if throttle.update(local) {
+                ctx.set_progress(local, speed);
+            }
+        });
+        if r.is_err() {
+            let _ = std::fs::remove_file(&job_part);
+        }
+        r?;
+        // 原子落位：`.part` → 最终产物（`BUG-002` 同口径）
+        crate::fs::atomic_replace(Path::new(&job_part), Path::new(&job_final))?;
+        ctx.add_output(job_final.to_string_lossy().into_owned());
+        Ok(())
+    });
+
+    let emitter = Arc::new(TauriEmitter(app.clone()));
+    Ok(state.0.submit(emitter, "subtitle_mux", &label, job))
 }
 
 // ---------- GPU 后端（M18-6，ADR-041②） ----------
@@ -1433,7 +1503,6 @@ mod tests {
 
     // ---------- 下载内核（本地 HTTP 服务器，无外网依赖） ----------
 
-    use std::io::Read as _;
     use std::net::TcpListener;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 

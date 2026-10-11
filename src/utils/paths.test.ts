@@ -6,6 +6,7 @@ import {
   resolveUniqueTarget,
   sourceExtOf,
   stemOf,
+  subtitleMuxExt,
 } from "./paths";
 
 describe("basename", () => {
@@ -93,5 +94,20 @@ describe("predictedExt / defaultOutputName（ADR-033 预判）", () => {
     expect(defaultOutputName("D:\\片\\a.mp4", "workbench", true)).toBe("a_workbench.mp4");
     expect(defaultOutputName("D:\\片\\a.mkv", "rotated", true)).toBe("a_rotated.mkv");
     expect(defaultOutputName("D:\\片\\a.mkv", "zoomed", false)).toBe("a_zoomed.mp4");
+  });
+});
+
+describe("subtitleMuxExt（M18-12 ADR-044② 预判）", () => {
+  it("mp4 系源 → mp4（字幕 mov_text）", () => {
+    expect(subtitleMuxExt("D:\\片\\a.mp4")).toBe("mp4");
+    expect(subtitleMuxExt("D:\\片\\a.MOV")).toBe("mp4");
+    expect(subtitleMuxExt("D:\\片\\a.m4v")).toBe("mp4");
+  });
+
+  it("其余源一律 mkv（字幕 srt，不跟随源容器）", () => {
+    expect(subtitleMuxExt("D:\\片\\a.mkv")).toBe("mkv");
+    expect(subtitleMuxExt("D:\\片\\a.webm")).toBe("mkv");
+    expect(subtitleMuxExt("D:\\片\\a.ts")).toBe("mkv");
+    expect(subtitleMuxExt("D:\\片\\noext")).toBe("mkv");
   });
 });
