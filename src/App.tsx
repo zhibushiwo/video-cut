@@ -97,7 +97,7 @@ export default function App() {
         拖入也消费掉。History/Settings 无状态，维持条件挂载。
       */}
       {settingsReady && (
-        <div className={page === "cut" ? "" : "hidden"}>
+        <div className={page === "cut" ? "h-full overflow-hidden" : "hidden"}>
           <CutPage
             settings={settings}
             active={page === "cut"}
@@ -107,7 +107,7 @@ export default function App() {
         </div>
       )}
       {settingsReady && (
-        <div className={page === "merge" ? "" : "hidden"}>
+        <div className={page === "merge" ? "h-full overflow-hidden" : "hidden"}>
           <MergePage
             settings={settings}
             onBack={() => navigate("workbench")}
@@ -116,7 +116,7 @@ export default function App() {
         </div>
       )}
       {settingsReady && (
-        <div className={page === "editor" ? "" : "hidden"}>
+        <div className={page === "editor" ? "h-full overflow-hidden" : "hidden"}>
           <EditorPage
             settings={settings}
             onBack={() => navigate("workbench")}
@@ -125,7 +125,7 @@ export default function App() {
         </div>
       )}
       {settingsReady && (
-        <div className={page === "subtitle" ? "" : "hidden"}>
+        <div className={page === "subtitle" ? "h-full overflow-hidden" : "hidden"}>
           <SubtitlePage
             settings={settings}
             active={page === "subtitle"}
@@ -145,7 +145,7 @@ export default function App() {
       )}
       {page === "history" && <HistoryPage onBack={() => navigate("workbench")} />}
       {settingsReady && (
-        <div className={page === "workbench" ? "" : "hidden"}>
+        <div className={page === "workbench" ? "h-full overflow-hidden" : "hidden"}>
           <WorkbenchPage
             settings={settings}
             env={env}

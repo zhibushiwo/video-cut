@@ -182,6 +182,7 @@ export function EditModeView({
                 <VideoPlayer
                   ref={playerRef}
                   fill
+          controlsInline
                   controls={false}
                   src={fileSrc(proxyPath ?? source.path)}
                   banner={proxyPath ? "当前为代理预览画面，导出使用原始文件" : null}

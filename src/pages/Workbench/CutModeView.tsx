@@ -115,6 +115,7 @@ export function CutModeView({
           onPlayStateChange={setPlaying}
           onError={onError}
           fill
+          controlsInline
         />
       </div>
       <div className="shrink-0">

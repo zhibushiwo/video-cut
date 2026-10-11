@@ -81,11 +81,17 @@ interface VideoPlayerProps {
    * 默认关闭（编辑页裁剪预览的 `videoStyle` transform 与它互斥）。
    */
   allowZoom?: boolean;
+  /**
+   * 控制条占位模式（M21-8）：控制条从悬浮（absolute 覆盖视频底部）改为文档流排在
+   * 视频下方——预览面板拖高拖出的是**净画面高度**，不被操作栏遮挡。fill 模式下根
+   * 变 flex-col、视频 flex-1。全屏态保持悬浮沉浸。默认悬浮（B 站样式）。
+   */
+  controlsInline?: boolean;
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(
-    { src, onTime, onSeeked, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass, videoStyle, onPlayStateChange, onVideoClick, allowZoom = false },
+    { src, onTime, onSeeked, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass, videoStyle, onPlayStateChange, onVideoClick, allowZoom = false, controlsInline = false },
     ref,
   ) {
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -349,8 +355,12 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         ref={rootRef}
         className={
           fill
-            ? "relative h-full w-full overflow-hidden bg-black"
-            : "relative overflow-hidden rounded-md border border-hairline bg-black"
+            ? controlsInline
+              ? "relative flex h-full w-full flex-col overflow-hidden bg-black"
+              : "relative h-full w-full overflow-hidden bg-black"
+            : controlsInline
+              ? "relative flex flex-col overflow-hidden rounded-md border border-hairline bg-black"
+              : "relative overflow-hidden rounded-md border border-hairline bg-black"
         }
       >
         <video
@@ -360,7 +370,9 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           style={zoomed ? zoomStyle : videoStyle}
           className={
             fill
-              ? `h-full w-full bg-black object-contain ${cursorClass}`
+              ? controlsInline
+                ? `min-h-0 w-full flex-1 bg-black object-contain ${cursorClass}`
+                : `h-full w-full bg-black object-contain ${cursorClass}`
               : `mx-auto ${videoMaxClass ?? "max-h-[44vh]"} w-full bg-black object-contain ${cursorClass}`
           }
           onPointerDown={zoomPointerDown}
@@ -380,7 +392,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           </div>
         )}
         {controls && (
-          <div className="absolute inset-x-0 bottom-0 select-none">
+          <div className={controlsInline ? "relative select-none" : "absolute inset-x-0 bottom-0 select-none"}>
             {/* 细进度条置顶（M19-5 B 站样式）：hover 加粗 */}
             <div className="px-2 pb-0.5">
               <input
@@ -413,7 +425,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   onClick={() => setRatesOpen((v) => !v)}
                   aria-label="播放速度"
                   title="播放速度"
-                  className={`text-xs transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal ${ratesOpen || rate !== 1 ? "text-signal" : "text-paper/85"}`}
+                  className={`inline-flex h-4 items-center text-xs leading-none transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal ${ratesOpen || rate !== 1 ? "text-signal" : "text-paper/85"}`}
                 >
                   {rate === 1 ? "倍速" : `${rate}x`}
                 </button>

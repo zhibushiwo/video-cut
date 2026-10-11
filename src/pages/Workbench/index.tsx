@@ -212,7 +212,7 @@ export default function WorkbenchPage({
     writePlayheadTransform();
   }, [playhead, pps, writePlayheadTransform]);
   // 预览面板高度拖拽（CAND-021，M21-3）：默认 46vh（原 38vh 上调一档），localStorage 记忆
-  const previewPanel = usePanelHeight("workbench.preview", 46);
+  const previewPanel = usePanelHeight("workbench.preview", 52);
 
   // 批量能力（M6-8 = 原 M4-4）：素材多选 → 一键建片段 / 批量应用旋转
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());

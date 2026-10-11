@@ -155,7 +155,7 @@ export default function Timeline({
     <div className="select-none">
       <div
         ref={trackRef}
-        className="relative h-20 cursor-crosshair rounded-md border border-hairline bg-panel/60"
+        className="relative h-16 cursor-crosshair rounded-md border border-hairline bg-panel/60"
         onPointerDown={(e) => onSeek(xToTime(e.clientX))}
         role="slider"
         aria-label="时间轴"
