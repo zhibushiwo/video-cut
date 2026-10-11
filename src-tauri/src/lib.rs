@@ -253,6 +253,10 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build())
+        // 应用内自动更新（M20，FR-398，ADR-046）：检查/下载走 updater 插件（minisign
+        // 签名校验，端点与公钥见 tauri.conf.json plugins.updater），重启安装走 process
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(AppTasks(TaskManager::new(2)))
         .setup(|app| {
             // 日志系统（DESIGN §12.1）：尽早初始化；失败不阻塞启动

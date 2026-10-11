@@ -26,6 +26,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   subtitleBackend: "auto",
   subtitleModel: "tiny",
   subtitleLanguage: "auto",
+  /** M20/FR-398：启动时静默检查更新（失败无声），可关 */
+  updateCheckOnStart: true,
 };
 
 const STORE_FILE = "settings.json";
@@ -91,6 +93,10 @@ function sanitize(raw: unknown): AppSettings {
     subtitleLanguage: subtitleLanguages.includes(r.subtitleLanguage as string)
       ? (r.subtitleLanguage as string)
       : DEFAULT_SETTINGS.subtitleLanguage,
+    updateCheckOnStart:
+      typeof r.updateCheckOnStart === "boolean"
+        ? r.updateCheckOnStart
+        : DEFAULT_SETTINGS.updateCheckOnStart,
   };
 }
 

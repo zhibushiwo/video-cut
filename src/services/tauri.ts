@@ -309,3 +309,53 @@ export async function pickSrt(): Promise<string | null> {
   });
   return typeof picked === "string" ? picked : null;
 }
+
+// ---------------------------------------------------------------------------
+// 应用内自动更新（M20，FR-398，ADR-046）：tauri-plugin-updater + plugin-process。
+// 端点与签名公钥在 tauri.conf.json plugins.updater；检查失败（断网等）由调用方吞掉。
+
+export interface UpdateCheckResult {
+  /** 新版本号；null = 已是最新 */
+  version: string | null;
+  /** 发布说明（Release body，可能为空） */
+  notes: string;
+}
+
+/** 检查更新：返回 null 版本号 = 已是最新；网络失败向上抛（调用方决定静默或提示） */
+export async function checkForUpdate(): Promise<UpdateCheckResult> {
+  const { check } = await import("@tauri-apps/plugin-updater");
+  const update = await check();
+  if (!update) return { version: null, notes: "" };
+  return { version: update.version, notes: update.body ?? "" };
+}
+
+/** 下载并安装更新（进度回调 0~100，基于 Content-Length 累计） */
+export async function downloadAndInstallUpdate(
+  onProgress: (percent: number) => void,
+): Promise<void> {
+  const { check } = await import("@tauri-apps/plugin-updater");
+  const update = await check();
+  if (!update) return;
+  let total = 0;
+  let received = 0;
+  await update.downloadAndInstall((event) => {
+    switch (event.event) {
+      case "Started":
+        total = event.data.contentLength ?? 0;
+        break;
+      case "Progress":
+        received += event.data.chunkLength;
+        if (total > 0) onProgress(Math.min(100, Math.round((received / total) * 100)));
+        break;
+      case "Finished":
+        onProgress(100);
+        break;
+    }
+  });
+}
+
+/** 重启应用以完成安装（NSIS 静默安装后自动拉起） */
+export async function relaunchForUpdate(): Promise<void> {
+  const { relaunch } = await import("@tauri-apps/plugin-process");
+  await relaunch();
+}

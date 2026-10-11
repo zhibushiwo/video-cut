@@ -457,7 +457,7 @@
 > **用户三裁决**：方案 A（官方更新器）/ 启动静默检查（开关默认开可关）/ 手动「检查更新」按钮；端点 = GitHub Pages `latest.json`，更新包 minisign 签名校验
 
 - [x] **M20-1 文档批**：`ADR-046` + DESIGN §3.11 `FR-398`/`AC-398-1` + UI.md §9.9 + CANDIDATES `CAND-038` → M20 + PLAN 本节 → `pnpm check:docs` 全绿　✅ **2026-10-11 落地**
-- [ ] **M20-2 实现**：密钥对 + `tauri.conf.json`（createUpdaterArtifacts + pubkey + endpoints）+ Rust 双插件接入 + 设置项 `updateCheckOnStart`（TS 双写/sanitize）+ services 封装（check/downloadAndInstall/relaunch）+ 设置页关于区三态 UI + 启动静默检查 + release.yml（签名 env + .sig 上传 + latest.json 生成推 gh-pages）→ 验收：AC-398-1（真机冒烟待下次发版）
+- [x] **M20-2 实现**：密钥对 + `tauri.conf.json`（createUpdaterArtifacts + pubkey + endpoints）+ Rust 双插件接入 + 设置项 `updateCheckOnStart`（TS 双写/sanitize）+ services 封装（check/downloadAndInstall/relaunch）+ 设置页关于区三态 UI + 启动静默检查 + release.yml（签名 env + .sig 上传 + latest.json 生成推 gh-pages）→ 验收：AC-398-1（真机冒烟待下次发版）　✅ **2026-10-11 落地**（密钥对 `tauri signer generate`（无密码）落 `.tauri/`（已 gitignore）——**私钥待用户手动加 GitHub Secrets `TAURI_SIGNING_PRIVATE_KEY` + 本地异地备份**；端点 `https://zhibushiwo.github.io/video-cut/latest.json`；capabilities 加 updater:default/process:allow-restart；前端 services/tauri.ts 动态 import 插件 API（红线 10 例外区）+ `services/updateState.ts` 极简外部 store（useSyncExternalStore：App 启动静默检查与设置页消费同源，静默失败回 idle 无声、手动检查保留 error）；设置页 = 「启动时检查更新」开关行（通用 tab）+ 关于区「检查更新」按钮三态（checking/下载更新 v%+进度/重启安装）+ 已是最新提示；release.yml = 构建步加 TAURI_SIGNING_PRIVATE_KEY env + .sig 随 Release 上传 + node 生成 latest.json（notes 去 pwsh BOM）→ gh-pages 孤儿分支整支重推（内容仅 latest.json，确定性高于增量）；**待用户一次性配置**：GitHub Secrets 私钥 + 仓库 Settings→Pages 启用 gh-pages；cargo 123+10 · vitest 167 · tsc/eslint/fmt 全绿）
 
 ## M13 打磨（可选，视 M11/M12 体验决定，决策 #31）
 

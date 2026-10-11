@@ -8,6 +8,7 @@ import HistoryPage from "./pages/History";
 import SettingsPage from "./pages/Settings";
 import TaskProgress from "./components/TaskProgress";
 import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "./services/settings";
+import { runUpdateCheck } from "./services/updateState";
 import { useTauriEvent } from "./hooks/useTauriEvent";
 import {
   checkEnvironment,
@@ -43,6 +44,9 @@ export default function App() {
       setSettings(s);
       setSettingsReady(true);
       applyAccent(s.accent);
+      // 启动静默检查更新（M20，FR-398，ADR-046）：开关默认开、可关；失败无声，
+      // 命中新版本时结果预置在设置页「关于」区（不做全局 toast）
+      if (s.updateCheckOnStart) void runUpdateCheck(true);
     });
   }, []);
 

@@ -146,7 +146,11 @@ export interface AppSettings {
   subtitleModel: string;
   /** AI 字幕识别语言（M18-7）：auto / zh / en / ja */
   subtitleLanguage: string;
-}/** 字幕转写后端选择（M18-6，ADR-041②） */
+  /** 启动时静默检查更新（M20，FR-398，ADR-046）：仅访问 GitHub 查询版本，失败无声 */
+  updateCheckOnStart: boolean;
+}
+
+/** 字幕转写后端选择（M18-6，ADR-041②） */
 export type SubtitleBackendChoice = "auto" | "cpu";
 
 /** 缓存占用（M4-8；M12-2 起含渲染预览，与 Rust CacheUsage 对齐） */

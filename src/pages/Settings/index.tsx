@@ -40,6 +40,8 @@ import type {
 } from "../../types";
 import { BackendBadge } from "../Subtitle/BackendBadge";
 import { ModelPicker } from "../Subtitle/ModelPicker";
+import { useUpdateStatus, runUpdateCheck, startUpdateDownload } from "../../services/updateState";
+import { relaunchForUpdate } from "../../services/tauri";
 import { QUALITY_LABELS } from "../../utils/quality";
 import { formatBytes } from "../../utils/time";
 
@@ -113,6 +115,8 @@ export default function SettingsPage({
   const [usage, setUsage] = useState<CacheUsage | null>(null);
   /** 设置页 tab（M19-4）：会话内记忆不持久化 */
   const [tab, setTab] = useState<"general" | "subtitle">("general");
+  /** 应用更新状态（M20，FR-398）：启动静默检查在 App 层发起，这里消费与手动触发 */
+  const update = useUpdateStatus();
   const [version, setVersion] = useState<string>("");
   const [cacheMsg, setCacheMsg] = useState<string | null>(null);
   /** AI 字幕区（M18-14，自字幕页迁入）：模型列表 / GPU 后端状态 / 进行中的下载 */
@@ -325,6 +329,19 @@ export default function SettingsPage({
         </Row>
 
         <Row
+          title="启动时检查更新"
+          desc="每次启动静默查询一次新版本（仅访问 GitHub，失败无声、不阻塞启动）；发现新版本时在下方「关于」区提示。关闭后仍可手动检查。"
+        >
+          <input
+            type="checkbox"
+            checked={settings.updateCheckOnStart}
+            onChange={(e) => onUpdate({ updateCheckOnStart: e.target.checked })}
+            className="accent-signal"
+            aria-label="启动时检查更新"
+          />
+        </Row>
+
+        <Row
           title="代理预览"
           desc="不被 WebView2 支持的格式（AVI/HEVC 等）自动生成低清代理画面，导出仍用原文件。始终代理可让 4K 预览更流畅。"
         >
@@ -526,16 +543,66 @@ export default function SettingsPage({
         </div>
 
         <div className="py-4">
-          <div className="text-sm text-paper">关于</div>
-          <p className="mt-1.5 text-xs leading-relaxed text-mute">
-            video-cut {version || "…"} · FFmpeg {env?.ffmpegVersion?.split("-")[0] ?? "…"} / ffprobe{" "}
-            {env?.ffprobeVersion?.split("-")[0] ?? "…"}
-            <br />
-            所有处理都在本机完成，文件不会离开电脑。
-            <br />
-            内置 FFmpeg 为 gyan.dev 构建（含 GPL 组件），建议个人/内部使用；若公开发布或商用需评估
-            GPL 合规。
-          </p>
+          <div className="flex items-center justify-between gap-8">
+            <div className="min-w-0">
+              <div className="text-sm text-paper">关于</div>
+              <p className="mt-1.5 text-xs leading-relaxed text-mute">
+                video-cut {version || "…"} · FFmpeg {env?.ffmpegVersion?.split("-")[0] ?? "…"} / ffprobe{" "}
+                {env?.ffprobeVersion?.split("-")[0] ?? "…"}
+                <br />
+                所有处理都在本机完成，文件不会离开电脑。
+                <br />
+                内置 FFmpeg 为 gyan.dev 构建（含 GPL 组件），建议个人/内部使用；若公开发布或商用需评估
+                GPL 合规。
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-1.5">
+              <button
+                type="button"
+                disabled={update.status === "checking" || update.status === "downloading"}
+                onClick={() => void runUpdateCheck(false)}
+                className="rounded-md border border-hairline px-2.5 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                {update.status === "checking" ? "检查中…" : "检查更新"}
+              </button>
+              {update.status === "available" && (
+                <button
+                  type="button"
+                  onClick={() => void startUpdateDownload()}
+                  className="rounded-md bg-signal px-2.5 py-1.5 text-xs font-medium text-ink transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                >
+                  下载更新 v{update.version}
+                </button>
+              )}
+              {update.status === "downloading" && (
+                <span className="text-xs text-mute">下载中 {update.progress ?? 0}%</span>
+              )}
+              {update.status === "ready" && (
+                <button
+                  type="button"
+                  onClick={() => void relaunchForUpdate()}
+                  className="rounded-md bg-signal px-2.5 py-1.5 text-xs font-medium text-ink transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                >
+                  重启安装 v{update.version}
+                </button>
+              )}
+            </div>
+          </div>
+          {update.status === "upToDate" && (
+            <p className="mt-1.5 text-xs text-signal" role="status">
+              已是最新版本。
+            </p>
+          )}
+          {update.status === "available" && update.notes && (
+            <p className="mt-1.5 whitespace-pre-line text-xs leading-relaxed text-mute">
+              新版本 v{update.version}：{update.notes}
+            </p>
+          )}
+          {update.error && (
+            <p className="mt-1.5 text-xs text-warn" role="alert">
+              检查更新失败：{update.error}
+            </p>
+          )}
         </div>
 
         <p className="py-4 text-xs text-mute/80">

@@ -39,3 +39,6 @@ src-tauri/icons/ios/
 # whisper sidecar DLL 与内置模型（由 scripts/fetch-whisper.ps1 下载，ADR-039）
 src-tauri/binaries/whisper-dll/
 src-tauri/resources/models/
+
+# 应用更新签名私钥（M20/ADR-046：绝不入库；CI 用 GitHub Secrets 里的副本）
+.tauri/
