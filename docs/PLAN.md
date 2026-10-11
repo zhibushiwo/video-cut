@@ -429,7 +429,7 @@
 > **背景**：VideoCaptioner 调研同源诉求——libass 默认样式在高清视频上字号偏小，烧录首要诉求是"看得清"；颜色/字体不做（`ADR-045`①，值得做另立候选）
 
 - [x] **M18-13-1 文档晋升批**：`ADR-045`（force_style 三项数字参数 + 结构化传参 + clamp + 留空即旧行为）+ DESIGN §3.9 `FR-396`/`AC-396-1` + UI.md §9.11 样式行 + CANDIDATES `CAND-035` → M18-13 + PLAN 本节 → `pnpm check:docs` 全绿　✅ **2026-10-11 落地**（§3.9 需求/验收/决策三行同步扩 FR-396/AC-396-1/ADR-045）
-- [ ] **M18-13-2 实现**：`command.rs` `subtitles_force_style`（纯函数拼装 + clamp，单测）+ `subtitle_burn_args` 扩 `style` 参数（None = 序列不变，断言锁定）+ `VideoTask::SubtitleBurn` 加 `style`（serde default，TS 双写）+ 烧录区三个数字输入 + e2e 兼容 → 验收：AC-396-1
+- [x] **M18-13-2 实现**：`command.rs` `subtitles_force_style`（纯函数拼装 + clamp，单测）+ `subtitle_burn_args` 扩 `style` 参数（None = 序列不变，断言锁定）+ `VideoTask::SubtitleBurn` 加 `style`（serde default，TS 双写）+ 烧录区三个数字输入 + e2e 兼容 → 验收：AC-396-1　✅ **2026-10-11 落地**（`subtitles_force_style` 拼装/clamp 两例 + 全留空返回 None 断言；原全序列断言补 None 参数锁定旧行为不变 + 新增 force_style 追加形态断言；`SubtitleStyle`（lib.rs serde camelCase，`Option<u32>`×3）→ TS `SubtitleBurnStyle` 可选字段双写；烧录区样式行 = 字号/描边/底部边距三个数字输入 + 恢复默认，留空即默认；cargo test 123+10 · vitest 155 · tsc/eslint/fmt 全绿）
 
 ## M13 打磨（可选，视 M11/M12 体验决定，决策 #31）
 
