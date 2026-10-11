@@ -246,8 +246,26 @@ pub struct SubtitleStyle {
 /// 全局任务管理器，经 tauri State 注入（DESIGN §8.2）。
 pub struct AppTasks(pub TaskManager);
 
+/// 抑制加载器硬错误对话框（`BUG-028`）：GUI 子系统下子进程（ffmpeg/ffprobe/whisper-cli）
+/// 缺 DLL 时 Windows 会弹系统错误框（如实机 nvccuda.dll），探测/任务被对话框挡住。
+/// `SEM_FAILCRITICALERRORS` 让加载错误改为返回退出码（探测本来就读退出码判读），
+/// 且错误模式被子进程继承——进程启动时设置一次全局生效。
+#[cfg(target_os = "windows")]
+fn suppress_loader_error_dialogs() {
+    const SEM_FAILCRITICALERRORS: u32 = 0x0001;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn SetErrorMode(mode: u32) -> u32;
+    }
+    unsafe {
+        SetErrorMode(SEM_FAILCRITICALERRORS);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "windows")]
+    suppress_loader_error_dialogs();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())

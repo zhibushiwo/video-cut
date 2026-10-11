@@ -6,7 +6,7 @@
  * 断网/端点 404 等失败：静默检查回 `idle`（无声）；手动检查保留 error 提示。
  */
 import { useSyncExternalStore } from "react";
-import { checkForUpdate, downloadAndInstallUpdate } from "../services/tauri";
+import { appendFrontendLog, checkForUpdate, downloadAndInstallUpdate } from "../services/tauri";
 
 export interface UpdateStatus {
   status: "idle" | "checking" | "upToDate" | "available" | "downloading" | "ready";
@@ -49,6 +49,8 @@ export async function runUpdateCheck(silent: boolean): Promise<void> {
       set({ status: "upToDate" });
     }
   } catch (e: unknown) {
+    // 写日志文件（M20-3）：静默失败也留痕（warn 级），用户可经设置页打开日志定位
+    void appendFrontendLog("warn", `[update] 检查更新失败（${silent ? "静默" : "手动"}）：${String(e)}`);
     set(silent ? { status: "idle" } : { status: "idle", error: String(e) });
   }
 }
@@ -60,6 +62,7 @@ export async function startUpdateDownload(): Promise<void> {
     await downloadAndInstallUpdate((p) => set((s) => ({ ...s, progress: p })));
     set((s) => ({ ...s, status: "ready", progress: 100 }));
   } catch (e: unknown) {
+    void appendFrontendLog("error", `[update] 下载更新包失败：${String(e)}`);
     set({ status: "idle", error: String(e) });
   }
 }

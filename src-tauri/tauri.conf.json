@@ -64,7 +64,8 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYzRDlDQjhCQUI3N0E0OEEKUldTS3BIZXJpOHZaWS9VYkdOVTdPSWpIaElacXlleSt4WnBjMnJBdnh0VGNmZGZrMloyVWtDZWcK",
       "endpoints": [
-        "https://zhibushiwo.github.io/video-cut/latest.json"
+        "https://zhibushiwo.github.io/video-cut/latest.json",
+        "https://github.com/zhibushiwo/video-cut/releases/latest/download/latest.json"
       ]
     }
   }

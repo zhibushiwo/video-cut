@@ -19,6 +19,8 @@ import {
   listWhisperModels,
   onTaskProgress,
   onTaskStatus,
+  appendFrontendLog,
+  openLogsFolder,
   openModelsDir,
   pickDirectory,
   probeWhisperBackend,
@@ -138,10 +140,16 @@ export default function SettingsPage({
   const refreshSubtitle = useCallback(() => {
     void listWhisperModels()
       .then(setModels)
-      .catch((e: unknown) => setSubtitleError(String(e)));
+      .catch((e: unknown) => {
+        void appendFrontendLog("warn", `[settings] 模型列表读取失败：${String(e)}`);
+        setSubtitleError(String(e));
+      });
     void probeWhisperBackend()
       .then(setBackend)
-      .catch(() => setBackend(null));
+      .catch((e: unknown) => {
+        void appendFrontendLog("warn", `[settings] GPU 后端探测失败：${String(e)}`);
+        setBackend(null);
+      });
   }, []);
   useEffect(() => {
     loadUsage();
@@ -557,6 +565,14 @@ export default function SettingsPage({
               </p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-1.5">
+              <button
+                type="button"
+                onClick={() => void openLogsFolder().catch((e: unknown) => setSubtitleError(String(e)))}
+                title="应用与任务的运行日志（含报错信息），可用记事本打开"
+                className="rounded-md border border-hairline px-2.5 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+              >
+                打开日志文件夹
+              </button>
               <button
                 type="button"
                 disabled={update.status === "checking" || update.status === "downloading"}

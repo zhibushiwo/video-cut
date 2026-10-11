@@ -98,17 +98,6 @@ jobs:
           if ($m.Success) { $body = $m.Groups[1].Value.Trim() } else { $body = "video-cut v$ver`n`n完整变更见仓库 docs/CHANGELOG.md。" }
           Set-Content -Path release-notes.md -Value $body -Encoding utf8
 
-      - name: 创建 Release 并上传安装包
-        if: steps.check.outputs.exists == 'false'
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v${{ steps.version.outputs.version }}
-          name: v${{ steps.version.outputs.version }}
-          body_path: release-notes.md
-          files: |
-            src-tauri/target/release/bundle/nsis/*.exe
-            src-tauri/target/release/bundle/nsis/*.sig
-
       # M20/FR-398：latest.json 是更新器端点（GitHub Pages 托管——Release 资产直链的
       # Content-Type 是 octet-stream，更新器要求 application/json）。gh-pages 整分支只含
       # 这一个文件，每次发版从零重推，确定性高于增量提交。
@@ -144,3 +133,17 @@ jobs:
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -qm "latest.json v${VER}"
           git remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push -q origin gh-pages --force
+
+      - name: 创建 Release 并上传安装包
+        if: steps.check.outputs.exists == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          name: v${{ steps.version.outputs.version }}
+          body_path: release-notes.md
+          files: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/nsis/*.sig
+            latest.json
+
+
