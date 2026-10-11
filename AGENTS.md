@@ -103,9 +103,11 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 
 ### 5.1 发版流程
 
+> **铁律：仅当用户明确要求发包时才执行发包**（推 `main` 即触发自动发版 CI）——agent 不得自行发版。完整操作手册（前置 Secret/Pages 配置、CI 产物验证、已知坑）见 [docs/RELEASE.md](docs/RELEASE.md)。
+
 1. `pnpm version:bump <x.y.z> --changelog` —— 同步 `package.json` 与 `src-tauri/Cargo.toml`（`src-tauri/tauri.conf.json` 自动跟随，红线见 §3 第 22 条），并把 `docs/CHANGELOG.md` 的 `[Unreleased]` 切成 `## [x.y.z] - YYYY-MM-DD`、顶部重开空段（`[Unreleased]` 只有占位时会拒绝切段，确要强切加 `--force`）
 2. 补写新 `[Unreleased]` 的「开发中」状态说明（切段时会被清空）
-3. `pnpm tauri build` —— 产物 `video-cut_<x.y.z>_x64-setup.exe`
+3. 推 `main` 触发 CI 构建（本地 `pnpm tauri build` 冒烟可选）—— 验证 Release 资产三件套（exe + `.sig` + `latest.json`）与更新端点，见 RELEASE.md §2
 4. 干净 Win11 安装冒烟：`NFR-011` · `TC-016`
 
 > 漏切补救：`pnpm version:bump <当前版本> --changelog` —— 版本号与当前相同时只切 CHANGELOG、不动版本号。

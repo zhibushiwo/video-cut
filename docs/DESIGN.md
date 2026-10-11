@@ -258,7 +258,7 @@ WebView2 的 `<video>` 对部分格式无法直接播放（详见第 10 节）�
 **需求**：FR-398（更新检查 / 下载 / 安装）
 **验收**：AC-398-1　——　UI 见 [UI.md](./UI.md) §9.9「通用」tab　·　决策 `ADR-046`（联网边界修订见 `ADR-040`）
 
-- **FR-398 应用内自动更新（`CAND-038` 晋升 M20，`ADR-046`）**：更新通道 = `tauri-plugin-updater`（**minisign 签名校验**——公钥入 `tauri.conf.json`，私钥 = GitHub Secrets + 本地 gitignore 备份）+ `tauri-plugin-process`（重启安装）；端点 = GitHub Pages 托管的 `latest.json`（CI 发版时生成并推送，version 取自 package.json——红线 22 同源）；检查时机 = **启动静默检查**（设置项 `updateCheckOnStart` 默认开、可关；失败无声不阻塞启动）+ 设置页「检查更新」手动按钮；发现新版本后在设置页「关于」区呈现版本号与说明，**应用内下载**（进度显示在按钮上）→「重启安装」交 NSIS 静默安装；v1 边界：不做全局 toast、不做差量更新（官方 Windows 通道无 delta）、无强制更新
+- **FR-398 应用内自动更新（`CAND-038` 晋升 M20，`ADR-046`）**：更新通道 = `tauri-plugin-updater`（**minisign 签名校验**——公钥入 `tauri.conf.json`，私钥 = GitHub Secrets + 本地 gitignore 备份）+ `tauri-plugin-process`（重启安装）；端点 = GitHub Pages 托管的 `latest.json`（CI 发版时生成并推送，version 取自 package.json——红线 22 同源）；检查时机 = **启动静默检查**（设置项 `updateCheckOnStart` 默认开、可关；失败无声不阻塞启动）+ 设置页「检查更新」手动按钮；发现新版本后在设置页「关于」区呈现版本号与说明，**应用内下载**（进度显示在按钮上）→「重启安装」交 NSIS 静默安装；v1 边界：不做全局 toast、不做差量更新（官方 Windows 通道无 delta）、无强制更新。**M20-4 修订（实机验证反馈，`ADR-046` 修订注）**：检查阶段改为自研直连 `api.github.com`（解析 `tag_name` 比版本号；原始响应体写入日志——网络污染可诊断），确认有新版后以该版本 Release 资产直链的 latest.json 作为动态端点交给官方更新器执行下载/安装——"检查"与"下载"分离，检查不再依赖易被污染的 github.io/objects 域名（`BUG-029` 复发根因）
 - **AC-398-1**：设置开关关闭时启动零更新请求；开启时启动静默检查失败不影响应用使用；发现新版本 → 应用内下载（进度可见）→ 重启安装后 `getVersion()` 报新版本号；签名不符的更新包被拒绝安装；手动「检查更新」在已是最新时明确提示
 
 ## 4. 无损性承诺矩阵 · NFR-002
