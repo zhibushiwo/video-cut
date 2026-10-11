@@ -5,7 +5,7 @@
 > **读时机**：新会话第一个读它；提问"这事定过没有 / 该改哪个文件 / 这个编号是什么"时先查这里。
 > **写规则**：新增或调整文档分工、新增 ID 命名空间、改动矩阵时改本文；规格类内容一律改对应专题文档，不写在这里。
 > **关联**：[../AGENTS.md](../AGENTS.md)（agent 作业规程） · 上位 [DESIGN.md](./DESIGN.md)（规格仲裁者） · 进度 [PLAN.md](./PLAN.md)
-> **最后更新**：2026-10-11（§1 读写表 + §5 矩阵 `FR-390` 行扩至 `FR-390`~`FR-396`（M18-13 烧录样式立项，`ADR-045`））；此前同日（M18-12 软字幕封装，`FR-390`~`FR-395`，`ADR-044`）；此前 2026-10-07（§1 读写表 + §5 矩阵新增 **`FR-390` AI 字幕**行——`CAND-030` 晋升 M18，规格 [DESIGN.md](./DESIGN.md) §3.9）；此前 2026-10-06（§7 新增「最后更新」头部一行式规则，各文档头部随之瘦身）；矩阵与批次状态明细见 §5 对应行——头部不记明细
+> **最后更新**：2026-10-11（§1 读写表 + §5 矩阵新增 **`FR-398` 应用内更新**行（M20，`ADR-046`））；此前同日（§1 读写表 + §5 矩阵 `FR-390` 行扩至 `FR-390`~`FR-396`（M18-13 烧录样式立项，`ADR-045`））；此前同日（M18-12 软字幕封装，`FR-390`~`FR-395`，`ADR-044`）；此前 2026-10-07（§1 读写表 + §5 矩阵新增 **`FR-390` AI 字幕**行——`CAND-030` 晋升 M18，规格 [DESIGN.md](./DESIGN.md) §3.9）；此前 2026-10-06（§7 新增「最后更新」头部一行式规则，各文档头部随之瘦身）；矩阵与批次状态明细见 §5 对应行——头部不记明细
 
 ---
 
@@ -20,6 +20,7 @@
 | 改交互完善批次（M14：重置/换素材、默认命名、放大预览、池卡手柄） | [plans/M14.md](./plans/M14.md) | [UI.md](./UI.md) §9.2/§9.4/§9.5/§9.6/§9.8 |
 | 改保留式裁剪（M15：标记删除区间 → 补集导出，"删垃圾"流） | [plans/M15.md](./plans/M15.md) | [DESIGN.md](./DESIGN.md) §3.2（`FR-326`） · [UI.md](./UI.md) §9.4 |
 | 改 AI 字幕（M18：模型/加速包管理、转写任务、字幕预览、烧录/封装/样式） | [DESIGN.md](./DESIGN.md) §3.9（`FR-390`~`FR-396`） | [DECISIONS.md](./DECISIONS.md)（`ADR-039`~`ADR-045`） · [CANDIDATES.md](./CANDIDATES.md)（`CAND-030`/`CAND-031`/`CAND-034`/`CAND-035`） |
+| 改应用内更新（M20：检查/下载/安装） | [DESIGN.md](./DESIGN.md) §3.11（`FR-398`） | [DECISIONS.md](./DECISIONS.md)（`ADR-046`） · [CANDIDATES.md](./CANDIDATES.md)（`CAND-038`） |
 | 改任务系统、并发、取消、事件 | [DESIGN.md](./DESIGN.md) §8 | [FFMPEG.md](./FFMPEG.md) §6.4 |
 | 问"这事定过没有 / 为什么这么做" | [DECISIONS.md](./DECISIONS.md) | — |
 | 想知道"下一步做什么 / 做到哪了" | [PLAN.md](./PLAN.md) | [HANDOFF.md](./HANDOFF.md)（当前状态） |
@@ -155,6 +156,7 @@
 | **FR-370** 代理预览 | DESIGN.md §3.7 | `ffmpeg/probe.rs` · `commands/*.rs` | M1-8 · R1-3 | AC-371-1 · AC-372-1 · TC-018 | ✅ |
 | **FR-380** 工作台流水线 | DESIGN.md §3.8 | `commands/pipeline.rs` · `ClipTimeline`/`CropOverlay` · `ProductPreview`/`TaskProgress`/`hooks` | M5-1 … M5-7 · M6-1 … M6-8 · M9-1 … M9-5 | AC-380-1 · TC-003 · TC-013 | ✅（原子 FR-381+ 随 M11） |
 | **FR-390** AI 字幕（本地转写 .srt 外挂 + 烧录/封装/样式） | DESIGN.md §3.9 · `ADR-039`~`ADR-045` · [CANDIDATES.md](./CANDIDATES.md)（`CAND-030`/`CAND-031`/`CAND-034`/`CAND-035`） | `commands/subtitle.rs`（M18-3 建）· `ffmpeg/command.rs`（音频提取/烧录/封装参数）· `pages/Subtitle/`（M18-7 建）· `services/tauri.ts` | M18-1~11 ✅（2026-10-07）· M18-12/13/14（封装/样式/信息架构，2026-10-11） | AC-390-1 · AC-391-1 · AC-392-1 · AC-393-1 · AC-393-2 · AC-394-1 · AC-395-1 · AC-396-1 · TC 待建（M18-9） | 🔄 M18 立项（2026-10-07，文档批落地） |
+| **FR-398** 应用内自动更新 | DESIGN.md §3.11 · `ADR-046` · [CANDIDATES.md](./CANDIDATES.md)（`CAND-038`） | `lib.rs`（插件初始化）· `services/tauri.ts` · `pages/Settings/` · `.github/workflows/release.yml` | M20（2026-10-11） | AC-398-1 · 真机冒烟（随下次发版） | 🔄 M20 立项（2026-10-11，文档批落地） |
 | **NFR-001**–**005** 设计原则 | DESIGN.md §2 | 全局 | 贯穿 M1–M9 | TC-001 – TC-005（回归） | ✅ |
 | **NFR-006**–**009** 任务系统承诺 | DESIGN.md §8 | `task/manager.rs` · `task/worker.rs` | M0-5 · M1-5 · M8-2 ·（M11-0 清理钩子） | TC-004 | ✅ |
 | **NFR-010** 格式支持范围 | DESIGN.md §10 | `ffmpeg/probe.rs` | M0-4 · M1-2 | TC-001 · TC-018 | ✅ |
