@@ -218,6 +218,9 @@ pub enum VideoTask {
         output: String,
         quality: QualityPreset,
         encoder: Option<String>,
+        /// 烧录样式（M18-13，FR-396，`ADR-045`）：None/全空 = 默认样式（不加 force_style）
+        #[serde(default)]
+        style: Option<SubtitleStyle>,
     },
     /// 软字幕封装（M18-12，FR-395，无损 signal，`ADR-044`）：视频/音频 stream copy +
     /// .srt 字幕轨封装（零重编码）；输出容器按输入扩展名判定（mp4 系 → mov_text，
@@ -228,6 +231,16 @@ pub enum VideoTask {
         subtitle_path: String,
         output: String,
     },
+}
+
+/// 字幕烧录样式（M18-13，FR-396，`ADR-045`）：三项数字参数，字段 None = 留空走
+/// libass 默认；样式串由 `command::subtitles_force_style` 统一拼装并 clamp（红线 1）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubtitleStyle {
+    pub font_size: Option<u32>,
+    pub outline: Option<u32>,
+    pub margin_v: Option<u32>,
 }
 
 /// 全局任务管理器，经 tauri State 注入（DESIGN §8.2）。

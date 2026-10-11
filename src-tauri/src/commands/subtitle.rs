@@ -775,6 +775,7 @@ pub(crate) fn submit_subtitle_burn(
     output: String,
     quality: crate::QualityPreset,
     locked_encoder: Option<String>,
+    style: Option<crate::SubtitleStyle>,
 ) -> Result<String, String> {
     if !Path::new(&input).is_file() {
         return Err(format!("输入文件不存在：{input}"));
@@ -811,6 +812,7 @@ pub(crate) fn submit_subtitle_burn(
     let job_srt_dir = srt_dir;
     let job_part = part.to_string_lossy().into_owned();
     let job_final = out.clone();
+    let job_style = style.unwrap_or_default();
     let label = format!("字幕烧录 {}", file_name(&input));
 
     let job: Job = Box::new(move |ctx: &TaskContext| {
@@ -821,8 +823,14 @@ pub(crate) fn submit_subtitle_burn(
         let duration = facts.info.duration_sec;
         let pix_fmt = facts.info.video.pix_fmt.clone();
         let encoder = command::effective_encoder(locked_encoder.as_deref(), &pix_fmt);
-        let args =
-            command::subtitle_burn_args(&job_input, &job_srt_name, &job_part, &encoder, quality);
+        let args = command::subtitle_burn_args(
+            &job_input,
+            &job_srt_name,
+            &job_part,
+            &encoder,
+            quality,
+            Some(&job_style),
+        );
         let throttle = ProgressThrottle::new();
         let r = worker::run_ffmpeg_in(
             ctx,

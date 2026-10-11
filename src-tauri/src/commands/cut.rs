@@ -92,6 +92,7 @@ pub async fn submit_task(
             output,
             quality,
             encoder,
+            style,
         } => super::subtitle::submit_subtitle_burn(
             app,
             &state,
@@ -100,6 +101,7 @@ pub async fn submit_task(
             output,
             quality,
             encoder,
+            style,
         ),
         VideoTask::SubtitleMux {
             input,

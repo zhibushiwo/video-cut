@@ -235,15 +235,43 @@ pub fn subtitles_filter_value(srt_file_name: &str) -> String {
         .replace('\'', "\\'")
 }
 
+/// 烧录样式的 ASS `force_style` 值（M18-13 `FR-396`，`ADR-045`）：仅数字键值对拼装，
+/// 无转义面；各项独立 clamp（字号 4~500 / 描边 0~50 / 底部边距 0~500）。
+/// 全部留空返回 None——调用方不追加 force_style 选项（现行为不变）。
+pub fn subtitles_force_style(style: &crate::SubtitleStyle) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(v) = style.font_size {
+        parts.push(format!("FontSize={}", v.clamp(4, 500)));
+    }
+    if let Some(v) = style.outline {
+        parts.push(format!("Outline={}", v.clamp(0, 50)));
+    }
+    if let Some(v) = style.margin_v {
+        parts.push(format!("MarginV={}", v.clamp(0, 500)));
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(","))
+    }
+}
+
 /// 字幕烧录（M18 FR-394，重编码 warn 路径）：`subtitles`（libass）滤镜渲染进画面，
 /// 视频 重编码、音频 copy（决策 #8）。调用方负责把进程 CWD 设为字幕目录（`ADR-043`②）。
+/// `style` = 烧录样式（M18-13 `FR-396`，`ADR-045`）：Some 且任一项设置时滤镜追加
+/// `force_style`（值由 [`subtitles_force_style`] 拼装，单引号包进 filtergraph）。
 pub fn subtitle_burn_args(
     input: &str,
     srt_file_name: &str,
     output: &str,
     encoder: &str,
     quality: QualityPreset,
+    style: Option<&crate::SubtitleStyle>,
 ) -> Vec<String> {
+    let mut filter = format!("subtitles={}", subtitles_filter_value(srt_file_name));
+    if let Some(style_str) = style.and_then(subtitles_force_style) {
+        filter.push_str(&format!(":force_style='{style_str}'"));
+    }
     let mut args = base_args();
     args.extend([
         "-i".to_string(),
@@ -253,7 +281,7 @@ pub fn subtitle_burn_args(
         "-map".to_string(),
         "0:a:0?".to_string(),
         "-vf".to_string(),
-        format!("subtitles={}", subtitles_filter_value(srt_file_name)),
+        filter,
         "-c:v".to_string(),
         encoder.to_string(),
     ]);
@@ -772,6 +800,7 @@ pub fn pipeline_transcode_args(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::SubtitleStyle;
 
     #[test]
     fn cut_args_follows_design_template() {
@@ -930,14 +959,16 @@ mod tests {
 
     #[test]
     fn subtitle_burn_args_follows_design_template() {
-        // FR-394：重编码 + 音频 copy（决策 #8）+ subtitles 滤镜；红线 1 全序列断言
+        // FR-394：重编码 + 音频 copy（决策 #8）+ subtitles 滤镜；红线 1 全序列断言。
+        // style = None（M18-13 全留空口径）：序列与 M18-11 完全一致（无 force_style）
         assert_eq!(
             subtitle_burn_args(
                 "in.mp4",
                 "sub.srt",
                 "out.mp4",
                 "libx264",
-                QualityPreset::Balanced
+                QualityPreset::Balanced,
+                None
             ),
             vec![
                 "-hide_banner",
@@ -967,6 +998,51 @@ mod tests {
                 "-y",
                 "out.mp4",
             ]
+        );
+    }
+
+    #[test]
+    fn subtitles_force_style_joins_and_clamps() {
+        // FR-396（ADR-045②）：数字键值对按序拼装；超范围 clamp（字号 4~500/描边 0~50/边距 0~500）
+        assert_eq!(
+            subtitles_force_style(&SubtitleStyle {
+                font_size: Some(28),
+                outline: Some(2),
+                margin_v: Some(40),
+            }),
+            Some("FontSize=28,Outline=2,MarginV=40".to_string())
+        );
+        assert_eq!(
+            subtitles_force_style(&SubtitleStyle {
+                font_size: Some(9999),
+                outline: Some(0),
+                margin_v: None,
+            }),
+            Some("FontSize=500,Outline=0".to_string())
+        );
+        // 全留空 = None（现行为不变，不追加 force_style）
+        assert_eq!(subtitles_force_style(&SubtitleStyle::default()), None);
+    }
+
+    #[test]
+    fn subtitle_burn_args_appends_force_style_when_styled() {
+        // FR-396：force_style 值以单引号包进 filtergraph；纯数字值无转义面（ADR-045③）
+        let args = subtitle_burn_args(
+            "in.mp4",
+            "sub.srt",
+            "out.mp4",
+            "libx264",
+            QualityPreset::Balanced,
+            Some(&SubtitleStyle {
+                font_size: Some(32),
+                outline: None,
+                margin_v: Some(60),
+            }),
+        );
+        let vf = args.iter().position(|a| a == "-vf").expect("缺少 -vf");
+        assert_eq!(
+            args[vf + 1],
+            "subtitles=sub.srt:force_style='FontSize=32,MarginV=60'"
         );
     }
 

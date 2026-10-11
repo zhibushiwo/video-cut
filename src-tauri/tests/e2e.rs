@@ -641,6 +641,7 @@ fn subtitle_burn_chain() {
         &s(&out),
         "libx264",
         QualityPreset::Small,
+        None,
     ));
     let o = r.output().expect("启动 ffmpeg 失败");
     assert!(

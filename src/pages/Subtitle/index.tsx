@@ -27,6 +27,7 @@ import {
 import { basename, resolveOutputDir, resolveUniqueTarget, stemOf, subtitleMuxExt } from "../../utils/paths";
 import type {
   AppSettings,
+  SubtitleBurnStyle,
   TaskStatus,
   WhisperBackendStatus,
   WhisperModelInfo,
@@ -68,6 +69,8 @@ export default function SubtitlePage({
   const [exportSrt, setExportSrt] = useState<string | null>(null);
   const [muxSubmitted, setMuxSubmitted] = useState(false);
   const [burnSubmitted, setBurnSubmitted] = useState(false);
+  /** 烧录样式（M18-13，FR-396）：留空字段 = libass 默认；不持久化（ADR-045④） */
+  const [burnStyle, setBurnStyle] = useState<SubtitleBurnStyle>({});
 
   useEffect(() => {
     if (previewSrt) setExportSrt(previewSrt);
@@ -237,12 +240,13 @@ export default function SubtitlePage({
         output,
         quality: settings.quality,
         encoder: settings.encoder === "auto" ? null : settings.encoder,
+        style: burnStyle,
       });
       setBurnSubmitted(true);
     } catch (e: unknown) {
       setError(String(e));
     }
-  }, [filePath, exportSrt, settings]);
+  }, [filePath, exportSrt, settings, burnStyle]);
 
   return (
     <div className="flex h-full flex-col">
@@ -410,6 +414,44 @@ export default function SubtitlePage({
                   <span className="text-warn">视频需重编码（有损、耗时）</span>
                   ，音频原样复制；输出 <code className="font-mono">{`${stemOf(filePath)}_subbed.mp4`}</code>。
                 </p>
+                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-mute">
+                  <span>样式：</span>
+                  {(
+                    [
+                      ["fontSize", "字号", 500],
+                      ["outline", "描边", 50],
+                      ["marginV", "底部边距", 500],
+                    ] as const
+                  ).map(([key, label, max]) => (
+                    <label key={key} className="flex items-center gap-1">
+                      {label}
+                      <input
+                        type="number"
+                        min={0}
+                        max={max}
+                        value={burnStyle[key] ?? ""}
+                        onChange={(e) => {
+                          const raw = e.target.value.trim();
+                          const v = raw === "" ? undefined : Math.round(Number(raw));
+                          setBurnStyle((s) => ({
+                            ...s,
+                            [key]: v !== undefined && Number.isFinite(v) ? v : undefined,
+                          }));
+                        }}
+                        placeholder="默认"
+                        title="留空 = 默认样式（超范围自动收敛）"
+                        className="w-16 rounded-md border border-hairline bg-panel px-1.5 py-1 text-xs text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-warn"
+                      />
+                    </label>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => setBurnStyle({})}
+                    className="text-mute underline-offset-2 transition-colors hover:text-paper hover:underline focus:outline-none"
+                  >
+                    恢复默认
+                  </button>
+                </div>
                 <div className="mt-2 flex items-center justify-between gap-3">
                   <div className="min-w-0 text-xs text-mute">
                     字幕文件：

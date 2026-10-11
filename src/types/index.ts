@@ -241,6 +241,8 @@ export type VideoTask =
       output: string;
       quality: QualityPreset;
       encoder: string | null;
+      /** 烧录样式（M18-13，FR-396，ADR-045）：缺省字段 = 留空走 libass 默认（不加 force_style） */
+      style?: SubtitleBurnStyle;
     }
   | {
       /** 软字幕封装（M18-12，FR-395，无损 signal，ADR-044）：视频/音频 copy + .srt 字幕轨封装 */
@@ -249,6 +251,13 @@ export type VideoTask =
       subtitlePath: string;
       output: string;
     };
+
+/** 烧录样式三项（M18-13，FR-396，ADR-045；lib.rs `SubtitleStyle` 镜像；后端 clamp：字号 4~500 / 描边 0~50 / 底边距 0~500） */
+export interface SubtitleBurnStyle {
+  fontSize?: number;
+  outline?: number;
+  marginV?: number;
+}
 
 /** 工作台单项配置（DESIGN §3.8）：裁剪矩形为显示空间像素坐标 */
 export interface PipelineItem {
