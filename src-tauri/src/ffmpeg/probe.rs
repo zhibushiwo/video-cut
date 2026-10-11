@@ -112,9 +112,31 @@ async fn run_ffprobe(app: &AppHandle, args: &[&str], input: &str) -> Result<Stri
         .map_err(|e| format!("无法启动 ffprobe：{e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        return Err(format!("ffprobe 失败：{}", err.trim()));
+        return Err(clean_ffprobe_error(&err));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+/// 清洗 ffprobe 的 stderr（M21-4）：剥掉版本/构建配置 banner，只保留关键错误行，
+/// 并附人话前缀——用户看到的是"文件坏了"（如历史半成品 moov 缺失），而不是整屏配置。
+pub(crate) fn clean_ffprobe_error(stderr: &str) -> String {
+    const BANNER_PREFIXES: [&str; 3] = ["ffprobe version", "built with", "configuration:"];
+    let key: Vec<&str> = stderr
+        .lines()
+        .map(str::trim)
+        .filter(|l| {
+            !l.is_empty()
+                && !BANNER_PREFIXES
+                    .iter()
+                    .any(|p| l.to_ascii_lowercase().starts_with(p))
+        })
+        .collect();
+    let detail = if key.is_empty() {
+        stderr.trim().to_string()
+    } else {
+        key.join("；")
+    };
+    format!("文件无法读取——可能已损坏或不完整（如历史未完成的半成品）：{detail}")
 }
 
 /// 合并检测所需的完整事实（DESIGN §3.3 九项比对）。
@@ -190,10 +212,7 @@ pub fn probe_merge_facts_sync(ffprobe: &Path, input: &str) -> Result<MergeFileFa
         .output()
         .map_err(|e| format!("无法启动 ffprobe：{e}"))?;
     if !out.status.success() {
-        return Err(format!(
-            "ffprobe 失败：{}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
+        return Err(clean_ffprobe_error(&String::from_utf8_lossy(&out.stderr)));
     }
     let v: Value = serde_json::from_str(&String::from_utf8_lossy(&out.stdout))
         .map_err(|e| format!("ffprobe 输出解析失败：{e}"))?;
@@ -249,10 +268,7 @@ pub fn probe_duration_sync(ffprobe: &Path, input: &str) -> Result<f64, String> {
         .output()
         .map_err(|e| format!("无法启动 ffprobe：{e}"))?;
     if !out.status.success() {
-        return Err(format!(
-            "ffprobe 失败：{}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
+        return Err(clean_ffprobe_error(&String::from_utf8_lossy(&out.stderr)));
     }
     let duration = String::from_utf8_lossy(&out.stdout)
         .trim()
@@ -425,6 +441,33 @@ pub fn parse_keyframes(csv: &str) -> Vec<f64> {
 
 #[cfg(test)]
 mod tests {
+    use super::clean_ffprobe_error;
+
+    #[test]
+    fn clean_ffprobe_error_strips_banner_and_keeps_key_lines() {
+        // M21-4：实机样例——banner 三行剥掉，关键错误保留 + 人话前缀
+        let raw = r#"ffprobe version 9.0.2-essentials_build-www.gyan.dev Copyright (c) 2007-2026 the FFmpeg developers
+built with gcc 13.2.0 (Rev3, Built by MSYS2 project)
+configuration: --enable-gpl --enable-version3
+[mov,mp4,m4a,3gp,3g2,mj2 @ 0000019994cdcd00] moov atom not found
+C:\video\x.mp4: Invalid data found when processing input"#;
+        let msg = clean_ffprobe_error(raw);
+        assert!(msg.starts_with("文件无法读取——可能已损坏或不完整（如历史未完成的半成品）："));
+        assert!(!msg.contains("ffprobe version"));
+        assert!(!msg.contains("configuration:"));
+        assert!(msg.contains("moov atom not found"));
+        assert!(msg.contains("Invalid data found when processing input"));
+    }
+
+    #[test]
+    fn clean_ffprobe_error_falls_back_to_raw_when_all_banner() {
+        let msg = clean_ffprobe_error(
+            "ffprobe version 9.0.2
+",
+        );
+        assert!(msg.contains("ffprobe version 9.0.2"));
+    }
+
     use super::*;
     use serde_json::json;
 
