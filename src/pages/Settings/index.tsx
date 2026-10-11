@@ -1,6 +1,8 @@
 /**
  * 设置页（DESIGN §9.9 / M4-1 基础 + M4-8 二期）：改动即保存（write-through），无显式保存按钮。
  * 二期新增：主题色预设、任务浮层自动关闭、缓存管理、重置全部设置、关于区。
+ * M18-14：新增「AI 字幕」区——模型下载/删除/选择（ModelPicker）+ GPU 后端徽标 +
+ * 打开模型文件夹（自字幕页迁入，字幕页只保留模型选择）。
  */
 import { useCallback, useEffect, useState } from "react";
 import { PageHeader } from "../../components/PageHeader";
@@ -10,9 +12,18 @@ import {
   cacheUsage,
   clearCache,
   confirmDialog,
+  deleteWhisperModel,
+  downloadWhisperCuda,
+  downloadWhisperModel,
   getAppVersion,
+  listWhisperModels,
+  onTaskProgress,
+  onTaskStatus,
+  openModelsDir,
   pickDirectory,
+  probeWhisperBackend,
 } from "../../services/tauri";
+import { useTauriEvent } from "../../hooks/useTauriEvent";
 import { DEFAULT_SETTINGS } from "../../services/settings";
 import { ACCENTS } from "../../theme";
 import type {
@@ -23,7 +34,12 @@ import type {
   EnvironmentInfo,
   ProxyMode,
   QualityPreset,
+  TaskStatus,
+  WhisperBackendStatus,
+  WhisperModelInfo,
 } from "../../types";
+import { BackendBadge } from "../Subtitle/BackendBadge";
+import { ModelPicker } from "../Subtitle/ModelPicker";
 import { QUALITY_LABELS } from "../../utils/quality";
 import { formatBytes } from "../../utils/time";
 
@@ -97,18 +113,88 @@ export default function SettingsPage({
   const [usage, setUsage] = useState<CacheUsage | null>(null);
   const [version, setVersion] = useState<string>("");
   const [cacheMsg, setCacheMsg] = useState<string | null>(null);
+  /** AI 字幕区（M18-14，自字幕页迁入）：模型列表 / GPU 后端状态 / 进行中的下载 */
+  const [models, setModels] = useState<WhisperModelInfo[] | null>(null);
+  const [backend, setBackend] = useState<WhisperBackendStatus | null>(null);
+  const [subtitleError, setSubtitleError] = useState<string | null>(null);
+  const [dl, setDl] = useState<{
+    id: string;
+    kind: "model" | "cuda";
+    name: string;
+    progress: number;
+  } | null>(null);
 
   const loadUsage = useCallback(() => {
     void cacheUsage()
       .then(setUsage)
       .catch(() => setUsage(null));
   }, []);
+  const refreshSubtitle = useCallback(() => {
+    void listWhisperModels()
+      .then(setModels)
+      .catch((e: unknown) => setSubtitleError(String(e)));
+    void probeWhisperBackend()
+      .then(setBackend)
+      .catch(() => setBackend(null));
+  }, []);
   useEffect(() => {
     loadUsage();
+    refreshSubtitle();
     void getAppVersion()
       .then(setVersion)
       .catch(() => setVersion(""));
-  }, [loadUsage]);
+  }, [loadUsage, refreshSubtitle]);
+
+  // 模型/加速包下载任务进度与终态（完成后刷新列表与 GPU 状态）
+  useTauriEvent(() =>
+    onTaskProgress((p) => {
+      setDl((d) => (d && d.id === p.taskId ? { ...d, progress: p.percent } : d));
+    }),
+  );
+  useTauriEvent(() =>
+    onTaskStatus((s) => {
+      setDl((d) => {
+        if (!d || d.id !== s.taskId) return d;
+        const terminal: TaskStatus = s.status;
+        if (terminal === "completed" || terminal === "failed" || terminal === "cancelled") {
+          if (terminal === "failed") setSubtitleError(s.error ?? "下载失败");
+          refreshSubtitle();
+          return null;
+        }
+        return d;
+      });
+    }),
+  );
+
+  const onDownloadModel = useCallback(
+    (id: string) => {
+      setSubtitleError(null);
+      void downloadWhisperModel(id)
+        .then((taskId) => {
+          const m = models?.find((x) => x.id === id);
+          setDl({ id: taskId, kind: "model", name: m?.fileName ?? id, progress: 0 });
+        })
+        .catch((e: unknown) => setSubtitleError(String(e)));
+    },
+    [models],
+  );
+
+  const onDeleteModel = useCallback(
+    (id: string) => {
+      setSubtitleError(null);
+      void deleteWhisperModel(id)
+        .then(refreshSubtitle)
+        .catch((e: unknown) => setSubtitleError(String(e)));
+    },
+    [refreshSubtitle],
+  );
+
+  const onDownloadCuda = useCallback(() => {
+    setSubtitleError(null);
+    void downloadWhisperCuda()
+      .then((taskId) => setDl({ id: taskId, kind: "cuda", name: "cuda", progress: 0 }))
+      .catch((e: unknown) => setSubtitleError(String(e)));
+  }, []);
 
   const browseDir = async () => {
     const dir = await pickDirectory();
@@ -296,18 +382,56 @@ export default function SettingsPage({
           </div>
         </Row>
 
-        <Row title="字幕模型" desc="AI 字幕默认档位（M18）。tiny 随应用内置零下载；标准/高质量需联网下载，BGM 较响素材建议高质量档。">
-          <select
-            value={settings.subtitleModel}
-            onChange={(e) => onUpdate({ subtitleModel: e.target.value })}
-            aria-label="字幕模型"
-            className="rounded-md border border-hairline bg-panel px-2 py-1.5 text-xs text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-          >
-            <option value="tiny">极速（内置 32MB）</option>
-            <option value="small">标准（190MB）</option>
-            <option value="large-v3-turbo">高质量（574MB）</option>
-          </select>
-        </Row>
+        <section aria-label="AI 字幕" className="border-y border-hairline py-4">
+          <div className="flex items-center justify-between gap-8">
+            <div className="min-w-0">
+              <div className="text-sm text-paper">AI 字幕模型</div>
+              <div className="mt-0.5 text-xs leading-relaxed text-mute">
+                选中即作为字幕页的默认档位；标准/高质量档与 GPU 加速包按需下载（走任务系统，可取消）。
+                也可手动把模型文件（.bin）放入模型文件夹即时可用。
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <BackendBadge
+                status={backend}
+                downloading={dl?.kind === "cuda"}
+                progress={dl?.kind === "cuda" ? dl.progress : 0}
+                onDownloadCuda={onDownloadCuda}
+              />
+              <button
+                type="button"
+                onClick={() => void openModelsDir().catch((e: unknown) => setSubtitleError(String(e)))}
+                title="把自行下载的模型文件（如 ggml-small-q5_1.bin）放进此目录即可被识别"
+                className="flex items-center gap-1.5 rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                打开模型文件夹
+              </button>
+            </div>
+          </div>
+          <div className="mt-3">
+            {models ? (
+              <ModelPicker
+                models={models}
+                selectedId={settings.subtitleModel}
+                downloadingName={dl?.kind === "model" ? dl.name : null}
+                progress={dl?.kind === "model" ? dl.progress : 0}
+                onSelect={(id) => onUpdate({ subtitleModel: id })}
+                onDownload={onDownloadModel}
+                onDelete={onDeleteModel}
+              />
+            ) : (
+              <div className="rounded-lg border border-hairline px-3 py-4 text-xs text-mute">
+                正在读取模型列表…
+              </div>
+            )}
+          </div>
+          {subtitleError && (
+            <div className="mt-2 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn" role="alert">
+              {subtitleError}
+            </div>
+          )}
+        </section>
 
         <Row title="字幕语言" desc="语音语言；自动检测支持日文等（转写为语音原文，不做翻译）。">
           <select
@@ -323,7 +447,7 @@ export default function SettingsPage({
           </select>
         </Row>
 
-        <Row title="字幕转写后端" desc="GPU 加速需先在字幕页下载 CUDA 加速包；无 N 卡或试跑失败自动回退 CPU，不影响使用。">
+        <Row title="字幕转写后端" desc="GPU 加速需先在上方「AI 字幕」区下载 CUDA 加速包；无 N 卡或试跑失败自动回退 CPU，不影响使用。">
           <Segmented
             value={settings.subtitleBackend}
             onChange={(v) => onUpdate({ subtitleBackend: v })}

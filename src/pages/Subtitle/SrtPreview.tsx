@@ -2,6 +2,8 @@
  * SrtPreview（M18-8，FR-393）：源视频 + .srt 同步只读预览。
  * 字幕由 `utils/srt.ts` 解析（单一真源），按 VideoPlayer 的 rAF 时间上报实时
  * 取当前 cue，经 `overlay` 插槽叠在画面底部；不提供任何编辑入口（§1.3 非目标）。
+ * M18-14：`srtPath` 可选——无字幕 = 纯视频预览（选片即预览，识别完成后同一
+ * 预览位自动叠加字幕，两阶段共用一个播放器实例）。
  */
 import { useEffect, useState } from "react";
 import VideoPlayer from "../../components/VideoPlayer";
@@ -13,13 +15,19 @@ export function SrtPreview({
   srtPath,
 }: {
   videoPath: string;
-  srtPath: string;
+  srtPath?: string | null;
 }) {
   const [cues, setCues] = useState<SrtCue[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [cue, setCue] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!srtPath) {
+      setCues(null);
+      setError(null);
+      setCue(null);
+      return;
+    }
     let alive = true;
     setCues(null);
     setError(null);

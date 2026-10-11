@@ -437,7 +437,7 @@
 > **用户三点**：① 选片即预览 + 视频信息（时长/大小等）+ 按模型预估识别耗时；② 批量识别优先级一般放最后（→ `CAND-036`）；③ 模型下载管理迁设置页，字幕页只留选择
 
 - [x] **M18-14-1 文档批**：DESIGN §3.9 FR-391/FR-393 修订 + AC-393-2 + UI.md §9.9「AI 字幕」区/§9.11 收敛 + CAND-036 登记 + PLAN 本节 → `pnpm check:docs` 全绿　✅ **2026-10-11 落地**
-- [ ] **M18-14-2 实现**：`utils/subtitleEstimate.ts`（系数表纯函数 + Vitest）+ SrtPreview `srtPath` 可选化（选片即预览，识别后同槽叠字幕）+ 字幕页信息卡（probe_media）+ 模型动态下拉（管理迁出）+ 设置页「AI 字幕」区（ModelPicker/BackendBadge/打开模型文件夹迁入，替换静态模型下拉）→ 验收：AC-393-2
+- [x] **M18-14-2 实现**：`utils/subtitleEstimate.ts`（系数表纯函数 + Vitest）+ SrtPreview `srtPath` 可选化（选片即预览，识别后同槽叠字幕）+ 字幕页信息卡（probe_media）+ 模型动态下拉（管理迁出）+ 设置页「AI 字幕」区（ModelPicker/BackendBadge/打开模型文件夹迁入，替换静态模型下拉）→ 验收：AC-393-2　✅ **2026-10-11 落地**（估算 = 视频时长 × 模型系数（CPU spike 实测口径 tiny 0.15/small 0.40/turbo 1.85，自定义按 small；formatEstimate 三态展示）+ 6 条 Vitest（floor 修正：30s 是「不到 1 分钟」不是「约 1 分钟」）；SrtPreview 可选 srtPath（null = 纯预览，卸载字幕读入、不清播放器）；字幕页 = 预览 + 信息卡（时长/大小/分辨率/帧率/编码/容器/码率/音轨数 + 估算行）+ 模型/语言双下拉（未下载档标注「设置页可下载」，开始识别按钮对未就绪模型禁用 + title 提示）；设置页「AI 字幕」区 = ModelPicker + BackendBadge + 打开模型文件夹 + 下载进度事件订阅（原静态三档下拉删除，后端行文案同步）；vitest 161 · tsc/eslint/fmt 全绿（无 Rust 改动））
 
 ## M13 打磨（可选，视 M11/M12 体验决定，决策 #31）
 

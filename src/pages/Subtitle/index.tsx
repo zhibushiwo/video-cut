@@ -1,8 +1,10 @@
 /**
- * 字幕页（M18-7，DESIGN §3.9 / UI.md §9.11）：导入视频 → 选模型与语言 → 识别
- * → .srt 落盘（任务面板接管进度）。页面保活（M10-1 口径）：模型列表与选择状态
- * 离开不丢失。识别完成后两个导出区（M18-12 封装 = signal 无损 / M18-11 烧录 =
- * warn 重编码）共用同一 .srt 选择。
+ * 字幕页（M18-7，DESIGN §3.9 / UI.md §9.11）：导入视频 → 预览与信息（M18-14）
+ * → 选模型与语言 → 识别 → .srt 落盘（任务面板接管进度）。
+ * M18-14 信息架构：选片即预览（SrtPreview `srtPath` 可选，识别后同槽叠字幕）+
+ * 信息卡（时长/大小/分辨率 + 预计识别耗时，`utils/subtitleEstimate.ts`）；
+ * 模型下载/删除/后端管理迁设置页（§9.9「AI 字幕」区），本页只保留选择。
+ * 页面保活（M10-1 口径）：模型列表与选择状态离开不丢失。
  */
 import { useCallback, useEffect, useState } from "react";
 import { Captions, FolderOpen } from "lucide-react";
@@ -11,29 +13,23 @@ import { EmptyImport } from "../../components/EmptyImport";
 import { useTauriEvent } from "../../hooks/useTauriEvent";
 import { useConsumeInitialFiles } from "../../hooks/useConsumeInitialFiles";
 import {
-  deleteWhisperModel,
-  downloadWhisperCuda,
-  downloadWhisperModel,
   fileExists,
   listWhisperModels,
-  onTaskProgress,
   onTaskStatus,
-  openModelsDir,
   pickSrt,
   pickVideo,
-  probeWhisperBackend,
+  probeMedia,
   submitTask,
 } from "../../services/tauri";
 import { basename, resolveOutputDir, resolveUniqueTarget, stemOf, subtitleMuxExt } from "../../utils/paths";
+import { estimateTranscribeSec, formatEstimate } from "../../utils/subtitleEstimate";
+import { formatBitrate, formatBytes, formatTime } from "../../utils/time";
 import type {
   AppSettings,
+  MediaInfo,
   SubtitleBurnStyle,
-  TaskStatus,
-  WhisperBackendStatus,
   WhisperModelInfo,
 } from "../../types";
-import { ModelPicker } from "./ModelPicker";
-import { BackendBadge } from "./BackendBadge";
 import { SrtPreview } from "./SrtPreview";
 
 const LANGUAGES: { value: string; label: string }[] = [
@@ -58,7 +54,7 @@ export default function SubtitlePage({
 }) {
   const [filePath, setFilePath] = useState<string | null>(null);
   const [models, setModels] = useState<WhisperModelInfo[] | null>(null);
-  const [backend, setBackend] = useState<WhisperBackendStatus | null>(null);
+  const [mediaInfo, setMediaInfo] = useState<MediaInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
   /** 已提交转写任务的 id（用于捕获完成事件里的真实产物路径，M18-8 预览数据源） */
@@ -75,25 +71,35 @@ export default function SubtitlePage({
   useEffect(() => {
     if (previewSrt) setExportSrt(previewSrt);
   }, [previewSrt]);
-  /** 进行中的下载任务（模型 / CUDA 加速包）：进度与完成回调 */
-  const [dl, setDl] = useState<{
-    id: string;
-    kind: "model" | "cuda";
-    name: string;
-    progress: number;
-  } | null>(null);
 
   const refresh = useCallback(() => {
     void listWhisperModels()
       .then(setModels)
       .catch((e: unknown) => setError(String(e)));
-    void probeWhisperBackend()
-      .then(setBackend)
-      .catch(() => setBackend(null));
   }, []);
   useEffect(() => {
     if (active) refresh();
   }, [active, refresh]);
+
+  /** 选片即探测（LRU 缓存命中）：信息卡数据源（M18-14，FR-393） */
+  useEffect(() => {
+    if (!filePath) {
+      setMediaInfo(null);
+      return;
+    }
+    let alive = true;
+    setMediaInfo(null);
+    probeMedia(filePath)
+      .then((info) => {
+        if (alive) setMediaInfo(info);
+      })
+      .catch(() => {
+        if (alive) setMediaInfo(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [filePath]);
 
   useConsumeInitialFiles(initialFiles, (files) => {
     const first = files[0] ?? null;
@@ -104,28 +110,10 @@ export default function SubtitlePage({
     }
   });
 
-  // 下载任务进度 / 终态：完成后刷新模型列表与 GPU 状态
-  useTauriEvent(() =>
-    onTaskProgress((p) => {
-      setDl((d) => (d && d.id === p.taskId ? { ...d, progress: p.percent } : d));
-    }),
-  );
+  // 转写任务完成 → 捕获真实产物路径（outputs[0]，M18-8 预览数据源；
+  // 不猜文件名——防覆盖时间戳、换目录都不影响）
   useTauriEvent(() =>
     onTaskStatus((s) => {
-      setDl((d) => {
-        if (!d || d.id !== s.taskId) return d;
-        const terminal: TaskStatus = s.status;
-        if (terminal === "completed" || terminal === "failed" || terminal === "cancelled") {
-          if (terminal === "failed") {
-            setError(s.error ?? "下载失败");
-          }
-          void refresh();
-          return null;
-        }
-        return d;
-      });
-      // 转写任务完成 → 捕获真实产物路径（outputs[0]，M18-8 预览数据源；
-      // 不猜文件名——防覆盖时间戳、换目录都不影响）
       if (
         s.taskId === subtitleTaskId &&
         s.status === "completed" &&
@@ -144,36 +132,6 @@ export default function SubtitlePage({
         setError(null);
       }
     });
-  }, []);
-
-  const onDownloadModel = useCallback(
-    (id: string) => {
-      setError(null);
-      void downloadWhisperModel(id)
-        .then((taskId) => {
-          const m = models?.find((x) => x.id === id);
-          setDl({ id: taskId, kind: "model", name: m?.fileName ?? id, progress: 0 });
-        })
-        .catch((e: unknown) => setError(String(e)));
-    },
-    [models],
-  );
-
-  const onDeleteModel = useCallback(
-    (id: string) => {
-      setError(null);
-      void deleteWhisperModel(id)
-        .then(refresh)
-        .catch((e: unknown) => setError(String(e)));
-    },
-    [refresh],
-  );
-
-  const onDownloadCuda = useCallback(() => {
-    setError(null);
-    void downloadWhisperCuda()
-      .then((taskId) => setDl({ id: taskId, kind: "cuda", name: "cuda", progress: 0 }))
-      .catch((e: unknown) => setError(String(e)));
   }, []);
 
   const selectedReady =
@@ -250,18 +208,7 @@ export default function SubtitlePage({
 
   return (
     <div className="flex h-full flex-col">
-      <PageHeader
-        title="字幕 · 本地语音识别，生成 .srt"
-        onBack={onBack}
-        right={
-          <BackendBadge
-            status={backend}
-            downloading={dl?.kind === "cuda"}
-            progress={dl?.kind === "cuda" ? dl.progress : 0}
-            onDownloadCuda={onDownloadCuda}
-          />
-        }
-      />
+      <PageHeader title="字幕 · 本地语音识别，生成 .srt" onBack={onBack} />
       <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
         {!filePath ? (
           <EmptyImport
@@ -290,41 +237,76 @@ export default function SubtitlePage({
               </button>
             </div>
 
-            <section aria-label="识别模型">
-              <div className="mb-2 flex items-center justify-between">
-                <h2 className="text-xs font-medium text-mute">识别模型</h2>
-                <button
-                  type="button"
-                  onClick={() => void openModelsDir().catch((e: unknown) => setError(String(e)))}
-                  title="把自行下载的模型文件（如 ggml-small-q5_1.bin）放进此目录即可被识别"
-                  className="flex items-center gap-1.5 rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-                >
-                  <FolderOpen className="h-3.5 w-3.5" />
-                  打开模型文件夹
-                </button>
-              </div>
-              {models ? (
-                <ModelPicker
-                  models={models}
-                  selectedId={settings.subtitleModel}
-                  downloadingName={dl?.kind === "model" ? dl.name : null}
-                  progress={dl?.kind === "model" ? dl.progress : 0}
-                  onSelect={(id) => onUpdateSettings({ subtitleModel: id })}
-                  onDownload={onDownloadModel}
-                  onDelete={onDeleteModel}
-                />
-              ) : (
-                <div className="rounded-lg border border-hairline px-3 py-4 text-xs text-mute">
-                  正在读取模型列表…
+            <section aria-label="视频预览与信息">
+              <SrtPreview videoPath={filePath} srtPath={previewSrt} />
+              {mediaInfo && (
+                <div className="mt-2 rounded-lg border border-hairline px-3 py-2 text-xs text-mute">
+                  <div className="flex flex-wrap gap-x-4 gap-y-1">
+                    <span>
+                      时长 <span className="text-paper">{formatTime(mediaInfo.durationSec, false)}</span>
+                    </span>
+                    <span>
+                      大小 <span className="text-paper">{formatBytes(mediaInfo.sizeBytes)}</span>
+                    </span>
+                    <span>
+                      分辨率{" "}
+                      <span className="text-paper">
+                        {mediaInfo.video.width}×{mediaInfo.video.height}
+                      </span>
+                    </span>
+                    <span>
+                      帧率 <span className="text-paper">{mediaInfo.video.frameRate.toFixed(2)} fps</span>
+                    </span>
+                    <span>
+                      编码 <span className="text-paper">{mediaInfo.video.codec}</span>
+                    </span>
+                    <span>
+                      容器 <span className="text-paper">{mediaInfo.container}</span>
+                    </span>
+                    {mediaInfo.bitrate !== null && (
+                      <span>
+                        码率 <span className="text-paper">{formatBitrate(mediaInfo.bitrate)}</span>
+                      </span>
+                    )}
+                    {mediaInfo.audio.length > 0 && (
+                      <span>
+                        音轨 <span className="text-paper">{mediaInfo.audio.length} 条</span>
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1.5 border-t border-hairline pt-1.5">
+                    预计识别耗时：
+                    <span className="text-paper">
+                      {formatEstimate(
+                        estimateTranscribeSec(mediaInfo.durationSec, settings.subtitleModel),
+                      )}
+                    </span>
+                    <span className="ml-1">
+                      （CPU 口径估算，随模型档位变化；GPU 可用时实际显著更快）
+                    </span>
+                  </div>
                 </div>
               )}
-              <p className="mt-2 text-xs leading-relaxed text-mute">
-                标准与高质量档效果更好；BGM 较响的素材建议高质量档。下载需联网（一次性），
-                也可手动把模型文件放入缓存 models 目录。
-              </p>
             </section>
 
-            <section aria-label="识别语言" className="flex items-center gap-3">
+            <section aria-label="识别模型与语言" className="flex flex-wrap items-center gap-3">
+              <h2 className="text-xs font-medium text-mute">识别模型</h2>
+              <select
+                value={settings.subtitleModel}
+                onChange={(e) => onUpdateSettings({ subtitleModel: e.target.value })}
+                aria-label="识别模型"
+                className="rounded-md border border-hairline bg-panel px-2 py-1.5 text-xs text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+              >
+                {models && !models.some((m) => m.id === settings.subtitleModel) && (
+                  <option value={settings.subtitleModel}>{settings.subtitleModel}</option>
+                )}
+                {(models ?? []).map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                    {m.custom ? "（自定义）" : m.bundled ? "（内置）" : m.ready ? "" : "（未下载，设置页可下载）"}
+                  </option>
+                ))}
+              </select>
               <h2 className="text-xs font-medium text-mute">语音语言</h2>
               <select
                 value={settings.subtitleLanguage}
@@ -338,7 +320,7 @@ export default function SubtitlePage({
                   </option>
                 ))}
               </select>
-              <span className="text-xs text-mute">转写为语音原文（不做翻译）</span>
+              <span className="text-xs text-mute">转写为语音原文（不做翻译）；模型下载与管理在「设置」页</span>
             </section>
 
             {error && (
@@ -350,13 +332,6 @@ export default function SubtitlePage({
               <div className="rounded-lg border border-signal/40 bg-signal/10 px-3 py-2 text-xs text-signal" role="status">
                 已提交识别任务，进度见下方任务面板；完成后 .srt 与视频同目录同名。
               </div>
-            )}
-
-            {previewSrt && filePath && (
-              <section aria-label="字幕预览">
-                <h2 className="mb-2 text-xs font-medium text-mute">字幕预览</h2>
-                <SrtPreview videoPath={filePath} srtPath={previewSrt} />
-              </section>
             )}
 
             {filePath && (
@@ -491,7 +466,7 @@ export default function SubtitlePage({
               type="button"
               disabled={!canSubmit}
               onClick={submit}
-              title={selectedReady ? undefined : "所选模型未下载"}
+              title={selectedReady ? undefined : "所选模型未下载（设置页可下载）"}
               className="flex h-11 items-center justify-center gap-2 rounded-lg bg-signal text-sm font-medium text-ink transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Captions className="h-4 w-4" />
