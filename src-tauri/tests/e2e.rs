@@ -653,6 +653,21 @@ fn subtitle_burn_chain() {
     assert_decodable(fx, &out);
 }
 
+/// 探测指定选择器（"a"=音轨 / "s"=字幕轨 / "v"=视频轨）的流数量。
+fn probe_stream_count(fx: &Fixtures, p: &Path, sel: &str) -> usize {
+    let o = Command::new(&fx.ffprobe)
+        .args(["-v", "error", "-select_streams"])
+        .arg(sel)
+        .args(["-show_entries", "stream=index", "-of", "csv=p=0"])
+        .arg(p)
+        .output()
+        .unwrap();
+    String::from_utf8_lossy(&o.stdout)
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .count()
+}
+
 /// 探测第一条字幕流的编码名（无字幕流返回 None）。
 fn probe_subtitle_codec(fx: &Fixtures, p: &Path) -> Option<String> {
     let o = Command::new(&fx.ffprobe)
@@ -710,6 +725,50 @@ fn subtitle_mux_chain() {
     assert_eq!(
         probe_subtitle_codec(fx, &out_mp4).as_deref(),
         Some("mov_text")
+    );
+
+    // ①b 多音轨源 → 全部音轨保留（AC-395-1"多音轨全保留"，`-map 0:a?` 的行为断言）
+    let multi = fx.dir.join("multi_a.mp4");
+    let o = Command::new(&fx.ffmpeg)
+        .args(["-hide_banner", "-loglevel", "error", "-y", "-i"])
+        .arg(&fx.src_a)
+        .args(["-f", "lavfi", "-i", "sine=frequency=880:duration=6"])
+        .args([
+            "-map", "0:v:0", "-map", "0:a:0", "-map", "1:a:0", "-c", "copy",
+        ])
+        .arg(&multi)
+        .output()
+        .expect("启动 ffmpeg 失败");
+    assert!(
+        o.status.success(),
+        "多音轨夹具生成失败：{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    let out_multi = fx.dir.join("muxed_multi.mp4");
+    let o = Command::new(&fx.ffmpeg)
+        .args(cmd::subtitle_mux_args(
+            &s(&multi),
+            &s(&srt),
+            &s(&out_multi),
+            "mov_text",
+        ))
+        .output()
+        .expect("启动 ffmpeg 失败");
+    assert!(
+        o.status.success(),
+        "多音轨封装失败：{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert_decodable(fx, &out_multi);
+    assert_eq!(
+        probe_stream_count(fx, &out_multi, "a"),
+        2,
+        "两条音轨都应保留"
+    );
+    assert_eq!(
+        probe_stream_count(fx, &out_multi, "s"),
+        1,
+        "恰好一条新字幕轨"
     );
 
     // ② mkv 源（由夹具 remux 而来）→ mkv + srt

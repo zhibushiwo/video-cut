@@ -427,13 +427,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         onVideoClick();
         return;
       }
-      const v = videoRef.current;
-      if (!v) return;
-      // `ended` 也要当作"可以起播"：到底后规范只置 `ended`、`paused` **仍是 false**
-      // （自然播放到底不触发 `pause`），只按 `paused` 判向会把"播完点画面"当成暂停，
-      // 用户要点两次才重播（`BUG-023` 同族）。
-      if (v.paused || v.ended) safePlay(v);
-      else v.pause();
+      togglePlay();
     };
 
     const zoomStyle: CSSProperties | undefined = zoom
@@ -449,6 +443,9 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const togglePlay = () => {
       const v = videoRef.current;
       if (!v) return;
+      // `ended` 也要当作"可以起播"：到底后规范只置 `ended`、`paused` **仍是 false**
+      // （自然播放到底不触发 `pause`），只按 `paused` 判向会把"播完点画面"当成暂停，
+      // 用户要点两次才重播（`BUG-023` 同族）。
       if (v.paused || v.ended) safePlay(v);
       else v.pause();
     };
@@ -592,7 +589,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   value={muted ? 0 : vol}
                   onChange={(e) => setVolume(Number(e.target.value))}
                   aria-label="音量"
-                  className="pointer-events-none absolute left-7 top-1/2 h-1 w-16 -translate-y-1/2 cursor-pointer accent-signal opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100"
+                  className="pointer-events-none absolute right-4 top-1/2 h-1 w-16 -translate-y-1/2 cursor-pointer accent-signal opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100"
                 />
               </div>
               {allowZoom && zoom && (

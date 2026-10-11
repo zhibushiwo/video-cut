@@ -5,7 +5,7 @@
 > **读时机**：任何改动前的上位规格；新会话先读本文（地图见 [INDEX.md](./INDEX.md)）。
 > **写规则**：行为规格变化就地改本文并同步对应 FR/AC（一条一行）；实现级方案进 `plans/`，进度进 [PLAN.md](./PLAN.md)，决策进 [DECISIONS.md](./DECISIONS.md)。
 > **关联**：[INDEX.md](./INDEX.md)（地图与 ID 规范） · [../AGENTS.md](../AGENTS.md)（工程红线） · 下位：FFMPEG / UI / TIMELINE / plans
-> **最后更新**：2026-10-11（**M19 立项**——§3.10 新节 `FR-397`/`AC-397-1` 预览框选放大（实时预览专用不参与导出）；此前同日 **M18-14 字幕页信息架构调整**——FR-391 管理入口迁设置页、FR-393 扩选片即预览/信息卡/耗时预估（AC-393-2）；此前同日 **M18-13 烧录样式立项规格**——§3.9 `FR-396`/`AC-396-1`（`CAND-035` 晋升，`ADR-045`：force_style 三项数字参数）；此前同日 **M18-12 软字幕封装立项规格**：§3.9 `FR-395`/`AC-395-1` + §4 矩阵行（`CAND-034` 晋升，`ADR-044`——copy 封装 + 容器按扩展名判定 + 红线 2 显式偏离记录）；边界行移除已落地的烧录、补 LLM 加工不做）；此前 2026-10-07（**M18 AI 字幕立项规格**：§1.1 五功能/§1.2 联网边界/§1.3 "云端 AI"口径修订 + §3.9 新节 `FR-390`~`FR-393` + §5.1/§5.3/§5.4 whisper-cli sidecar 与命令 + §7 `VideoTask::Subtitle`（`ADR-039`~`ADR-041`）；**同日 spike 实测回填**：§3.9 补重复循环幻觉风险（turbo 机器语音段同句连发，M18-5 调参验证）与 CPU 速度实测（turbo 慢于实时 → GPU 为大模型刚需）；**§3.9 FR-391 模型白名单定稿**：只收录量化档、F16 不识别（F16 vs q5_0 实测质量/速度无差、体积 3 倍）+ 手动放置校验口径（按文件名接受、哈希不符仅提示不删除）；**§3.9 模型档位定稿为三档**（base 移除，用户裁决——tiny→small 夹层价值薄）；**VAD 定稿**：silero（0.9MB）随包内置 + FR-392 强制 VAD 预切分（默认时间轴偏早 3~17s 的修复，`ADR-039`⑧）；同日 M17 立项规格：§7 `PipelineItem` 加 `force_transcode`（工作台重编码旋转，`CAND-022`① 契约子集）· §3.8 规则 A 加 force 前置条件、规则 B 补强制语义 · §5.2 组件树清两处陈旧描述（头部改一行式——规则见 [INDEX.md](./INDEX.md) §7）；近期规格变化：§3.8 成品预览补写**重播落点**（播到末尾再按播放＝回成品起点，`BUG-021`）；§3.7 已知限制 + `ADR-038`、§7/§8.2 随 `M12-2` 更新（2026-10-05）；明细见对应章节与 [CHANGELOG.md](./CHANGELOG.md)
+> **最后更新**：2026-10-11（**Review 修复**——§7 补 `SubtitleBurn{style}`/`SubtitleMux`/`SubtitleStyle` 契约（红线 17 漏账，code-review 发现）；此前同日 **M19 立项**——§3.10 新节 `FR-397`/`AC-397-1` 预览框选放大（实时预览专用不参与导出）；此前同日 **M18-14 字幕页信息架构调整**——FR-391 管理入口迁设置页、FR-393 扩选片即预览/信息卡/耗时预估（AC-393-2）；此前同日 **M18-13 烧录样式立项规格**——§3.9 `FR-396`/`AC-396-1`（`CAND-035` 晋升，`ADR-045`：force_style 三项数字参数）；此前同日 **M18-12 软字幕封装立项规格**：§3.9 `FR-395`/`AC-395-1` + §4 矩阵行（`CAND-034` 晋升，`ADR-044`——copy 封装 + 容器按扩展名判定 + 红线 2 显式偏离记录）；边界行移除已落地的烧录、补 LLM 加工不做）；此前 2026-10-07（**M18 AI 字幕立项规格**：§1.1 五功能/§1.2 联网边界/§1.3 "云端 AI"口径修订 + §3.9 新节 `FR-390`~`FR-393` + §5.1/§5.3/§5.4 whisper-cli sidecar 与命令 + §7 `VideoTask::Subtitle`（`ADR-039`~`ADR-041`）；**同日 spike 实测回填**：§3.9 补重复循环幻觉风险（turbo 机器语音段同句连发，M18-5 调参验证）与 CPU 速度实测（turbo 慢于实时 → GPU 为大模型刚需）；**§3.9 FR-391 模型白名单定稿**：只收录量化档、F16 不识别（F16 vs q5_0 实测质量/速度无差、体积 3 倍）+ 手动放置校验口径（按文件名接受、哈希不符仅提示不删除）；**§3.9 模型档位定稿为三档**（base 移除，用户裁决——tiny→small 夹层价值薄）；**VAD 定稿**：silero（0.9MB）随包内置 + FR-392 强制 VAD 预切分（默认时间轴偏早 3~17s 的修复，`ADR-039`⑧）；同日 M17 立项规格：§7 `PipelineItem` 加 `force_transcode`（工作台重编码旋转，`CAND-022`① 契约子集）· §3.8 规则 A 加 force 前置条件、规则 B 补强制语义 · §5.2 组件树清两处陈旧描述（头部改一行式——规则见 [INDEX.md](./INDEX.md) §7）；近期规格变化：§3.8 成品预览补写**重播落点**（播到末尾再按播放＝回成品起点，`BUG-021`）；§3.7 已知限制 + `ADR-038`、§7/§8.2 随 `M12-2` 更新（2026-10-05）；明细见对应章节与 [CHANGELOG.md](./CHANGELOG.md)
 
 > 状态：M0–M9 已实现（M4-5 实机冒烟、M6-7 e2e 与 M7/M9 验收归用户手测）；M10（保活+深浅主题）已立项**暂缓**（决策 #32）；M11–M13（单轨装配时间线）——`M11` 实施全部完成（`M11-0`–`M11-9` ✅，帧预算真机半 ⏳ 待用户发起）；行为规格见 [TIMELINE.md](./TIMELINE.md)、实施方案见 [plans/M11.md](./plans/M11.md)；**`M12` 实施中**（`M12-2` 渲染即预览，规格 `FR-1760`~`FR-1762`，方案见 [plans/M12.md](./plans/M12.md)）、`M12-1`/`M12-3` 与 `M13` 待实施。**M14（交互完善批次）已立项**（2026-09-28，用户六条反馈：页面重置/换素材 · 默认命名 · 入出点快捷键按钮 · 放大双态预览 · 片段池手柄语义 · 连播缺陷），方案见 [plans/M14.md](./plans/M14.md)、任务见 [PLAN.md](./PLAN.md)。**M15（保留式裁剪）已立项并列为最高优先级**（2026-09-28，`CAND-020` 晋升），方案见 [plans/M15.md](./plans/M15.md)。
 >
@@ -500,7 +500,21 @@ pub enum VideoTask {
     // language = ISO 639-1 或 "auto"（自动检测，默认值）；backend = "auto"（GPU 试跑可用
     // 则用、失败回退 CPU，ADR-041②）或 "cpu"（来自设置 subtitleBackend）；产物 = <output_dir>/<源同名>.srt
     Subtitle { input: String, model_id: String, language: String, backend: String, output_dir: String },
+    // 字幕烧录（M18-11，FR-394）：subtitles（libass）滤镜渲染进画面 + 视频 重编码 + 音频 copy；
+    // style = 烧录样式（M18-13，FR-396，ADR-045）：None/全空 = 默认样式（不追加 force_style），
+    // serde default 向后兼容旧载荷
+    SubtitleBurn { input: String, subtitle_path: String, output: String, quality: QualityPreset,
+                   encoder: Option<String>, style: Option<SubtitleStyle> },
+    // 软字幕封装（M18-12，FR-395，ADR-044）：视频/音频 stream copy + .srt 字幕轨封装（零重编码）；
+    // 输出容器按输入扩展名判定（mp4 系 → mov_text，其余 → mkv + srt），见 command::subtitle_mux_container
+    SubtitleMux { input: String, subtitle_path: String, output: String },
 }
+
+/// 烧录样式三项（M18-13，FR-396，ADR-045）；None = 留空走 libass 默认。
+/// 样式串由 command::subtitles_force_style 拼装并 clamp（字号 4~500 / 描边 0~50 / 边距 0~500）。
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SubtitleStyle { pub font_size: Option<u32>, pub outline: Option<u32>, pub margin_v: Option<u32> }
 
 // 各变体的 `encoder` = 设置中锁定的编码器（M4-1）；None = 按位深自动探测（UI.md §9.9）。
 // 除 Merge 外的四类都带此字段——Merge 的“自动统一”硬编码 libx264（范围见 UI.md §9.9）。
@@ -515,7 +529,7 @@ pub enum TaskStatus { Pending, Running, Completed, Failed, Cancelled }
 #[serde(rename_all = "camelCase")]
 pub struct TaskSnapshot {
     pub id: String,
-    pub kind: String,             // cut / merge / rotate / crop_zoom / pipeline / subtitle（proxy 为内部任务，不出现在面板；模型/加速包下载任务入面板但不入历史白名单）
+    pub kind: String,             // cut / merge / rotate / crop_zoom / pipeline / subtitle / subtitle_burn / subtitle_mux（proxy/preview 为内部任务，不出现在面板；模型/加速包下载任务入面板但不入历史白名单）
     pub status: TaskStatus,
     pub label: String,            // 展示名，如 "剪切 xxx.mp4 → part_001.mp4"
     pub progress: Option<f64>,    // 0..1

@@ -411,10 +411,16 @@ export default function SubtitlePage({
                           value={burnStyle[key] ?? ""}
                           onChange={(e) => {
                             const raw = e.target.value.trim();
-                            const v = raw === "" ? undefined : Math.round(Number(raw));
+                            // 前端即钳到 [0, max]：负数/超界值若下发会被 Rust Option<u32> 反序列化拒绝
+                            //（晦涩 serde 报错），clamp 语义在 UI 层就该兑现（Review 修复）
+                            const n = Math.round(Number(raw));
+                            const v =
+                              raw === "" || !Number.isFinite(n)
+                                ? undefined
+                                : Math.min(max, Math.max(0, n));
                             setBurnStyle((st) => ({
                               ...st,
-                              [key]: v !== undefined && Number.isFinite(v) ? v : undefined,
+                              [key]: v,
                             }));
                           }}
                           placeholder="默认"
