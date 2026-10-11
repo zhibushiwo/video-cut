@@ -377,18 +377,18 @@ export default function SubtitlePage({
                   </div>
                 </div>
                 {exportMode === "mux" ? (
-                  <p className="mt-1 text-xs leading-relaxed text-mute">
-                    把 .srt 作为软字幕轨封装进新容器：视频与音频原样复制（秒级、画质不变、多音轨全保留），
-                    播放器里可随时开关字幕。输出{" "}
-                    <code className="font-mono">{`${stemOf(filePath)}_softsub.${subtitleMuxExt(filePath)}`}</code>
-                    （{subtitleMuxExt(filePath) === "mp4" ? "mp4 源 → mov_text 字幕" : "非 mp4 源 → mkv 容器 + srt 字幕"}）；
-                    字幕样式由播放器决定，mov_text 在部分老设备/硬件播放器上可能不显示。
+                  <p
+                    className="mt-1 text-xs leading-relaxed text-mute"
+                    title="字幕样式由播放器决定；mov_text 在部分老设备/硬件播放器上可能不显示"
+                  >
+                    .srt 封装进新容器，视频/音频原样复制（秒级、无损），播放器可开关字幕；输出{" "}
+                    <code className="font-mono">{`${stemOf(filePath)}_softsub.${subtitleMuxExt(filePath)}`}</code>。
                   </p>
                 ) : (
                   <p className="mt-1 text-xs leading-relaxed text-mute">
-                    把字幕渲染进画面导出新视频：
-                    <span className="text-warn">视频需重编码（有损、耗时）</span>
-                    ，音频原样复制；输出{" "}
+                    字幕渲染进画面，
+                    <span className="text-warn">需重编码（有损、耗时）</span>
+                    ；输出{" "}
                     <code className="font-mono">{`${stemOf(filePath)}_subbed.mp4`}</code>。
                   </p>
                 )}

@@ -11,8 +11,7 @@ import {
 import { formatTime } from "../../utils/time";
 import { useVolumeMemory } from "../../hooks/useVolumeMemory";
 import { appendFrontendLog } from "../../services/tauri";
-import { beginPointerDrag } from "../../utils/pointerDrag";
-import { clampOffset, zoomScale, type ZoomState } from "../../utils/videoZoom";
+import { useVideoZoom } from "../../hooks/useVideoZoom";
 
 export interface VideoPlayerHandle {
   seek(t: number): void;
@@ -84,15 +83,6 @@ interface VideoPlayerProps {
   allowZoom?: boolean;
 }
 
-interface SelRect {
-  x0: number;
-  y0: number;
-  x1: number;
-  y1: number;
-}
-
-const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
-
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(
     { src, onTime, onSeeked, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass, videoStyle, onPlayStateChange, onVideoClick, allowZoom = false },
@@ -133,20 +123,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const RATES = PLAYBACK_RATES;
     const [rate, setRate] = useState(1);
     const [ratesOpen, setRatesOpen] = useState(false);
-    // 框选放大（M19-6，FR-397）
-    const [zoom, setZoom] = useState<ZoomState | null>(null);
-    const [sel, setSel] = useState<SelRect | null>(null);
-    const [ctrlDown, setCtrlDown] = useState(false);
-    /** 本次指针手势发生过移动/框选（松手后的 click 不再当作播放切换） */
-    const interactedRef = useRef(false);
-    /** 进行中的指针拖拽收尾器：组件卸载时摘监听（红线 20） */
-    const dragDetachRef = useRef<(() => void) | null>(null);
-    useEffect(
-      () => () => {
-        dragDetachRef.current?.();
-      },
-      [],
-    );
+    // 框选放大（M19-6，FR-397；M21-6 抽 useVideoZoom 供裸 video 页面复用）
+    const videoZoom = useVideoZoom(allowZoom);
 
     useImperativeHandle(ref, () => ({
       seek(t: number) {
@@ -175,24 +153,6 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       v.volume = vol;
       v.muted = muted;
     }, [vol, muted]);
-
-    // 框选放大：Ctrl 键提示光标 + Esc 还原（全屏时让 UA 先退全屏，再按一次才还原）
-    useEffect(() => {
-      if (!allowZoom) return;
-      const onKeyDown = (e: KeyboardEvent) => {
-        if (e.key === "Control") setCtrlDown(true);
-        if (e.key === "Escape" && zoom && !document.fullscreenElement) setZoom(null);
-      };
-      const onKeyUp = (e: KeyboardEvent) => {
-        if (e.key === "Control") setCtrlDown(false);
-      };
-      window.addEventListener("keydown", onKeyDown);
-      window.addEventListener("keyup", onKeyUp);
-      return () => {
-        window.removeEventListener("keydown", onKeyDown);
-        window.removeEventListener("keyup", onKeyUp);
-      };
-    }, [allowZoom, zoom]);
 
     useEffect(() => {
       const v = videoRef.current;
@@ -353,93 +313,6 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setCur(t);
     };
 
-    // ---------- 框选放大（M19-6，FR-397） ----------
-
-    const onVideoPointerDown = (e: React.PointerEvent) => {
-      if (!allowZoom) return;
-      const box = videoRef.current?.getBoundingClientRect();
-      if (!box || box.width === 0 || box.height === 0) return;
-      const frac = (clientX: number, clientY: number) => ({
-        x: clamp01((clientX - box.left) / box.width),
-        y: clamp01((clientY - box.top) / box.height),
-      });
-      if (e.ctrlKey && !zoom) {
-        // Ctrl+拖拽：框选（红线 20 统一走 beginPointerDrag）
-        const p0 = frac(e.clientX, e.clientY);
-        interactedRef.current = true;
-        dragDetachRef.current = beginPointerDrag(
-          (ev) => {
-            const p = frac(ev.clientX, ev.clientY);
-            setSel({ x0: p0.x, y0: p0.y, x1: p.x, y1: p.y });
-          },
-          (ev) => {
-            dragDetachRef.current = null;
-            setSel(null);
-            if (!ev) return;
-            const p1 = frac(ev.clientX, ev.clientY);
-            const rw = Math.abs(p1.x - p0.x);
-            const rh = Math.abs(p1.y - p0.y);
-            if (rw < 0.03 || rh < 0.03) return; // 过小的误框不放大
-            setZoom(
-              clampOffset({
-                rx: Math.min(p0.x, p1.x),
-                ry: Math.min(p0.y, p1.y),
-                rw,
-                rh,
-                ox: Math.min(p0.x, p1.x),
-                oy: Math.min(p0.y, p1.y),
-              }),
-            );
-          },
-        );
-        return;
-      }
-      if (zoom && !e.ctrlKey) {
-        // 放大态拖拽 = 平移（内容跟手：可视窗口起点随位移反向变化）
-        const s = zoomScale(zoom);
-        const o0 = { x: zoom.ox, y: zoom.oy };
-        let moved = false;
-        dragDetachRef.current = beginPointerDrag(
-          (ev) => {
-            const dx = (ev.clientX - e.clientX) / box.width / s;
-            const dy = (ev.clientY - e.clientY) / box.height / s;
-            if (!moved && Math.hypot(dx * box.width, dy * box.height) > 4) moved = true;
-            if (moved) {
-              interactedRef.current = true;
-              setZoom(clampOffset({ ...zoom, ox: o0.x - dx, oy: o0.y - dy }));
-            }
-          },
-          () => {
-            dragDetachRef.current = null;
-          },
-        );
-      }
-    };
-
-    const onVideoClickInternal = (e: React.MouseEvent) => {
-      // 拖拽过（框选/平移）或 Ctrl 修饰的点击都不是"点画面走带"
-      if (interactedRef.current) {
-        interactedRef.current = false;
-        return;
-      }
-      if (allowZoom && e.ctrlKey) return;
-      if (onVideoClick) {
-        onVideoClick();
-        return;
-      }
-      togglePlay();
-    };
-
-    const zoomStyle: CSSProperties | undefined = zoom
-      ? (() => {
-          const s = zoomScale(zoom);
-          return {
-            transform: `scale(${s}) translate(${-zoom.ox * 100}%, ${-zoom.oy * 100}%)`,
-            transformOrigin: "0 0",
-          };
-        })()
-      : undefined;
-
     const togglePlay = () => {
       const v = videoRef.current;
       if (!v) return;
@@ -450,13 +323,26 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       else v.pause();
     };
 
-    const cursorClass = allowZoom
-      ? zoom
-        ? "cursor-move"
-        : ctrlDown
-          ? "cursor-crosshair"
-          : "cursor-pointer"
-      : "cursor-pointer";
+    const {
+      zoomed,
+      onPointerDown: zoomPointerDown,
+      onDoubleClick: zoomDoubleClick,
+      suppressClick,
+      videoStyle: zoomStyle,
+      cursorClass,
+      selOverlay,
+      reset: zoomReset,
+    } = videoZoom;
+
+    const onVideoClickInternal = (e: React.MouseEvent) => {
+      // 拖拽过（框选/平移）或 Ctrl 修饰的点击都不是"点画面走带"（hook 判定）
+      if (suppressClick(e)) return;
+      if (onVideoClick) {
+        onVideoClick();
+        return;
+      }
+      togglePlay();
+    };
 
     return (
       <div
@@ -471,16 +357,14 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           ref={videoRef}
           src={src}
           preload="metadata"
-          style={zoom ? zoomStyle : videoStyle}
+          style={zoomed ? zoomStyle : videoStyle}
           className={
             fill
               ? `h-full w-full bg-black object-contain ${cursorClass}`
               : `mx-auto ${videoMaxClass ?? "max-h-[44vh]"} w-full bg-black object-contain ${cursorClass}`
           }
-          onPointerDown={onVideoPointerDown}
-          onDoubleClick={() => {
-            if (allowZoom) setZoom(null);
-          }}
+          onPointerDown={zoomPointerDown}
+          onDoubleClick={zoomDoubleClick}
           onClick={onVideoClickInternal}
           onLoadedMetadata={(e) => {
             const d = e.currentTarget.duration;
@@ -488,20 +372,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             onLoadedMetadata?.(e.currentTarget.duration);
           }}
         />
-        {/* 框选中的选区可视化（M19-6）：视频盒 == 根盒（非 fill 模式视频满宽、fill 模式满容器） */}
-        {sel && (
-          <div className="pointer-events-none absolute inset-0">
-            <div
-              className="absolute border-2 border-signal bg-signal/10"
-              style={{
-                left: `${Math.min(sel.x0, sel.x1) * 100}%`,
-                top: `${Math.min(sel.y0, sel.y1) * 100}%`,
-                width: `${Math.abs(sel.x1 - sel.x0) * 100}%`,
-                height: `${Math.abs(sel.y1 - sel.y0) * 100}%`,
-              }}
-            />
-          </div>
-        )}
+        {selOverlay}
         {overlay}
         {banner && (
           <div className="absolute left-2 top-2 rounded bg-ink/80 px-2 py-1 text-xs text-warn backdrop-blur-sm">
@@ -592,10 +463,10 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   className="pointer-events-none absolute bottom-full left-1/2 mb-1 h-16 w-1 -translate-x-1/2 cursor-pointer accent-signal opacity-0 transition-opacity duration-150 [writing-mode:vertical-lr] [direction:rtl] group-hover:pointer-events-auto group-hover:opacity-100"
                 />
               </div>
-              {allowZoom && zoom && (
+              {allowZoom && zoomed && (
                 <button
                   type="button"
-                  onClick={() => setZoom(null)}
+                  onClick={zoomReset}
                   aria-label="还原放大"
                   title="还原放大（Esc / 双击画面）"
                   className="shrink-0 text-signal transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
@@ -603,7 +474,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   <Restore className="h-4 w-4" />
                 </button>
               )}
-              {allowZoom && !zoom && (
+              {allowZoom && !zoomed && (
                 <span className="shrink-0 text-paper/60" title="Ctrl + 拖拽画面框选放大">
                   <ZoomIn className="h-4 w-4" />
                 </span>

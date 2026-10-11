@@ -482,9 +482,9 @@
 - [x] **M21-2 播放器修正**：fill 模式显式 `object-fit: contain`（变形根因）+ 音量滑条改竖向向上展开（横向压住倍速按钮）　✅ **2026-10-11 落地**（代码随 d16b291 入库——提交顺序瑕疵，内容独立可辨；`writing-mode:vertical-lr + direction:rtl` 竖向 range，向上弹出）
 - [x] **M21-3 工作台布局**：素材/片段池 50/50 双列（各自滚动）+ 时间轴高度下调 + 预览默认高上调一档 + `hooks/usePanelHeight.ts` 底边拖拽调高（`CAND-021` 落地，`beginPointerDrag`、clamp 240px~70vh、双击复位、localStorage）　✅ **2026-10-11 落地**（`hooks/usePanelHeight.ts` 新建：px 状态 + resize 重 clamp + localStorage 按页键 + 卸载摘拖拽监听；工作台预览 38vh→面板高度（默认 46vh）+ 底边热区手柄（拖拽/双击复位）；双列 = 素材（左，含批量条）/ 片段池（右）各 `flex-1` + 内容区 `max-h-30vh` 滚动；ClipTimeline 高度 64→52；既有拖拽链路未动）
 - [x] **M21-4 ffprobe 错误消息清洗**：剥 banner 行（version/configuration/built with），保留关键错误 + 人话前缀「文件损坏或不完整（可能是历史未完成的半成品）」　✅ **2026-10-11 落地**（`probe.rs::clean_ffprobe_error` + 三处失败点接线 + 2 条单测（实机 banner 样例/全 banner 兜底）；上游 map_err 加文件名的展示形态不变；cargo 125+10+2）
-- [ ] **M21-5 设置三 tab**：通用 / AI 字幕 / 关于（版本/FFmpeg 版本/检查更新/GPL 迁入）；「打开日志文件夹」移「通用」页尾静态区低调链接
-- [ ] **M21-6 框选放大推广 + 导出文案精简**：`allowZoom` 启用查看型预览（ProductPreview/剪切/合并；片段加工页除外）+ 字幕页导出卡文案一行化
-- [ ] **M21-7 验证收尾**：全量 §4 完事标准 + 手测点清单（不发版——发版须用户明确要求，见 RELEASE.md §0）
+- [x] **M21-5 设置三 tab**：通用 / AI 字幕 / 关于（版本/FFmpeg 版本/检查更新/GPL 迁入）；「打开日志文件夹」移「通用」页尾静态区低调链接　✅ **2026-10-11 落地**（tab 三态；关于区整块迁「关于」tab；日志入口 = 页尾说明行内嵌「日志文件夹」下划线链接，不占版面）
+- [x] **M21-6 框选放大推广 + 导出文案精简**：`allowZoom` 启用查看型预览（ProductPreview/剪切/合并；片段加工页除外）+ 字幕页导出卡文案一行化　✅ **2026-10-11 落地**（zoom 交互抽 `hooks/useVideoZoom.tsx`——VideoPlayer 重构为消费 hook（行为不变），裸 `<video>` 页面接入：ProductPreview 双槽 + 渲染分支（onClick 首行 suppressClick + object-contain 顺带修正）、合并页渲染预览（相对容器 + overlay）、剪切页 VideoPlayer allowZoom；字幕页导出两段说明压一行 + mov_text 兼容性提示收进 title）
+- [ ] **M21-7 验证收尾**：全量 §4 完事标准 + 手测点清单（不发版——发版须用户明确要求，见 RELEASE.md §0）　⏳ 手测点汇总：①预览竖屏/横屏素材均比例正确不再变形；音量滑条向上弹出不再压倍速 ②工作台双列 50/50 各自滚动、拖卡片入轴正常；时间轴变矮；预览底边拖拽调高/双击复位/重启记忆 ③合并页损坏文件报错变人话 ④设置三 tab、日志链接在通用页尾 ⑤检查更新（M20-4 新通道）：污染时错误可判读 + 日志含原始响应体 ⑥框选放大在成品预览/剪切页/合并页可用，片段加工页无此功能 ⑦字幕页导出卡文案精简后信息仍完整（title 有兼容性提示）
 
 ## M13 打磨（可选，视 M11/M12 体验决定，决策 #31）
 

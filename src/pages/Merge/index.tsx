@@ -11,6 +11,7 @@ import {
 import type { AppSettings, MergeComparison, PipelineItem } from "../../types";
 import { useDragSort } from "../../hooks/useDragSort";
 import { usePreviewRender } from "../../hooks/usePreviewRender";
+import { useVideoZoom } from "../../hooks/useVideoZoom";
 import { useThumbnails } from "../../hooks/useThumbnails";
 import { useConsumeInitialFiles } from "../../hooks/useConsumeInitialFiles";
 import { EmptyImport } from "../../components/EmptyImport";
@@ -58,6 +59,7 @@ export default function MergePage({
     encoder: settings.encoder === "auto" ? null : settings.encoder,
     auto: false,
   });
+  const videoZoom = useVideoZoom(true);
   const [check, setCheck] = useState<MergeComparison | null>(null);
   const [checking, setChecking] = useState(false);
   const [checkError, setCheckError] = useState<string | null>(null);
@@ -368,11 +370,17 @@ export default function MergePage({
                 </span>
               </div>
               {preview.renderedSrc && (
-                <video
-                  src={fileSrc(preview.renderedSrc)}
-                  controls
-                  className="mt-2 max-h-[40vh] w-full rounded bg-black"
-                />
+                <div className="relative mt-2">
+                  <video
+                    src={fileSrc(preview.renderedSrc)}
+                    controls
+                    className={`max-h-[40vh] w-full rounded bg-black object-contain ${videoZoom.cursorClass}`}
+                    style={videoZoom.videoStyle}
+                    onPointerDown={videoZoom.onPointerDown}
+                    onDoubleClick={videoZoom.onDoubleClick}
+                  />
+                  {videoZoom.selOverlay}
+                </div>
               )}
               <p className="mt-1.5 text-[11px] leading-relaxed text-mute/70">
                 预览按文件顺序连续播放，判定与导出一致（参数不一致时预览同样自动统一）。

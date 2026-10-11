@@ -18,6 +18,7 @@ import { useVolumeMemory } from "../../hooks/useVolumeMemory";
 import { beginFrameSampling, formatPerfLine, type PerfScene, type PerfSummary } from "../../utils/perf";
 import { displayedStageStyle } from "../RotateControls";
 import { PLAYBACK_RATES } from "../VideoPlayer";
+import { useVideoZoom } from "../../hooks/useVideoZoom";
 import type { RotateState } from "../../types";
 import { cropPreviewTransform } from "../../utils/crop";
 import { beginPointerDrag } from "../../utils/pointerDrag";
@@ -112,6 +113,8 @@ export default function ProductPreview({
   /** 全屏容器（M16-4）：整个预览组件（含控制行）进 Fullscreen API，Esc 退出 */
   const rootRef = useRef<HTMLDivElement>(null);
   // 音量走会话级全局记忆（M16-2 / CAND-029 延伸）：与各 VideoPlayer 共用一份
+  // 框选放大（M21-6 推广，FR-397）：查看型预览启用；实时预览专用不参与导出
+  const videoZoom = useVideoZoom(true);
   const { volume, muted, setVolume, toggleMuted } = useVolumeMemory();
   // 音量只作用于**活动槽**与渲染分支的成品文件；备用预载槽一律强制静音——
   // 它虽处暂停态，但切槽瞬间/换装重载中任何意外出声都是串音
@@ -596,8 +599,12 @@ export default function ProductPreview({
               src={fileSrc(playablePath(idx))}
               preload="auto"
               playsInline
-              className="h-full w-full cursor-pointer bg-black"
-              onClick={() => {
+              className={`h-full w-full bg-black object-contain ${videoZoom.cursorClass}`}
+              style={videoZoom.videoStyle}
+              onPointerDown={videoZoom.onPointerDown}
+              onDoubleClick={videoZoom.onDoubleClick}
+              onClick={(e) => {
+                if (videoZoom.suppressClick(e)) return;
                 // 点画面即播放/暂停（M16-5 / CAND-027①）：与「播放」按钮同一条走带——
                 // 重播回绕等逻辑由播放跟随 effect 统一处理（`shouldRewindOnPlay`）
                 cbsRef.current.onPlayingChange(!playingRef.current);
@@ -678,8 +685,12 @@ export default function ProductPreview({
               src={fileSrc(renderedSrc ?? "")}
               preload="auto"
               playsInline
-              className="h-full w-full cursor-pointer bg-black"
-              onClick={() => {
+              className={`h-full w-full bg-black object-contain ${videoZoom.cursorClass}`}
+              style={videoZoom.videoStyle}
+              onPointerDown={videoZoom.onPointerDown}
+              onDoubleClick={videoZoom.onDoubleClick}
+              onClick={(e) => {
+                if (videoZoom.suppressClick(e)) return;
                 // 同双槽：点画面走带（M16-5）
                 cbsRef.current.onPlayingChange(!playingRef.current);
               }}

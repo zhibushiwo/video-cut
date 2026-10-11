@@ -513,6 +513,7 @@ export default function CutPage({
           <>
             <VideoPlayer
               ref={playerRef}
+              allowZoom
               src={fileSrc(proxyPath ?? inputPath)}
               onTime={handleTime}
               onPlayStateChange={setPlaying}

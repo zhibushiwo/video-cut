@@ -116,7 +116,7 @@ export default function SettingsPage({
 }) {
   const [usage, setUsage] = useState<CacheUsage | null>(null);
   /** 设置页 tab（M19-4）：会话内记忆不持久化 */
-  const [tab, setTab] = useState<"general" | "subtitle">("general");
+  const [tab, setTab] = useState<"general" | "subtitle" | "about">("general");
   /** 应用更新状态（M20，FR-398）：启动静默检查在 App 层发起，这里消费与手动触发 */
   const update = useUpdateStatus();
   const [version, setVersion] = useState<string>("");
@@ -248,6 +248,7 @@ export default function SettingsPage({
           [
             ["general", "通用"],
             ["subtitle", "AI 字幕"],
+            ["about", "关于"],
           ] as const
         ).map(([v, label]) => (
           <button
@@ -521,35 +522,8 @@ export default function SettingsPage({
         </>
         )}
 
-        {tab === "general" && (
+        {tab === "about" && (
         <>
-        <Row title="缓存管理" desc={cacheDesc}>
-          {cacheMsg && <span className="text-xs text-signal">{cacheMsg}</span>}
-          <button
-            type="button"
-            onClick={() => void doClearCache()}
-            className="rounded-md border border-hairline px-2.5 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-          >
-            清理缓存
-          </button>
-        </Row>
-
-        <div className="flex items-center justify-between gap-8 py-4">
-          <div className="min-w-0">
-            <div className="text-sm text-paper">重置全部设置</div>
-            <div className="mt-0.5 text-xs leading-relaxed text-mute">
-              恢复所有设置为默认值（含输出目录、编码器、主题色等），不可撤销。
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => void resetAll()}
-            className="shrink-0 rounded-md border border-warn/40 px-2.5 py-1.5 text-xs text-warn transition-colors hover:bg-warn/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-          >
-            重置
-          </button>
-        </div>
-
         <div className="py-4">
           <div className="flex items-center justify-between gap-8">
             <div className="min-w-0">
@@ -565,14 +539,7 @@ export default function SettingsPage({
               </p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-1.5">
-              <button
-                type="button"
-                onClick={() => void openLogsFolder().catch((e: unknown) => setSubtitleError(String(e)))}
-                title="应用与任务的运行日志（含报错信息），可用记事本打开"
-                className="rounded-md border border-hairline px-2.5 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-              >
-                打开日志文件夹
-              </button>
+
               <button
                 type="button"
                 disabled={update.status === "checking" || update.status === "downloading"}
@@ -620,9 +587,50 @@ export default function SettingsPage({
             </p>
           )}
         </div>
+        </>
+        )}
+
+                {tab === "general" && (
+        <>
+        <Row title="缓存管理" desc={cacheDesc}>
+          {cacheMsg && <span className="text-xs text-signal">{cacheMsg}</span>}
+          <button
+            type="button"
+            onClick={() => void doClearCache()}
+            className="rounded-md border border-hairline px-2.5 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+          >
+            清理缓存
+          </button>
+        </Row>
+
+        <div className="flex items-center justify-between gap-8 py-4">
+          <div className="min-w-0">
+            <div className="text-sm text-paper">重置全部设置</div>
+            <div className="mt-0.5 text-xs leading-relaxed text-mute">
+              恢复所有设置为默认值（含输出目录、编码器、主题色等），不可撤销。
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => void resetAll()}
+            className="shrink-0 rounded-md border border-warn/40 px-2.5 py-1.5 text-xs text-warn transition-colors hover:bg-warn/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+          >
+            重置
+          </button>
+        </div>
+
+
 
         <p className="py-4 text-xs text-mute/80">
-          设置改动即时生效并保存到本机（不随视频文件移动）。
+          设置改动即时生效并保存到本机（不随视频文件移动）。运行日志（含报错信息）在{" "}
+          <button
+            type="button"
+            onClick={() => void openLogsFolder().catch(() => {})}
+            className="underline underline-offset-2 transition-colors hover:text-paper focus:outline-none"
+          >
+            日志文件夹
+          </button>
+          。
         </p>
         </>
         )}
