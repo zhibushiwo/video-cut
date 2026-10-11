@@ -1,69 +1,58 @@
 # 开发状态交接（HANDOFF）
 
 > **职责**：会话上下文压缩后的**状态快照**——现在在哪、下一步做什么、未决问题。
-> **唯一真源**：**"当前状态与下一步"**以本文为准；进度细节以 [PLAN.md](./PLAN.md) 为准（里程碑表仅在状态变化时同步）；长期红线以 [../AGENTS.md](../AGENTS.md) 为准。
+> **唯一真源**：**"当前状态与下一步"**以本文为准；进度细节以 [PLAN.md](./PLAN.md) 为准（任务行 ✅ 标注）；长期红线以 [../AGENTS.md](../AGENTS.md) 为准；批次实施要点见 [handoff-archive.md](./archive/handoff-archive.md)（2026-10-11 起含 M17~M21 段）。
 > **读时机**：会话开场第一条；接续他人工作时。
-> **写规则**：只写当前状态与**近期相关**的坑；已定型的长期约定移入 AGENTS.md（本文只留指针）；历史批次要点进 [handoff-archive.md](./archive/handoff-archive.md)，本文不堆积。
-> **关联**：[../README.md](../README.md)（项目简介/技术栈/命令） · [INDEX.md](./INDEX.md)（地图与 ID） · [PLAN.md](./PLAN.md)（进度真源） · [../AGENTS.md](../AGENTS.md)（红线与完事标准）
-> **最后更新**：2026-10-07（**补 M17 实施完成**——`M17-1` 导航合并「编辑」单入口 + `M17-2` 工作台重编码旋转 `forceTranscode`；手工半 `TC-061`/`TC-062` ⏳。同日大整理：状态快照与「下一步」同步至 2026-10-07 实况——`M12-1`/`M12-2`、`M14`、`M15`、`M16` 批次、`M10-1` 已落地，T 台账清零；2026-09-26/09-28 五条批次条目迁 [handoff-archive.md](./archive/handoff-archive.md)「自 HANDOFF 迁入的批次条目」节；手测清单刷新。此前 2026-10-06 补 `T-013`/`T-014` 与真机复现手法；头部此前改一行式、里程碑快照表撤除——规则见 [INDEX.md](./INDEX.md) §7）；批次明细见下方「已做的最近数批」与 [CHANGELOG.md](./CHANGELOG.md)
-> **项目速览**（原独立小节，2026-09-19 去重为指针）：简介 / 功能 / 技术栈 / 环境要求 / 构建命令 → [../README.md](../README.md)｜命令 / 红线 / 完事标准 → [../AGENTS.md](../AGENTS.md)｜文档分工与 ID 规范 → [INDEX.md](./INDEX.md) §1–§2。
+> **写规则**：只写当前状态与**近期相关**的坑；批次要点随整理迁 handoff-archive；历史变更进 [CHANGELOG.md](./CHANGELOG.md)。
+> **关联**：[../README.md](../README.md) · [INDEX.md](./INDEX.md) · [PLAN.md](./PLAN.md) · [../AGENTS.md](../AGENTS.md) · [RELEASE.md](./RELEASE.md)（发版手册）
+> **最后更新**：2026-10-11（文档整理：快照同步至 M21-8 后实况；2026-10-07~10-11 批次要点与各文档头部历史迁 [handoff-archive.md](./archive/handoff-archive.md)）
 
-## 当前状态（2026-10-07）
+## 当前状态（2026-10-11）
 
-> **状态真源是 [PLAN.md](./PLAN.md)**（里程碑总览的状态列，本节不复制快照表）；M0–M9 各批次与 R2/R3/R4/M11/T-004 的提交号与实施要点见 [handoff-archive.md](./archive/handoff-archive.md)「批次实施要点」节。**截至 2026-10-07 实况**：`M11` 实施全部完成（帧预算真机半 `TC-043` ⏳）· `M12` 主体完成（`M12-2` 渲染即预览 + `M12-1` 连播改进均真机通过；`M12-3` spike 可选未排）· `M14` 六项全部落地 · `M15` 实施全部完成（`TC-047` 手工半 ⏳）· `M16` 预览体验批次（M16-1~8，含剪切/合并页预览）全部落地 · `M10-1` 页面保活随 `BUG-026` 落地（`M10-2` 深浅主题仍暂缓）· **T 台账清零**（`T-001`/`T-002`/`T-003`/`T-005`/`T-006`/`T-015`~`T-020` 全 ✅）· **M17 实施完成**（`M17-1` 导航合并「编辑」单入口 + 编辑页页内切工具；`M17-2` 工作台重编码旋转 `forceTranscode`——`TC-061`/`TC-062` 手工半 ⏳）。**R2/R3/R4 全部收尾完毕**；代码侧基建（`useTauriEvent` / `utils/crop.ts` / `CropOverlay` / 撤销栈 `utils/undo/` / Vitest / lint 基线）此前已逐项就位。过度工程审查豁免清单见 [archive/code-review-2026-09-25-overengineering.md](./archive/code-review-2026-09-25-overengineering.md)（撤销读回侧 / speed 链 / `submit_with_cleanup`——**勿重复立案**）。
+> 状态真源是 [PLAN.md](./PLAN.md)（任务行 checkbox）。**截至 2026-10-11 实况**：
+> - **v0.2.0 已发布**（CI 自动发版 + 应用内更新通道上线；发版手册 [RELEASE.md](./RELEASE.md) 成文，铁律「仅用户明确要求才发包」）
+> - **M18 AI 字幕全落地**（含增补 M18-8 预览 / M18-12 软字幕无损封装 / M18-13 烧录样式 / M18-14 信息架构与耗时估算）
+> - **M20 应用内自动更新全落地**（含 M20-3 实机反馈修复与 M20-4 检查通道修订——自研 api.github.com 检查 + 原始响应写日志 + 动态端点交接）
+> - **M21 工作台布局与播放器打磨八批全落地**（双列布局 / CAND-021 预览拖高 / fill contain / 竖向音量 / 设置三 tab / 框选放大推广 / ffprobe 报错清洗 / 弹性骨架页脚贴底 / RELEASE.md）
+> - **真机 CDP 自动化测试通过**（M20-4/M21 全项；手法见 [handoff-archive.md](./archive/handoff-archive.md) 2026-10-11 段）
+> - R2/R3/R4、T 台账、M17 均早已收尾；过度工程审查豁免清单见 archive
 
 ## 下一步（按序）
 
-1. **手测收尾**（大多待用户发起；完整 ⏳ 清单以 [TESTING.md](./TESTING.md) 为准）：**`TC-047` 手工半**（M15 保留式裁剪全流程 + 提取式全回归，手测点见 [plans/M15.md](./plans/M15.md) §20.5；**阻塞** `CAND-022` 裁决与 plans/M11/M14/M15 归档迁移）→ `TC-043` 手工半（M11-9 帧预算埋点报告）→ `TC-045`/`TC-049`/`TC-051`（真机半复跑）→ `TC-021`~`TC-024`/`TC-028`/`TC-030`（旧 UI/真机半）→ `TC-033`/`TC-036`/`TC-038`；零散手测点：`T-020`（下拉选 0.2×/3× 确认变速）· `M16-6`（裁剪框边缘拖拽调整大小）· `TC-061`（「编辑」单入口 + 页内切工具保留加工态）· `TC-062`（工作台「重编码旋转」勾选 → 检测面板转重编码 → 导出产物方向在像素里）。
+1. **0.3.0 发版**（**须用户明确要求**，流程照 [RELEASE.md](./RELEASE.md)）→ 发布后用 0.2.0 应用实测**更新下载/安装链路**（AC-398-1 最后一环，检查通道已在真机验证）
+2. **M21-7 手测点清单**（用户实机；汇总见 [PLAN.md](./PLAN.md) M21-7 行）
+3. **候选池裁决**（真源 [CANDIDATES.md](./CANDIDATES.md) §16）：`CAND-009` GIF 导出 · `CAND-021` 尾巴（剪切/合并页拖高跟进）· `CAND-028` 会话恢复（低优）· `CAND-036` 批量字幕识别（用户明确放最后）· `CAND-037` 导出目录选择推广
 
-2. **候选池裁决**（真源 [CANDIDATES.md](./CANDIDATES.md) §16）：`CAND-009` GIF 导出（2026-10-05 评估就绪，晋升须裁决 UI 归属 / 无音轨明示 / 体积护栏三点）· `CAND-021` 面板拖拽调整大小（用户已两次碰到"预览太小"痛点，全屏只是缓解）· `CAND-028` 会话恢复（低优）；其余 idea/evaluating 项见候选池。
+## 待用户统一手测
 
-3. **可选里程碑**：`M12-3` 暂停帧服务 spike（渲染即预览已覆盖其主要价值，做前再评估）· `M13` 打磨（缩略图条/标记/多选，决策 #31）· `M10-2` 深浅主题（CAND-017）。
-
-4. **发布前硬门槛**：`CAND-015` 的 asset scope 收窄 + CSP；发版走 [AGENTS.md](../AGENTS.md) §5.1（`pnpm version:bump <x.y.z> --changelog` → `pnpm tauri build` → NFR-011/TC-016 干净环境冒烟）。
-
-- **已做的最近数批**（更早的 R4 段 / R2 段 / M11 段 / T-004 / 过度工程审查 / 提交状态见 [handoff-archive.md](./archive/handoff-archive.md)）：
-  - （2026-10-07）**M17 导航与编辑器收敛落地**：**M17-1** 右上角「旋转」「放大」合并「编辑」单入口（`PageName` 的 `rotate`/`crop` 收敛为 `editor`、App 单实例保活），Editor 页工具 tab 页内切换（切工具保留文件与各自加工态，重置口径两工具合并）→ UI.md §9.2/§9.6；**M17-2** 工作台片段加工补「重编码旋转（把方向画进像素）」开关（`Clip.bake` 旁路 + `PipelineItem.force_transcode` serde default 双写；`plan_items` 规则 A 前置「有 force 即走规则 B」，copy+矩阵不可与烘焙片段拼接；无朝向变换时禁用、回恒等朝向自动清 bake）→ DESIGN §7/§3.8 · UI.md §9.8。检测面板经 `check_pipeline` 自动反映。验证：tsc · eslint · vitest 144 · cargo 101+7 · fmt 全绿；手测归 `TC-061`/`TC-062`。
-  - （2026-10-07）**预览体验大批次收口 + T 台账清零**（任务级明细见 [PLAN.md](./PLAN.md) M16 段与 T 行，用户可见表述见 [CHANGELOG.md](./CHANGELOG.md) [Unreleased]）：**M16-1~6**（任务提示点「打开位置」即关 · 预览音量全局记忆 `hooks/useVolumeMemory.ts` · 添加片段自动续接 `autoContinueClips` · 预览全屏（`:fullscreen` 视频铺满修复）· 点画面即播放/暂停 · 放大框选边缘热区可调整）+ **M16-7/8**（剪切页/合并页「生成预览」，复用 M12-2 preview 管线手动触发，`usePreviewRender` 加 `auto` 开关——`CAND-027` 全清）；**T-017** 移除池→轴拖拽手柄与整条链路（取代 `M14-6` 的手柄形态，撤销层 `buildInsert` 保留）· **T-018** 源剪切工作面 fill 化 + 一键全屏 · **T-019** preview 重编码/归一化走 `ultrafast`（导出参数不变，参数序列断言 `preview_fast_preset_overrides_quality` 锁定）· **T-020** 播放速度改下拉直选（0.2~3 九档，`onPlaybackRateChange` 写回）；**T-015/016** 缺陷修复（`BUG-025` 窗口内拖拽误触发导入 · `BUG-019` 预览进度条条外松手冻结——根因链含"同值 `currentTime` 赋值仍触发 seek"）；同批落地 **M12-1**（`FR-1763`/`FR-1764`，`TC-060` 通过）与 **M10-1**（决策 #24，随 `BUG-026`，`TC-059` 通过）。真机验证：`TC-057`~`TC-060` ✅ · `TC-048` 步骤 9 收尾（缓存统计/清理归零）→ M12-2 勾选。
-  - （2026-10-06）**「重播不了」第四根因在解码层——`T-013`/`T-014`，`BUG-023`/`BUG-024`**（`T-013`：片段加工**点画面**走 `VideoPlayer` 默认 onClick 只 `play()`、绕过区间回退 → 停在出点后点画面只起播一帧又被按停 → 新增 `onVideoClick` 由 `EditModeView` 传 `togglePlay` 收敛两条入口 + `ended` 回写播放态；`T-014`：修完 `T-013` 用户复测**仍不复播**）：
-    - **诊断方法（可复用，无需调试端口）**：前端 `appendFrontendLog`（→ Rust `log` 落盘 `%LOCALAPPDATA%\com.hippo.video-cut\logs\video-cut.<日期>.log`，debug 构建默认 debug 级、release 默认 info 级——埋点用 `info`/`warn` 保证两构建都落盘）在 `VideoPlayer` 记 `cmd seek/play/pause`、媒体事件与 **`play()` promise 结局**，在 `EditModeView` 记 `togglePlay` 走向/回退门/越界判定，用户复现后读日志即可拿到完整事件时序。
-    - **日志钉死的根因（`BUG-024`）**：`T-011`/`T-012`/`T-013` 的前端走带逻辑全部按设计工作，真凶是回退 seek（从出点 7.320 回 4.303）触发 WebView2 `PIPELINE_ERROR_DECODE`（code=3，解 GOP 内非关键帧包失败）——error 后 media element **永久故障**：`ev play` 照发但 `play()` promise 永久 pending、画面纹丝不动，不 `load()` 重建就再也播不了。同会话初始起播与完整播放正常 → 非必现，此前三轮真机测试未覆盖。**修法**：`VideoPlayer` 对 code=3 软重建（记位置与播放意图 → `v.load()` → 内部 `loadedmetadata` 后 seek 回原位续播；不转发 `onError` 防误切代理；连续 3 次失败转交上层，真正出帧清零计数）。**真机两轮复测（用户确认）**：第一版续播判定用 `!v.paused` 被复测推翻——错误路径把 `paused` 属性抢先置 true、`pause` 事件晚于 `error` 派发 → 重建后永远不续播（重播要点两下、循环到出点回卷后停在入点）；改**播放意图跟踪**（`play` 置 true / `pause`/`loadstart`/`ended` 置 false，error 时刻 `!v.paused || 意图`）后一键重播、循环连续回卷。
-  - （2026-10-06）**用户"重播"反馈的另两条根因——`T-011`/`T-012`，`BUG-021`/`BUG-022`**（用户反馈："从中间剪成片段（`4.303–7.320`）播完再点播放就无法重新播放；全段作为片段则可以"；此前 `T-008`/`T-009`/`T-010` 三轮都落在 `EditModeView`/`VideoPlayer`，**都没覆盖用户实际所在的那条路径**）：
-    - `T-011 · BUG-021`（**成品预览 · 回退虚拟连播分支**，确定性缺陷，真机 CDP 复现）：`ProductPreview` 的越界判定 `currentTime ≥ 段出点 − 0.03` 一条判定同时管"切下一段"与"到末尾停"，而"停"只 `pause()`、不改 `currentTime` → 元素停在 ε 区间内，再按播放 `play()` 后**第一帧**又命中同一条判定被 `onPlayingChange(false)` 按停（探针实测 `play()` → **7ms** → `pause()`，`t` 停在 7.32 纹丝不动，中段/全段都死）。**"全段可以"的来源**：全段片段 `srcEnd = 源时长`，元素会走到 `ended`，浏览器在 `play()` 时自动回绕——只有"中段 + 回退分支"必死；而渲染即预览（单文件 `<video>`）分支同样靠浏览器回绕，所以"渲染就绪时也正常"。**修法**：纯函数 `utils/productPlayback.ts::shouldRewindOnPlay`（末段且 `ended` 或已停在/越过出点）→ 单段同槽回绕到区间起点、多段 `seekInternal(0)` 跨槽回成品起点再起播；tick 的硬编码 `0.03` 收敛为同源常量 `OUT_POINT_EPS`。真机三条路径（中段/全段/两段成品）重播全部真正起播；+8 条 Vitest。
-    - `T-012 · BUG-022`（**片段加工**，反馈面）：`T-010` 把起播推迟到 `seeked` 落地之后，而回退 seek 在长 GOP 1080p60 源上要 **1.6~2s**（`rs=1` + `seeking` 整窗口）——这段里按钮仍是「播放」、画面不动，用户必然连点，而每次连点都打断上一次未落地的 `play()`（**用户实机日志 12:42:50–53 恰好六条 `AbortError: The play() request was interrupted by a call to pause()`**，与"连点 6 次"完全吻合）→ 现场即"无法重新播放"。**修法**：起播回退把 `seek` 与 `play()` 当场一起发出（门保留、仍由 `seeked` 解除，只挡回退期间旧位置的越界判定），`handleSeeked` 不再补 `play()`（回退窗口内用户按的暂停不被抢回），`VideoPlayer.play()` 吞掉竞态 `AbortError`（日志噪音）。真机采样：修复前 1.6s 内 8 个采样点全是 `btn=播放`，修复后**首个采样点**即 `btn=暂停`；连点 6 次后单击仍正常重播；循环 4.8s 周期无回归。
-    - **真机复现/验证手法**（可复用，见 [gui-e2e/cases-workbench-task.md](./gui-e2e/cases-workbench-task.md) `TC-053`/`TC-054`）：用户实机无调试端口 → 用 `WEBVIEW2_USER_DATA_FOLDER` 指到独立目录再带 `--remote-debugging-port` 起**第二实例**（同一 user-data 会共享已启动的浏览器进程、调试端口不生效，且不要动用户在跑的 `pnpm tauri dev`）；素材导入用 `tauri://drag-drop` 的**真实事件注入**（`window.__internal_unstable_listeners_function_id__`），文本字段用真实键鼠；断言靠 `HTMLMediaElement.prototype.play/pause` 包装 + `document` 捕获监听（媒体事件不冒泡，必须 `capture`）。
-  - （2026-10-05）**用户实机反馈三连（片段加工）——`T-007`/`T-008`/`T-009`，`BUG-016`/`BUG-017`/`BUG-018`**：
-    - `T-007 · BUG-016`：片段加工的时间刻度仍按**整源**画（源 30s / 片段 5s 时读数是 `/ 00:00:30`、能拖出区间再被弹回）。改成刻度/读数/键盘走带一律以**片段区间**为准（`toRel`/`toSrc` 互转 + 钳制）；`UI.md` §9.8 同批把"刻度也以区间为准"写明（原句只约束播放、不约束刻度，正是缺陷得以存在的歧义）。
-    - `T-008 · BUG-017`：**从中间剪出的片段**播完出点后无法重播（起播回退 `seek(入点)` 后立刻 `play()`，而 seek 异步 → 播放器仍用旧位置上报 → 命中"越过出点自动暂停"→ 刚起播就被自己按停）；改为 `pendingPlayRef`（等 `onTime` 报出已落回入点附近再起播）。②进度条到不了终点 = `step=0.05` 把区间长度 3.017 吸附成 3.00 → `step="any"`。**用户复测：②已好；①仍现**。
-    - `T-009 · BUG-018`：①的残留部分是**另一个根因**——`VideoPlayer` 把"播放停止"只归因于 `pause` 事件，而**媒体重新加载会把 `paused` 置回 true 却不触发 `pause`**（规范如此）→ React 的 `playing` 永远停在 true：**按钮显示「暂停」而画面早停住，`playing=true` 又让"再按=暂停"锁死 → 再也播不起来**。真实触发路径 = `useProxyPreview` 在**代理任务完成时切 `src`**（`useProxyPreview.ts:50`）。真机复现（`v.src = v.src` 等价重载）：事件流 `abort,emptied,loadstart,loadedmetadata,seeked` **无 `pause`**、`paused=true` 而按钮恒「暂停」、静置 4.5s 不动。**修法**：`VideoPlayer` 补 `loadstart` → `stop()` + `onPlayStateChange(false)`；`EditModeView` 去掉**乐观 `setPlaying`**，播放态改为**只由 `<video>` 事件回写**（单一真源）。修复后真机自测：重载 → 按钮回「播放」、点按即真正重播；`TC-050` 序列（播到出点停 / 进度条到最右 / 点播放 / 连点两次 / 拖到最前再播）全部通过。`TC-051` 真机半待按用例复跑留证。
-  - （2026-10-05）**`M12-2` 渲染即预览落地（`FR-1760`~`FR-1762`）** —— 四次提交 `M12-2a`~`M12-2d`。**后端**：`task/manager.rs` 加 `Priority{Normal,Low}`（仅内部，前端契约不变）+ 调度**优先挑选普通任务、不抢占**；新增 `submit_internal_low` 与 `submit_internal_singleton`（同 key 复用 / 异 key 在**同一临界区**取消同 kind 全部活动内部任务——key 是内容签名，编辑后必变，按 `(kind,key)` 查表找不到旧任务）；`pipeline.rs` 的 `preview` 分支把产物写到 `app_cache_dir/preview/<令牌>.mp4`（强制 mp4），作业体开头 `sweep_preview_dir` 实现"只留当前一份"；`lib.rs` 的历史回调改为**按 internal 跳过**（preview 沿用 kind `pipeline`，只看白名单会污染历史）；`media.rs` 的 proxy 改走低优先级（顺带兑现 DESIGN §8 里一直没实现的"代理优先级最低"）、`CacheUsage` 与两个缓存命令纳入 `preview/`。**前端**：`utils/previewRender.ts::decidePreview`（纯函数 + 9 条 Vitest）表达三条策略，`hooks/usePreviewRender.ts` 1.5s 防抖自动提交 + 新编辑先 `cancelTask` + **事件按 taskId 匹配**，`ProductPreview` 加 `renderedSrc` 单文件分支（播放头 = 视频时间，复用同一套 playheadRef/进度条契约），页脚加「精确预览」与渲染状态。**两处实现倒逼规格对齐**：§17.6 原写"preview 排最低优先级（既有排队机制即可）"其实**队列当时是纯 FIFO 无优先级**；历史回调不查 internal。验证：cargo 98+7（含新 e2e）· tsc · eslint · vitest 137 · fmt · check-docs 五绿；**`TC-048` 真机半 ⏳**。方案与落地记录见 [plans/M12.md](./plans/M12.md) §21。
-  - （2026-10-05）**`M14-6` 落地：片段池手柄语义（不排序，重申决策 #13）** —— 池卡右下角 `GripVertical` → `ArrowRight`（消除"像排序手柄"的误导）、`title` 保持"拖入时间轴"，池标题提示由三句并列收敛为「池内不排序（顺序只在时间轴上表达）；拖卡片到时间轴即可加入」，`ClipPool` 头注释同批写明。**同族核对**：全仓 `GripVertical` 三处，另两处（`SourceCards` 素材卡、合并页文件列表）是**真·拖动排序**手柄（`title="拖动排序"`），语义正确未动。规格 `UI.md` §9.8 立项日已写定，本次仅实现对齐。验证：`TC-046` ⑤（真机半待跑）。
-  - （2026-10-05）**`M14-1` 落地：成品连播边界停住（`BUG-014`）** —— 按方案"先复现再修"用真机 CDP 跑通复现（3 段含同源相邻 + 跨源两种边界），用 `HTMLMediaElement.prototype.play/pause` 探针（带调用栈）钉死根因：`ProductPreview` 的 `onPause` 用 **React state `slot`** 判定活动槽，而 `switchTo` 会 `pause()` 离场槽、其 `pause` 事件到达时 state 未跟上（`slotRef` 已同步改为另一槽）→ "自己停离场槽"被误判成"外部暂停" → `onPlayingChange(false)` → 新活动槽被 effect 暂停、rAF 空转 → 死锁（静态推演曾判"不成立"，实测推翻，与 `BUG-012` 教训同源）。**修法**：`onPause`/`onEnded`/`onLoadedMetadata` 三处活动槽判定统一改读 `slotRef`。**验证**：`TC-044` 通过（连续跨 10s/20s 两处边界不停、seek 后继续、末尾正常停止、暂停读数对齐）+ `M11-3` 五个同步点复测。`BUG-014` → `verified`；M14 仅剩 `M14-6`。文档：BUGS/TESTING/gui-e2e（`TC-044` 步骤、断言、修复前后证据）/PLAN/plans-M14/CHANGELOG。
-- **环境提示**：本机 `pnpm add -D vitest` 落下的包只有空目录（pnpm 建链接失败的既有症状），已用 junction 就地补链（26 处）；用户正常终端跑一次 `pnpm install` 会按官方格式重建 `.bin/vitest`，`pnpm test` 即用。
-- **待用户统一手测**（完整 ⏳ 清单以 [TESTING.md](./TESTING.md) 为准）：**`TC-047` 手工半**（M15 全流程 + 提取式回归；手测点见 [plans/M15.md](./plans/M15.md) §20.5） · `TC-043` 手工半（M11-9 帧预算埋点） · `TC-045`（含放大片段的成品预览构图 vs 导出抽帧；`BUG-015` 回归） · `TC-049`/`TC-051`（真机半复跑） · `TC-021`~`TC-024`/`TC-028`/`TC-030`（手工/真机半） · `TC-033`/`TC-036`/`TC-038` · M4-5 NSIS 干净环境冒烟 · 新增手测点：`T-020`（下拉选 0.2×/3× 确认变速）· `M16-6`（裁剪框边缘拖拽调整大小）
-- **遗留小项**：规则 B 下"有片段裁剪 + 其他片段非恒等旋转"时后者也转码；硬编路径未在真 GPU 验证；旋转覆盖源 flip 元数据；代理关闭时不支持格式仅提示条；日志跨天不切文件；README 截图待补（~~成品模式 Delete 恒空~~ 已随 `M11-4` 独立选中 state 修复，2026-09-25）
-- **硬门槛**：发布前 asset scope 收窄 + CSP（`CAND-015`）。技术任务 `T-001`/`T-002`/`T-003`/`T-005`/`T-006` 已于 2026-10-06 起全部落地清零（`T-004` 更早），缺陷修复行 `T-015`~`T-020` 亦全部 ✅
+M21-7 行汇总的七组手测点（PLAN.md）；另 M18 十条手测点（PLAN M18-9 节，第 10 条 GPU 需 N 卡）。
 
 ## 未决问题（评审 / 反馈）——待定性
 
-> **硬规则**：会话结束前，每条未决意见**必须转正**（`BUG` / `T` / `ADR` / `FR`）**或显式保留并写原因**；分流规则见 [INDEX.md](./INDEX.md) §6.2（评审产物的归属）。暂存于此的意见须标「待定性」+ 来源/现象/影响面/为何定不了，**不允许无声消失**。
->
-> **2026-09-28 转正记录**：原「实机行为未验证 · `ProductPreview.switchTo` 段边界误报致连播停住」一条，因用户实机报告现象与之吻合（静态推演结论被推翻），已转正为 [BUGS.md](./BUGS.md) `BUG-014`（修复任务 `M14-1`，回归 `TC-044`，**先复现定位再改**），从本表移除。
+> 硬规则：会话结束前每条未决意见**必须转正**（`BUG`/`T`/`ADR`/`FR`）**或显式保留并写原因**；分流规则见 [INDEX.md](./INDEX.md) §6.2。
 
 | 项 | 来源 | 现象 / 疑点 | 影响面 | 待定性原因 | 复查点 |
 | --- | --- | --- | --- | --- | --- |
-| 打包与安装未审 | 评审 §8 | `tauri.conf.json` / NSIS / capability 收窄 / CSP 未纳入审查 | **发布前硬门槛** | 属发布面而非功能面；已在 `CAND-015` 立项 | 发布前统一处理（CSP + asset scope 收窄 + 干净环境冒烟） |
-| 依赖安全未扫 | 评审 §8 | `pnpm-lock.yaml` / `Cargo.lock` 未做已知漏洞扫描 | 供应链安全 | 需联网工具（本环境代理受限） | 发版前在可联网环境跑一次审计 |
-| 性能未 profiling | 评审 §8 | 只有静态开销判断（缩略图冗余请求已转 `T-003`），无实测数据 | 大素材/多片段体验 | 缺 profiling 工具链与夹具 | M11-9（100 片段埋点）时一并取数 |
-| e2e 断言强度未评估 | 评审 §8 · §5.3 | `tests/e2e.rs` 断言强度未逐条评估；覆盖缺口：rotate、crop_zoom、merge 非兼容转码分支、proxy 去重 | 回归保障强度 | 需先补齐 R4 回归 TC 才有对照基线 | **R4 已完成（2026-09-23，TC-019–TC-029 就位）、Vitest 载体也已就位（`M11-0`，2026-09-24）——本项已到复查点**；评估时把 `proxy` 去重与 `merge` 非兼容转码分支的缺口一并纳入（`TC-022`/`TC-024`/`TC-028` 的矩阵已由 `T-004` 固化为 Vitest 用例，评估时参照其形态） |
-| 位深是否单独展示 | 自查（docs 复查） | DESIGN §3.1 原写面板显示"位深"，实现只有 `pixFmt`（如 `yuv420p10le`，位深含在串里）；Rust `bit_depth` 已提供、前端 TS 未消费。**`bit_depth` 死字段已随 `T-006` 删除**（2026-10-06：probe 解析→lib.rs→DESIGN §7）——本行前提已变为"字段已删"，若做单列位深则需从 probe 重新解析并三处同补 | 信息面板呈现 | 属产品取舍（单列字段 vs 由像素格式表达），不影响功能 | 提"信息面板增强"需求时一并定；若单列则补 TS 字段 + 面板一行 |
-| 缩略图整批失败时的 UI 提示 | `R4-5` 的 CR（Spec 轴 §c2） | 合并页所有文件都抽不出帧时，后端返回空列表、只留日志（前端 `catch` 静默），用户看到的是空白占位图而没有任何文字说明 | 合并页可用性 | 属 UX 增强而非缺陷：与修复前的 `Err` 行为等价（同样被静默 catch），不算回归；要做成"提示条"需先定文案与位置 | 提"合并页体验"批次时定；若做则前端加提示条 + TC-011 补断言 |
-| 工作台中间件固定 mp4 与"copy 跟随源容器"的缺口 | `R4-6` 的 CR（Standards 轴） | 工作台的**中间文件**（`.pipe_*`）仍固定 `.mp4`，而 ADR-033 ① 让全 copy 拼接的**成品**跟随源容器。源为 mkv 且视频编码是 mp4 不容纳的（如 VP9）时，`-c copy` 写中间 mp4 会失败——"跟随源容器"对该类源实际不可达 | 非 mp4 系编码素材的工作台导出 | 非本轮引入（中间件一直是 mp4，`FFMPEG.md` §6.3⑨⑩ 也是这么定的）；改法是把 copy 片段的中间件也按源容器命名，但会让 concat 读入混合容器，需要真实素材（VP9/Opus 的 mkv）验证后再动 | 有该类素材做真机验证时一并定；届时同步 `FFMPEG.md` §6.3⑨⑩ |
-| 界面显示的输出名 vs 实际落盘名 | `R4-6` 的 CR（Spec 轴） | 容器校正发生在后端，所以界面上写的名字可能和落盘的不一样。**2026-09-28 `M14-3` 已收口合并/工作台半**：默认名改为 `<首个素材名>_merged` / `_workbench` + `ADR-033` 扩展名预判（前端只做 copy/transcode 分类，**不复制**"容器 ← `format_name`"映射表）。**残留两种**：① 源文件扩展名与实际容器不符（如把 mkv 改名成 `.mp4`）——以后端校正后的名字为准（同向、不再固定 `.mp4`）；② 任务面板 label 用的是**提交时请求名**，不是最终落盘路径 | 界面一致性（不影响产物正确性） | ② 要改需后端把终态路径回传（`HistoryEntry` 现在记的也是提交时的目标） | 提"导出体验"批次时定；届时一并看 `HistoryEntry` 是否补实际路径 |
-| H.265 装了系统扩展也被强制代理 | `R4-7` 的 CR（Standards 轴） | `DESIGN` §10 表写 H.265 是"**依赖系统 HEVC 扩展**，探测失败 → 代理"，而 `needsProxy` 是**静态白名单**（h265 不在 `NATIVE_VIDEO`，一律判需要代理）；仓库里没有 `canPlayType` 之类运行时探测，只有播放失败后的 `onError` 兜底。**净效果 = 宁可多生成一次代理**：装没装扩展都会转码（只影响耗时/临时磁盘，预览与导出结果都正确），反向（判"可播"却播不了）由 `onError` 兜住 | 装了 HEVC 扩展的机器上，H.265 素材预览要多等一次代理生成 | 非本轮引入（静态判定从 M1-8 起就这样），且方向保守、不破坏正确性；要做准需在 WebView2 里跑 `canPlayType` 探测（属真机/GUI 面） | M12 预览强化时定；若做则把 `canPlayType` 结果并入 `needsProxy`（并同步 `DESIGN` §10 的表述） |
+| 打包与安装未审 | 评审 §8 | `tauri.conf.json` / NSIS / capability 收窄 / CSP 未纳入审查 | **发布前硬门槛** | 属发布面；已在 `CAND-015` 立项 | 公开发布前统一处理（`CAND-015`） |
+| 依赖安全未扫 | 评审 §8 | lockfile 未做已知漏洞扫描 | 供应链安全 | 需联网工具 | 发版前在可联网环境跑一次审计 |
+| 性能未 profiling | 评审 §8 | 只有静态开销判断 | 大素材/多片段体验 | 缺 profiling 工具链与夹具 | M11-9（100 片段埋点）时一并取数 |
+| e2e 断言强度未评估 | 评审 §8 | 覆盖缺口：rotate、crop_zoom、merge 非兼容转码分支、proxy 去重 | 回归保障强度 | R4/Vitest 基线已就位，评估未做 | 补缺口时参照 T-004 固化的 Vitest 用例形态 |
+| 位深是否单独展示 | 自查 | `bit_depth` 字段已随 T-006 删除，若单列需三处同补 | 信息面板呈现 | 产品取舍 | 提"信息面板增强"时一并定 |
+| 缩略图整批失败时的 UI 提示 | R4-5 CR | 合并页全部抽不出帧时静默空白 | 合并页可用性 | UX 增强；需先定文案与位置 | 提"合并页体验"批次时定 |
+| 工作台中间件固定 mp4 与"copy 跟随源容器"缺口 | R4-6 CR | mkv + VP9 等源 copy 中间件会失败 | 非 mp4 系素材工作台导出 | 需真实素材（VP9/Opus mkv）验证 | 有素材真机验证时一并定 |
+| 界面输出名 vs 实际落盘名 | R4-6 CR | ①源扩展名与容器不符时以后端校正为准（可接受）；②任务面板 label 用提交时请求名 | 界面一致性 | ②需后端回传终态路径 | 提"导出体验"批次时一并看 `HistoryEntry` |
+| H.265 装了系统扩展也被强制代理 | R4-7 CR | `needsProxy` 静态白名单；宁可多生成代理 | 装了 HEVC 扩展机器的预览耗时 | 方向保守不破坏正确性 | M12 预览强化定；做准则并 `canPlayType` 入 `needsProxy` |
 
-## 关键事实（M11 阶段；长期红线与坑速查见 AGENTS.md §3/§8）
+## 关键事实（可复用手法与契约）
 
-- **Rust 类型契约集中在 `src-tauri/src/lib.rs`**（serde `rename_all = "camelCase"`；枚举 snake_case，数字前不加下划线）：`PipelineItem { input, segment?, rotateDeg, hflip, vflip, crop?, outWidth?, outHeight? }`；除 Merge 外四类任务均带 `encoder: Option<String>`。加字段需同提交更新 `lib.rs` + `src/types` + DESIGN §7。
-- **sidecar 运行时命名是裸 `ffmpeg.exe` / `ffprobe.exe`**；`resolve_sidecar` 已对齐插件行为，测试二进制需上溯 deps 目录。
-- **任务系统**：并发 2、kill 取消、`.part`→rename；事件 `task-status` / `task-progress`（payload camelCase）；`submit_pipeline` 有 debug 日志打印收到的载荷（e2e 排查时看日志文件或 tauri dev 控制台）。
+- **Rust↔TS 契约集中在 `src-tauri/src/lib.rs`**（serde camelCase；枚举 snake_case）；改动同提交更新 `src/types` + DESIGN §7（红线 17）
+- **sidecar 命名**：裸 `ffmpeg.exe` / `ffprobe.exe` / `whisper-cli.exe`；`resolve_sidecar` 对齐插件行为
+- **任务系统**：并发 2、kill 取消、`.part`→rename；事件 `task-status` / `task-progress`
+- **真机 CDP 测试手法**（2026-10-11 验证）：debug exe + `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9223` + 独立 `WEBVIEW2_USER_DATA_FOLDER`；node 裸 CDP（ws 客户端在 `%TEMP%\cdp-driver`，连接助手可复用）；素材经 `__TAURI_INTERNALS__.invoke("plugin:event|emit_to", ...)` 注入 `tauri://drag-drop`；布局断言走 getBoundingClientRect。详见 handoff-archive 2026-10-11 段
+- **node_modules 半残树修复**：pnpm 操作 os error 5 部分失败后，`rm -rf node_modules && pnpm install --config.node-linker=hoisted` 可从 store 秒级重建（2026-10-11 实证）
+- **发版**：一切以 [RELEASE.md](./RELEASE.md) 为准（前置 Secret/Pages、步骤、坑清单）
+
+## 环境提示
+
+- 本机 `core.autocrlf=true` 来自 system 级 Git 配置（见 AGENTS §7）
+- check-docs 第 5 项因缺个人测试素材存量失败（`video/*.mp4` 部分缺失）——`--no-verify` 提交为既有先例，不属新问题
