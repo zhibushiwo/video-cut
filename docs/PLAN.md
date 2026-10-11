@@ -479,8 +479,8 @@
 > **用户八点**：① 预览视频变形超出 + 音量/倍速重叠；② 素材/片段池双列 50/50 + 时间轴缩高 + 预览放大/动态化；③ 合并报错（历史损坏文件 + 原始 ffprobe banner 倾倒）；④ 设置加「关于」tab、日志降调；⑤ 检查更新本地仍报错（→ M20-4）；⑥ 框选放大推广；⑦ 字幕页导出文案精简；⑧ 发包流程文档 + 发版规则
 
 - [x] **M21-1 文档批**：本节 + M20-4 节 + UI.md 修订 + DESIGN/ADR-046 修订注 + CANDIDATES `CAND-021` → M21-2 + **docs/RELEASE.md 成文** + AGENTS §5.1（发版铁律 + RELEASE.md 指针）→ `pnpm check:docs` 全绿　✅ **2026-10-11 落地**（check-docs 前四项绿；第 5 项 101/122——RELEASE.md 引用的 `.github/workflows/release.yml` 反引号路径可达性属存量类问题，随实文件存在而通过）
-- [ ] **M21-2 播放器修正**：fill 模式显式 `object-fit: contain`（变形根因）+ 音量滑条改竖向向上展开（横向压住倍速按钮）
-- [ ] **M21-3 工作台布局**：素材/片段池 50/50 双列（各自滚动）+ 时间轴高度下调 + 预览默认高上调一档 + `hooks/usePanelHeight.ts` 底边拖拽调高（`CAND-021` 落地，`beginPointerDrag`、clamp 240px~70vh、双击复位、localStorage）
+- [x] **M21-2 播放器修正**：fill 模式显式 `object-fit: contain`（变形根因）+ 音量滑条改竖向向上展开（横向压住倍速按钮）　✅ **2026-10-11 落地**（代码随 d16b291 入库——提交顺序瑕疵，内容独立可辨；`writing-mode:vertical-lr + direction:rtl` 竖向 range，向上弹出）
+- [x] **M21-3 工作台布局**：素材/片段池 50/50 双列（各自滚动）+ 时间轴高度下调 + 预览默认高上调一档 + `hooks/usePanelHeight.ts` 底边拖拽调高（`CAND-021` 落地，`beginPointerDrag`、clamp 240px~70vh、双击复位、localStorage）　✅ **2026-10-11 落地**（`hooks/usePanelHeight.ts` 新建：px 状态 + resize 重 clamp + localStorage 按页键 + 卸载摘拖拽监听；工作台预览 38vh→面板高度（默认 46vh）+ 底边热区手柄（拖拽/双击复位）；双列 = 素材（左，含批量条）/ 片段池（右）各 `flex-1` + 内容区 `max-h-30vh` 滚动；ClipTimeline 高度 64→52；既有拖拽链路未动）
 - [ ] **M21-4 ffprobe 错误消息清洗**：剥 banner 行（version/configuration/built with），保留关键错误 + 人话前缀「文件损坏或不完整（可能是历史未完成的半成品）」
 - [ ] **M21-5 设置三 tab**：通用 / AI 字幕 / 关于（版本/FFmpeg 版本/检查更新/GPL 迁入）；「打开日志文件夹」移「通用」页尾静态区低调链接
 - [ ] **M21-6 框选放大推广 + 导出文案精简**：`allowZoom` 启用查看型预览（ProductPreview/剪切/合并；片段加工页除外）+ 字幕页导出卡文案一行化

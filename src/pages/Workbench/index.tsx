@@ -66,6 +66,7 @@ import {
 import { useUndoStack } from "../../utils/undo/store";
 import type { BuildCtx, CommandBuilder, EditorDoc } from "../../utils/undo/types";
 import { BatchBar } from "./BatchBar";
+import { usePanelHeight } from "../../hooks/usePanelHeight";
 import { ClipPool } from "./ClipPool";
 import { CutModeView } from "./CutModeView";
 import { EditModeView } from "./EditModeView";
@@ -210,6 +211,9 @@ export default function WorkbenchPage({
   useEffect(() => {
     writePlayheadTransform();
   }, [playhead, pps, writePlayheadTransform]);
+  // 预览面板高度拖拽（CAND-021，M21-3）：默认 46vh（原 38vh 上调一档），localStorage 记忆
+  const previewPanel = usePanelHeight("workbench.preview", 46);
+
   // 批量能力（M6-8 = 原 M4-4）：素材多选 → 一键建片段 / 批量应用旋转
   const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
   const [batchRot, setBatchRot] = useState<RotateState>(NO_ROTATE);
@@ -1121,7 +1125,10 @@ export default function WorkbenchPage({
                 </span>
               </div>
 
-              <div className="flex h-[38vh] min-h-[240px] w-full items-center justify-center overflow-hidden rounded-md border border-hairline bg-black">
+              <div
+                className="flex w-full items-center justify-center overflow-hidden rounded-md border border-hairline bg-black"
+                style={{ height: previewPanel.height }}
+              >
                 {mode.type === "product" &&
                   (timelineClips.length === 0 ? (
                     <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-center">
@@ -1187,6 +1194,13 @@ export default function WorkbenchPage({
                     );
                   })()}
               </div>
+              {/* 底边拖拽热区（CAND-021）：向下拖变高 / 双击复位 */}
+              <div
+                onPointerDown={previewPanel.startDrag}
+                onDoubleClick={previewPanel.reset}
+                title="拖拽调高预览；双击复位"
+                className="mx-auto h-1.5 w-40 cursor-row-resize rounded bg-hairline transition-colors hover:bg-mute/50"
+              />
             </div>
 
             {/* ② 合成时间轴 */}
@@ -1220,53 +1234,59 @@ export default function WorkbenchPage({
               zoomFitRef={timelineZoomFitRef}
             />
 
-            {/* ③ 片段池 */}
-            <ClipPool
-              clips={clips}
-              timeline={timeline}
-              thumbs={thumbs}
-              clipThumbs={clipThumbs}
-              clipSource={clipSource}
-              checkOf={clipCheck}
-              clipDurationOf={clipDuration}
-              clipThumbKeyOf={clipThumbKey}
-              selectedClipId={selectedClipId}
-              onOpen={(id) => setMode({ type: "edit", clipId: id })}
-              onAppend={appendToTimeline}
-              onRemove={deleteFromPool}
-            />
-
-            {/* ④ 素材卡片（含批量操作条，M6-8 = 原 M4-4） */}
-            {selectedSources.size > 0 && (
-              <BatchBar
-                count={selectedSources.size}
-                onSelectAll={() => setSelectedSources(new Set(files.map((f) => f.id)))}
-                onClearSelection={() => setSelectedSources(new Set())}
-                onBatchAdd={batchAddClips}
-                batchRot={batchRot}
-                onBatchRotChange={setBatchRot}
-                onApplyBatchRot={applyBatchRot}
-                batchMsg={batchMsg}
-              />
-            )}
-            <section className="flex flex-col gap-1.5">
-              <div className="flex items-center gap-2">
-                <h2 className="text-xs font-medium text-mute">素材</h2>
-                <span className="text-[11px] text-mute/60">
-                  点击进入剪切（可反复剪出多个片段）；勾选卡片可批量建片段/应用旋转
-                </span>
-              </div>
-              <SourceCards
-                files={files}
-                thumbs={thumbs}
-                selectedIds={selectedSources}
-                onOpen={(id) => setMode({ type: "cut", sourceId: id })}
-                onRemove={(f) => void removeSource(f)}
-                onAdd={() => void openFiles()}
-                onReorder={reorderSources}
-                onToggleSelect={toggleSourceSelect}
-              />
-            </section>
+            {/* ③+④ 双列（M21-3）：素材（左）/ 片段池（右）各 50%，内部滚动防止内容超出 */}
+            <div className="flex items-stretch gap-4">
+              <section className="flex min-w-0 flex-1 flex-col gap-1.5">
+                <div className="flex items-center gap-2">
+                  <h2 className="text-xs font-medium text-mute">素材</h2>
+                  <span className="text-[11px] text-mute/60">
+                    点击进入剪切（可反复剪出多个片段）；勾选卡片可批量建片段/应用旋转
+                  </span>
+                </div>
+                {selectedSources.size > 0 && (
+                  <BatchBar
+                    count={selectedSources.size}
+                    onSelectAll={() => setSelectedSources(new Set(files.map((f) => f.id)))}
+                    onClearSelection={() => setSelectedSources(new Set())}
+                    onBatchAdd={batchAddClips}
+                    batchRot={batchRot}
+                    onBatchRotChange={setBatchRot}
+                    onApplyBatchRot={applyBatchRot}
+                    batchMsg={batchMsg}
+                  />
+                )}
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1" style={{ maxHeight: "30vh" }}>
+                  <SourceCards
+                    files={files}
+                    thumbs={thumbs}
+                    selectedIds={selectedSources}
+                    onOpen={(id) => setMode({ type: "cut", sourceId: id })}
+                    onRemove={(f) => void removeSource(f)}
+                    onAdd={() => void openFiles()}
+                    onReorder={reorderSources}
+                    onToggleSelect={toggleSourceSelect}
+                  />
+                </div>
+              </section>
+              <section className="flex min-w-0 flex-1 flex-col">
+                <div className="min-h-0 flex-1 overflow-y-auto pr-1" style={{ maxHeight: "30vh" }}>
+                  <ClipPool
+                    clips={clips}
+                    timeline={timeline}
+                    thumbs={thumbs}
+                    clipThumbs={clipThumbs}
+                    clipSource={clipSource}
+                    checkOf={clipCheck}
+                    clipDurationOf={clipDuration}
+                    clipThumbKeyOf={clipThumbKey}
+                    selectedClipId={selectedClipId}
+                    onOpen={(id) => setMode({ type: "edit", clipId: id })}
+                    onAppend={appendToTimeline}
+                    onRemove={deleteFromPool}
+                  />
+                </div>
+              </section>
+            </div>
           </>
         )}
       </div>
