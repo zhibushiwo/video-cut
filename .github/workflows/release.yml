@@ -67,6 +67,18 @@ jobs:
         if: steps.check.outputs.exists == 'false'
         run: pnpm install --frozen-lockfile
 
+      - name: 诊断——签名私钥是否已配置（M20/ADR-046）
+        if: steps.check.outputs.exists == 'false'
+        shell: bash
+        env:
+          KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY 未配置或为空——到 Settings → Secrets and variables → Actions 新建该 Secret（内容 = 本地 .tauri/video-cut.key 文件全文，名字必须完全一致）"
+            exit 1
+          fi
+          echo "私钥已配置（长度 $(printf %s "$KEY" | wc -c) 字符）"
+
       - name: 构建（createUpdaterArtifacts 需要签名私钥，M20/ADR-046）
         if: steps.check.outputs.exists == 'false'
         env:
