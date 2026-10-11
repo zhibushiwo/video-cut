@@ -445,11 +445,11 @@
 > **用户六点**：① 设置 tab 化 + AI 字幕独立 tab；② 全屏预览不铺满（`BUG-027`）；③ 控制栏 B 站样式；④ 预览实时局部放大（potplayer 式，`FR-397`）；⑤ 导出可到其他文件夹（字幕页先做，`CAND-037` 推广）；⑥ 字幕页底部导出区整合
 
 - [x] **M19-1 文档批**：BUGS `BUG-027` + DESIGN §3.10 `FR-397`/`AC-397-1` + UI.md §9.12 新节/§9.9 tab 化/§9.11 导出区整合 + CAND-037 登记 + PLAN 本节 → `pnpm check:docs` 全绿　✅ **2026-10-11 落地**
-- [ ] **M19-2 BUG-027 修复**：global.css 全屏态视频 `width:100% + max-height + object-fit:contain`
-- [ ] **M19-3 字幕页导出区整合**：单卡双模式（Segmented 无损封装/烧录）+ 共用字幕文件/输出目录行 + 烧录模式样式行 + 「输出到」目录选择（默认输出规则，可临时改，会话内记忆）
-- [ ] **M19-4 设置页 tab 化**：顶部「通用 / AI 字幕」tab，AI 字幕区+语言+后端迁入
-- [ ] **M19-5 控制栏 B 站样式**：细进度条置顶 hover 展开 + 播放按钮 + 合并时间码 + 倍速文字菜单 + 音量 hover 滑条 + 全屏（全页面播放器同源）
-- [ ] **M19-6 FR-397 预览框选放大**：VideoPlayer `allowZoom` + Ctrl 拖拽框选 → transform 放大 + 拖拽平移钳制 + Esc/双击/按钮还原（字幕页启用）
+- [x] **M19-2 BUG-027 修复**：global.css 全屏态视频 `width:100% + max-height + object-fit:contain`　✅ **2026-10-11 落地**（`width:auto` → 恒满宽 + 高度按比例自适应 + 显式 contain 防变形；fill 模式全屏视觉不变）
+- [x] **M19-3 字幕页导出区整合**：单卡双模式（Segmented 无损封装/烧录）+ 共用字幕文件/输出目录行 + 烧录模式样式行 + 「输出到」目录选择（默认输出规则，可临时改，会话内记忆）　✅ **2026-10-11 落地**（边框/按钮颜色随模式 signal/warn；「选择文件夹…」+「恢复默认目录」，覆盖时标注「本次临时」；submitMux/submitBurn 走覆盖目录；样式行仅烧录模式可见）
+- [x] **M19-4 设置页 tab 化**：顶部「通用 / AI 字幕」tab，AI 字幕区+语言+后端迁入　✅ **2026-10-11 落地**（tab 会话内记忆不持久化；AI 字幕 section 去掉 border-y 由 divide-y 接管）
+- [x] **M19-5 控制栏 B 站样式**：细进度条置顶 hover 展开 + 播放按钮 + 合并时间码 + 倍速文字菜单 + 音量 hover 滑条 + 全屏（全页面播放器同源）　✅ **2026-10-11 落地**（组件内新增 playing 态驱动播放/暂停按钮——与 onPlayStateChange 同源回写；倍速非 1x 时按钮亮 signal 并显示 Nx；音量滑条绝对定位展开不挤布局）
+- [x] **M19-6 FR-397 预览框选放大**：VideoPlayer `allowZoom` + Ctrl 拖拽框选 → transform 放大 + 拖拽平移钳制 + Esc/双击/按钮还原（字幕页启用）　✅ **2026-10-11 落地**（几何抽 `utils/videoZoom.ts` 纯函数 + 6 条 Vitest——**推导修正**：可视窗口只需留在内容 [0,1] 内（o ∈ [0, 1−1/s]），首版"必须覆盖所选区间"的约束在 cover 倍率下会塌缩成单点、平移失效；cover 倍率 = 1/max(rw,rh)，transform = `scale(s) translate(-o%)` origin 0 0；交互 = Ctrl+拖拽框选（beginPointerDrag 红线 20）/ 放大态拖拽平移（4px 阈值）/ Esc（全屏时先让 UA 退全屏）/ 双击 / 控制栏还原按钮；光标提示 crosshair/move；拖拽过的 click 不触发播放切换；`allowZoom` 默认关，SrtPreview 启用——编辑页 videoStyle transform 互斥不受影响；vitest 167 · tsc/eslint 全绿，无 Rust 改动）
 
 ## M13 打磨（可选，视 M11/M12 体验决定，决策 #31）
 

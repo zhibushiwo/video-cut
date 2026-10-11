@@ -4,6 +4,7 @@
  * M18-14 信息架构：选片即预览（SrtPreview `srtPath` 可选，识别后同槽叠字幕）+
  * 信息卡（时长/大小/分辨率 + 预计识别耗时，`utils/subtitleEstimate.ts`）；
  * 模型下载/删除/后端管理迁设置页（§9.9「AI 字幕」区），本页只保留选择。
+ * M19-3：导出区整合为单卡双模式（无损封装 signal / 烧录 warn），输出目录可临时改。
  * 页面保活（M10-1 口径）：模型列表与选择状态离开不丢失。
  */
 import { useCallback, useEffect, useState } from "react";
@@ -16,6 +17,7 @@ import {
   fileExists,
   listWhisperModels,
   onTaskStatus,
+  pickDirectory,
   pickSrt,
   pickVideo,
   probeMedia,
@@ -61,12 +63,16 @@ export default function SubtitlePage({
   const [subtitleTaskId, setSubtitleTaskId] = useState<string | null>(null);
   /** 最近一次识别产出的 .srt 绝对路径（任务完成事件 outputs[0]） */
   const [previewSrt, setPreviewSrt] = useState<string | null>(null);
-  /** 两个导出区（封装/烧录）共用的字幕文件（默认跟随最近识别产物，可手动选择 .srt） */
+  /** 两个导出模式共用的字幕文件（默认跟随最近识别产物，可手动选择 .srt） */
   const [exportSrt, setExportSrt] = useState<string | null>(null);
   const [muxSubmitted, setMuxSubmitted] = useState(false);
   const [burnSubmitted, setBurnSubmitted] = useState(false);
   /** 烧录样式（M18-13，FR-396）：留空字段 = libass 默认；不持久化（ADR-045④） */
   const [burnStyle, setBurnStyle] = useState<SubtitleBurnStyle>({});
+  /** 导出卡模式（M19-3 整合）：mux = 无损封装（signal）/ burn = 烧录重编码（warn） */
+  const [exportMode, setExportMode] = useState<"mux" | "burn">("mux");
+  /** 导出目录覆盖（M19-3）：null = 跟随输出目录规则；会话内记忆不持久化（CAND-037 推广面） */
+  const [exportDir, setExportDir] = useState<string | null>(null);
 
   useEffect(() => {
     if (previewSrt) setExportSrt(previewSrt);
@@ -162,7 +168,7 @@ export default function SubtitlePage({
     setError(null);
     setMuxSubmitted(false);
     try {
-      const dir = resolveOutputDir(filePath, settings.defaultOutputDir);
+      const dir = exportDir ?? resolveOutputDir(filePath, settings.defaultOutputDir);
       const output = await resolveUniqueTarget(
         dir,
         `${stemOf(filePath)}_softsub.${subtitleMuxExt(filePath)}`,
@@ -178,14 +184,14 @@ export default function SubtitlePage({
     } catch (e: unknown) {
       setError(String(e));
     }
-  }, [filePath, exportSrt, settings]);
+  }, [filePath, exportSrt, settings, exportDir]);
 
   const submitBurn = useCallback(async () => {
     if (!filePath || !exportSrt) return;
     setError(null);
     setBurnSubmitted(false);
     try {
-      const dir = resolveOutputDir(filePath, settings.defaultOutputDir);
+      const dir = exportDir ?? resolveOutputDir(filePath, settings.defaultOutputDir);
       const output = await resolveUniqueTarget(
         dir,
         `${stemOf(filePath)}_subbed.mp4`,
@@ -204,7 +210,7 @@ export default function SubtitlePage({
     } catch (e: unknown) {
       setError(String(e));
     }
-  }, [filePath, exportSrt, settings, burnStyle]);
+  }, [filePath, exportSrt, settings, burnStyle, exportDir]);
 
   return (
     <div className="flex h-full flex-col">
@@ -335,128 +341,158 @@ export default function SubtitlePage({
             )}
 
             {filePath && (
-              <section aria-label="封装字幕" className="rounded-lg border border-signal/40 p-3">
-                <h2 className="text-sm font-medium text-signal">封装字幕到容器（无损）</h2>
-                <p className="mt-1 text-xs leading-relaxed text-mute">
-                  把 .srt 作为软字幕轨封装进新容器：视频与音频原样复制（秒级、画质不变、多音轨全保留），
-                  播放器里可随时开关字幕。输出{" "}
-                  <code className="font-mono">{`${stemOf(filePath)}_softsub.${subtitleMuxExt(filePath)}`}</code>
-                  （{subtitleMuxExt(filePath) === "mp4" ? "mp4 源 → mov_text 字幕" : "非 mp4 源 → mkv 容器 + srt 字幕"}）。
-                  <span className="text-mute">
-                    字幕样式由播放器决定；mov_text 在部分老设备/硬件播放器上可能不显示。
-                  </span>
-                </p>
-                <div className="mt-2 flex items-center justify-between gap-3">
-                  <div className="min-w-0 text-xs text-mute">
-                    字幕文件：
-                    {exportSrt ? (
-                      <span className="text-paper">{basename(exportSrt)}</span>
-                    ) : (
-                      "未选择"
-                    )}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void pickSrt().then((p) => p && setExportSrt(p))}
-                      className="rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-                    >
-                      选择 .srt…
-                    </button>
-                    <button
-                      type="button"
-                      disabled={!exportSrt}
-                      onClick={() => void submitMux()}
-                      className="rounded-md bg-signal px-3 py-1.5 text-xs font-medium text-ink transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      导出封装视频
-                    </button>
+              <section
+                aria-label="导出"
+                className={`rounded-lg border p-3 ${exportMode === "mux" ? "border-signal/40" : "border-warn/40"}`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <h2
+                    className={`text-sm font-medium ${exportMode === "mux" ? "text-signal" : "text-warn"}`}
+                  >
+                    {exportMode === "mux" ? "封装字幕（无损）" : "烧录字幕（重编码）"}
+                  </h2>
+                  <div
+                    className="flex overflow-hidden rounded-md border border-hairline"
+                    role="group"
+                    aria-label="导出模式"
+                  >
+                    {(
+                      [
+                        ["mux", "无损封装"],
+                        ["burn", "烧录到画面"],
+                      ] as const
+                    ).map(([v, label]) => (
+                      <button
+                        key={v}
+                        type="button"
+                        onClick={() => setExportMode(v)}
+                        aria-label={`导出模式 ${label}`}
+                        className={`px-2.5 py-1 text-xs transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-signal ${
+                          exportMode === v ? "bg-signal/15 text-signal" : "text-mute hover:text-paper"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
                   </div>
                 </div>
-                {muxSubmitted && (
-                  <p className="mt-2 text-xs text-signal" role="status">
-                    已提交封装任务，进度见任务面板。
+                {exportMode === "mux" ? (
+                  <p className="mt-1 text-xs leading-relaxed text-mute">
+                    把 .srt 作为软字幕轨封装进新容器：视频与音频原样复制（秒级、画质不变、多音轨全保留），
+                    播放器里可随时开关字幕。输出{" "}
+                    <code className="font-mono">{`${stemOf(filePath)}_softsub.${subtitleMuxExt(filePath)}`}</code>
+                    （{subtitleMuxExt(filePath) === "mp4" ? "mp4 源 → mov_text 字幕" : "非 mp4 源 → mkv 容器 + srt 字幕"}）；
+                    字幕样式由播放器决定，mov_text 在部分老设备/硬件播放器上可能不显示。
+                  </p>
+                ) : (
+                  <p className="mt-1 text-xs leading-relaxed text-mute">
+                    把字幕渲染进画面导出新视频：
+                    <span className="text-warn">视频需重编码（有损、耗时）</span>
+                    ，音频原样复制；输出{" "}
+                    <code className="font-mono">{`${stemOf(filePath)}_subbed.mp4`}</code>。
                   </p>
                 )}
-              </section>
-            )}
-
-            {filePath && (
-              <section aria-label="烧录字幕" className="rounded-lg border border-warn/40 p-3">
-                <h2 className="text-sm font-medium text-warn">烧录字幕到画面（重编码）</h2>
-                <p className="mt-1 text-xs leading-relaxed text-mute">
-                  把字幕渲染进画面导出新视频：
-                  <span className="text-warn">视频需重编码（有损、耗时）</span>
-                  ，音频原样复制；输出 <code className="font-mono">{`${stemOf(filePath)}_subbed.mp4`}</code>。
-                </p>
+                {exportMode === "burn" && (
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-mute">
+                    <span>样式：</span>
+                    {(
+                      [
+                        ["fontSize", "字号", 500],
+                        ["outline", "描边", 50],
+                        ["marginV", "底部边距", 500],
+                      ] as const
+                    ).map(([key, label, max]) => (
+                      <label key={key} className="flex items-center gap-1">
+                        {label}
+                        <input
+                          type="number"
+                          min={0}
+                          max={max}
+                          value={burnStyle[key] ?? ""}
+                          onChange={(e) => {
+                            const raw = e.target.value.trim();
+                            const v = raw === "" ? undefined : Math.round(Number(raw));
+                            setBurnStyle((st) => ({
+                              ...st,
+                              [key]: v !== undefined && Number.isFinite(v) ? v : undefined,
+                            }));
+                          }}
+                          placeholder="默认"
+                          title="留空 = 默认样式（超范围自动收敛）"
+                          className="w-16 rounded-md border border-hairline bg-panel px-1.5 py-1 text-xs text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-warn"
+                        />
+                      </label>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => setBurnStyle({})}
+                      className="text-mute underline-offset-2 transition-colors hover:text-paper hover:underline focus:outline-none"
+                    >
+                      恢复默认
+                    </button>
+                  </div>
+                )}
                 <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-mute">
-                  <span>样式：</span>
-                  {(
-                    [
-                      ["fontSize", "字号", 500],
-                      ["outline", "描边", 50],
-                      ["marginV", "底部边距", 500],
-                    ] as const
-                  ).map(([key, label, max]) => (
-                    <label key={key} className="flex items-center gap-1">
-                      {label}
-                      <input
-                        type="number"
-                        min={0}
-                        max={max}
-                        value={burnStyle[key] ?? ""}
-                        onChange={(e) => {
-                          const raw = e.target.value.trim();
-                          const v = raw === "" ? undefined : Math.round(Number(raw));
-                          setBurnStyle((s) => ({
-                            ...s,
-                            [key]: v !== undefined && Number.isFinite(v) ? v : undefined,
-                          }));
-                        }}
-                        placeholder="默认"
-                        title="留空 = 默认样式（超范围自动收敛）"
-                        className="w-16 rounded-md border border-hairline bg-panel px-1.5 py-1 text-xs text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-warn"
-                      />
-                    </label>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => setBurnStyle({})}
-                    className="text-mute underline-offset-2 transition-colors hover:text-paper hover:underline focus:outline-none"
-                  >
-                    恢复默认
-                  </button>
-                </div>
-                <div className="mt-2 flex items-center justify-between gap-3">
-                  <div className="min-w-0 text-xs text-mute">
+                  <span>
                     字幕文件：
                     {exportSrt ? (
                       <span className="text-paper">{basename(exportSrt)}</span>
                     ) : (
                       "未选择"
                     )}
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2">
+                  </span>
+                  <span className="min-w-0">
+                    输出到：
+                    <span className="text-paper">
+                      {exportDir ?? resolveOutputDir(filePath, settings.defaultOutputDir)}
+                    </span>
+                    {exportDir && <span className="ml-1">（本次临时）</span>}
+                  </span>
+                </div>
+                <div className="mt-2 flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void pickSrt().then((p) => p && setExportSrt(p))}
+                    className="rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                  >
+                    选择 .srt…
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void pickDirectory().then((d) => {
+                        if (d) setExportDir(d);
+                      })
+                    }
+                    className="rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                  >
+                    选择文件夹…
+                  </button>
+                  {exportDir && (
                     <button
                       type="button"
-                      onClick={() => void pickSrt().then((p) => p && setExportSrt(p))}
+                      onClick={() => setExportDir(null)}
                       className="rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
                     >
-                      选择 .srt…
+                      恢复默认目录
                     </button>
-                    <button
-                      type="button"
-                      disabled={!exportSrt}
-                      onClick={() => void submitBurn()}
-                      className="rounded-md border border-warn/60 px-3 py-1.5 text-xs text-warn transition-colors hover:bg-warn/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      导出烧录视频
-                    </button>
-                  </div>
+                  )}
+                  <button
+                    type="button"
+                    disabled={!exportSrt}
+                    onClick={() => void (exportMode === "mux" ? submitMux() : submitBurn())}
+                    className={
+                      exportMode === "mux"
+                        ? "rounded-md bg-signal px-3 py-1.5 text-xs font-medium text-ink transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
+                        : "rounded-md border border-warn/60 px-3 py-1.5 text-xs text-warn transition-colors hover:bg-warn/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-warn disabled:cursor-not-allowed disabled:opacity-40"
+                    }
+                  >
+                    {exportMode === "mux" ? "导出封装视频" : "导出烧录视频"}
+                  </button>
                 </div>
-                {burnSubmitted && (
+                {(exportMode === "mux" ? muxSubmitted : burnSubmitted) && (
                   <p className="mt-2 text-xs text-signal" role="status">
-                    已提交烧录任务，进度见任务面板。
+                    已提交导出任务，进度见任务面板。
                   </p>
                 )}
               </section>

@@ -111,6 +111,8 @@ export default function SettingsPage({
   onBack: () => void;
 }) {
   const [usage, setUsage] = useState<CacheUsage | null>(null);
+  /** 设置页 tab（M19-4）：会话内记忆不持久化 */
+  const [tab, setTab] = useState<"general" | "subtitle">("general");
   const [version, setVersion] = useState<string>("");
   const [cacheMsg, setCacheMsg] = useState<string | null>(null);
   /** AI 字幕区（M18-14，自字幕页迁入）：模型列表 / GPU 后端状态 / 进行中的下载 */
@@ -229,7 +231,34 @@ export default function SettingsPage({
     <div className="flex h-full flex-col">
       <PageHeader title="设置" onBack={onBack} />
 
-      <div className="mx-auto w-full max-w-2xl divide-y divide-hairline overflow-y-auto p-4">
+      <div className="mx-auto flex w-full max-w-2xl gap-1 px-4 pt-3" role="tablist" aria-label="设置分组">
+        {(
+          [
+            ["general", "通用"],
+            ["subtitle", "AI 字幕"],
+          ] as const
+        ).map(([v, label]) => (
+          <button
+            key={v}
+            type="button"
+            role="tab"
+            aria-selected={tab === v}
+            onClick={() => setTab(v)}
+            className={`rounded-md px-3 py-1.5 text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-signal ${
+              tab === v ? "bg-signal/15 text-signal" : "text-mute hover:text-paper"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div
+        className="mx-auto w-full max-w-2xl divide-y divide-hairline overflow-y-auto p-4"
+        role="tabpanel"
+      >
+        {tab === "general" && (
+        <>
         <Row
           title="默认输出目录"
           desc="导出文件保存的位置。留空则输出到源视频所在目录。"
@@ -382,7 +411,12 @@ export default function SettingsPage({
           </div>
         </Row>
 
-        <section aria-label="AI 字幕" className="border-y border-hairline py-4">
+        </>
+        )}
+
+        {tab === "subtitle" && (
+        <>
+        <section aria-label="AI 字幕" className="py-4">
           <div className="flex items-center justify-between gap-8">
             <div className="min-w-0">
               <div className="text-sm text-paper">AI 字幕模型</div>
@@ -459,6 +493,11 @@ export default function SettingsPage({
           />
         </Row>
 
+        </>
+        )}
+
+        {tab === "general" && (
+        <>
         <Row title="缓存管理" desc={cacheDesc}>
           {cacheMsg && <span className="text-xs text-signal">{cacheMsg}</span>}
           <button
@@ -502,6 +541,8 @@ export default function SettingsPage({
         <p className="py-4 text-xs text-mute/80">
           设置改动即时生效并保存到本机（不随视频文件移动）。
         </p>
+        </>
+        )}
       </div>
     </div>
   );

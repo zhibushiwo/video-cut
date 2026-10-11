@@ -1,4 +1,4 @@
-import { Maximize2, Volume2, VolumeX } from "lucide-react";
+import { Maximize2, Minimize2 as Restore, Pause, Play, Volume2, VolumeX, ZoomIn } from "lucide-react";
 import {
   forwardRef,
   useEffect,
@@ -11,6 +11,8 @@ import {
 import { formatTime } from "../../utils/time";
 import { useVolumeMemory } from "../../hooks/useVolumeMemory";
 import { appendFrontendLog } from "../../services/tauri";
+import { beginPointerDrag } from "../../utils/pointerDrag";
+import { clampOffset, zoomScale, type ZoomState } from "../../utils/videoZoom";
 
 export interface VideoPlayerHandle {
   seek(t: number): void;
@@ -74,11 +76,26 @@ interface VideoPlayerProps {
    * 只起播一帧（`BUG-023`；`seg = null` 的全段片段因为不参与越界判定而"看起来正常"）。
    */
   onVideoClick?: () => void;
+  /**
+   * 启用预览框选放大（M19-6，`FR-397`）：Ctrl+拖拽框选 → 放大充满播放器，放大态拖拽
+   * 平移、Esc/双击/控制栏按钮还原。纯前端 transform、实时预览专用，**不参与导出**。
+   * 默认关闭（编辑页裁剪预览的 `videoStyle` transform 与它互斥）。
+   */
+  allowZoom?: boolean;
 }
+
+interface SelRect {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+const clamp01 = (v: number) => Math.min(1, Math.max(0, v));
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(
-    { src, onTime, onSeeked, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass, videoStyle, onPlayStateChange, onVideoClick },
+    { src, onTime, onSeeked, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass, videoStyle, onPlayStateChange, onVideoClick, allowZoom = false },
     ref,
   ) {
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -108,11 +125,28 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const playIntentRef = useRef(false);
     const [cur, setCur] = useState(0);
     const [dur, setDur] = useState(0);
+    /** 播放态（M19-5 控制栏播放按钮需要）；与 onPlayStateChange 同源回写 */
+    const [playing, setPlaying] = useState(false);
     // 音量/静音走会话级全局记忆（M16-2）：所有播放器实例共用、跨页面与换视频保持
     const { volume: vol, muted, setVolume, toggleMuted } = useVolumeMemory();
-    // 倍速循环切换（M7-6，档位见模块级 PLAYBACK_RATES）
+    // 倍速（M19-5 起为文字按钮 + 弹出档位菜单；K/L 循环切换沿用同一档位表）
     const RATES = PLAYBACK_RATES;
     const [rate, setRate] = useState(1);
+    const [ratesOpen, setRatesOpen] = useState(false);
+    // 框选放大（M19-6，FR-397）
+    const [zoom, setZoom] = useState<ZoomState | null>(null);
+    const [sel, setSel] = useState<SelRect | null>(null);
+    const [ctrlDown, setCtrlDown] = useState(false);
+    /** 本次指针手势发生过移动/框选（松手后的 click 不再当作播放切换） */
+    const interactedRef = useRef(false);
+    /** 进行中的指针拖拽收尾器：组件卸载时摘监听（红线 20） */
+    const dragDetachRef = useRef<(() => void) | null>(null);
+    useEffect(
+      () => () => {
+        dragDetachRef.current?.();
+      },
+      [],
+    );
 
     useImperativeHandle(ref, () => ({
       seek(t: number) {
@@ -142,6 +176,24 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       v.muted = muted;
     }, [vol, muted]);
 
+    // 框选放大：Ctrl 键提示光标 + Esc 还原（全屏时让 UA 先退全屏，再按一次才还原）
+    useEffect(() => {
+      if (!allowZoom) return;
+      const onKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Control") setCtrlDown(true);
+        if (e.key === "Escape" && zoom && !document.fullscreenElement) setZoom(null);
+      };
+      const onKeyUp = (e: KeyboardEvent) => {
+        if (e.key === "Control") setCtrlDown(false);
+      };
+      window.addEventListener("keydown", onKeyDown);
+      window.addEventListener("keyup", onKeyUp);
+      return () => {
+        window.removeEventListener("keydown", onKeyDown);
+        window.removeEventListener("keyup", onKeyUp);
+      };
+    }, [allowZoom, zoom]);
+
     useEffect(() => {
       const v = videoRef.current;
       if (!v) return;
@@ -169,11 +221,13 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       };
       const onPlay = () => {
         playIntentRef.current = true;
+        setPlaying(true);
         start();
         onPlayStateRef.current?.(true);
       };
       const onPause = () => {
         playIntentRef.current = false;
+        setPlaying(false);
         stop();
         report();
         onPlayStateRef.current?.(false);
@@ -196,6 +250,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
        */
       const onLoad = () => {
         playIntentRef.current = false;
+        setPlaying(false);
         stop();
         onPlayStateRef.current?.(false);
       };
@@ -207,6 +262,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
        */
       const onEnded = () => {
         playIntentRef.current = false;
+        setPlaying(false);
         stop();
         report();
         onPlayStateRef.current?.(false);
@@ -297,6 +353,114 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       setCur(t);
     };
 
+    // ---------- 框选放大（M19-6，FR-397） ----------
+
+    const onVideoPointerDown = (e: React.PointerEvent) => {
+      if (!allowZoom) return;
+      const box = videoRef.current?.getBoundingClientRect();
+      if (!box || box.width === 0 || box.height === 0) return;
+      const frac = (clientX: number, clientY: number) => ({
+        x: clamp01((clientX - box.left) / box.width),
+        y: clamp01((clientY - box.top) / box.height),
+      });
+      if (e.ctrlKey && !zoom) {
+        // Ctrl+拖拽：框选（红线 20 统一走 beginPointerDrag）
+        const p0 = frac(e.clientX, e.clientY);
+        interactedRef.current = true;
+        dragDetachRef.current = beginPointerDrag(
+          (ev) => {
+            const p = frac(ev.clientX, ev.clientY);
+            setSel({ x0: p0.x, y0: p0.y, x1: p.x, y1: p.y });
+          },
+          (ev) => {
+            dragDetachRef.current = null;
+            setSel(null);
+            if (!ev) return;
+            const p1 = frac(ev.clientX, ev.clientY);
+            const rw = Math.abs(p1.x - p0.x);
+            const rh = Math.abs(p1.y - p0.y);
+            if (rw < 0.03 || rh < 0.03) return; // 过小的误框不放大
+            setZoom(
+              clampOffset({
+                rx: Math.min(p0.x, p1.x),
+                ry: Math.min(p0.y, p1.y),
+                rw,
+                rh,
+                ox: Math.min(p0.x, p1.x),
+                oy: Math.min(p0.y, p1.y),
+              }),
+            );
+          },
+        );
+        return;
+      }
+      if (zoom && !e.ctrlKey) {
+        // 放大态拖拽 = 平移（内容跟手：可视窗口起点随位移反向变化）
+        const s = zoomScale(zoom);
+        const o0 = { x: zoom.ox, y: zoom.oy };
+        let moved = false;
+        dragDetachRef.current = beginPointerDrag(
+          (ev) => {
+            const dx = (ev.clientX - e.clientX) / box.width / s;
+            const dy = (ev.clientY - e.clientY) / box.height / s;
+            if (!moved && Math.hypot(dx * box.width, dy * box.height) > 4) moved = true;
+            if (moved) {
+              interactedRef.current = true;
+              setZoom(clampOffset({ ...zoom, ox: o0.x - dx, oy: o0.y - dy }));
+            }
+          },
+          () => {
+            dragDetachRef.current = null;
+          },
+        );
+      }
+    };
+
+    const onVideoClickInternal = (e: React.MouseEvent) => {
+      // 拖拽过（框选/平移）或 Ctrl 修饰的点击都不是"点画面走带"
+      if (interactedRef.current) {
+        interactedRef.current = false;
+        return;
+      }
+      if (allowZoom && e.ctrlKey) return;
+      if (onVideoClick) {
+        onVideoClick();
+        return;
+      }
+      const v = videoRef.current;
+      if (!v) return;
+      // `ended` 也要当作"可以起播"：到底后规范只置 `ended`、`paused` **仍是 false**
+      // （自然播放到底不触发 `pause`），只按 `paused` 判向会把"播完点画面"当成暂停，
+      // 用户要点两次才重播（`BUG-023` 同族）。
+      if (v.paused || v.ended) safePlay(v);
+      else v.pause();
+    };
+
+    const zoomStyle: CSSProperties | undefined = zoom
+      ? (() => {
+          const s = zoomScale(zoom);
+          return {
+            transform: `scale(${s}) translate(${-zoom.ox * 100}%, ${-zoom.oy * 100}%)`,
+            transformOrigin: "0 0",
+          };
+        })()
+      : undefined;
+
+    const togglePlay = () => {
+      const v = videoRef.current;
+      if (!v) return;
+      if (v.paused || v.ended) safePlay(v);
+      else v.pause();
+    };
+
+    const cursorClass = allowZoom
+      ? zoom
+        ? "cursor-move"
+        : ctrlDown
+          ? "cursor-crosshair"
+          : "cursor-pointer"
+      : "cursor-pointer";
+
     return (
       <div
         ref={rootRef}
@@ -310,31 +474,37 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           ref={videoRef}
           src={src}
           preload="metadata"
-          style={videoStyle}
+          style={zoom ? zoomStyle : videoStyle}
           className={
             fill
-              ? "h-full w-full cursor-pointer bg-black"
-              : `mx-auto ${videoMaxClass ?? "max-h-[44vh]"} w-full cursor-pointer bg-black`
+              ? `h-full w-full bg-black ${cursorClass}`
+              : `mx-auto ${videoMaxClass ?? "max-h-[44vh]"} w-full bg-black ${cursorClass}`
           }
-          onClick={() => {
-            if (onVideoClick) {
-              onVideoClick();
-              return;
-            }
-            const v = videoRef.current;
-            if (!v) return;
-            // `ended` 也要当作"可以起播"：到底后规范只置 `ended`、`paused` **仍是 false**
-            // （自然播放到底不触发 `pause`），只按 `paused` 判向会把"播完点画面"当成暂停，
-            // 用户要点两次才重播（`BUG-023` 同族）。
-            if (v.paused || v.ended) safePlay(v);
-            else v.pause();
+          onPointerDown={onVideoPointerDown}
+          onDoubleClick={() => {
+            if (allowZoom) setZoom(null);
           }}
+          onClick={onVideoClickInternal}
           onLoadedMetadata={(e) => {
             const d = e.currentTarget.duration;
             if (Number.isFinite(d) && d > 0) setDur(d);
             onLoadedMetadata?.(e.currentTarget.duration);
           }}
         />
+        {/* 框选中的选区可视化（M19-6）：视频盒 == 根盒（非 fill 模式视频满宽、fill 模式满容器） */}
+        {sel && (
+          <div className="pointer-events-none absolute inset-0">
+            <div
+              className="absolute border-2 border-signal bg-signal/10"
+              style={{
+                left: `${Math.min(sel.x0, sel.x1) * 100}%`,
+                top: `${Math.min(sel.y0, sel.y1) * 100}%`,
+                width: `${Math.abs(sel.x1 - sel.x0) * 100}%`,
+                height: `${Math.abs(sel.y1 - sel.y0) * 100}%`,
+              }}
+            />
+          </div>
+        )}
         {overlay}
         {banner && (
           <div className="absolute left-2 top-2 rounded bg-ink/80 px-2 py-1 text-xs text-warn backdrop-blur-sm">
@@ -342,67 +512,115 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           </div>
         )}
         {controls && (
-          <div className="absolute inset-x-0 bottom-0 flex items-center gap-2 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-2.5 pb-1.5 pt-5">
-            <span className="shrink-0 font-mono text-[11px] text-paper/80">
-              {formatTime(cur, false)}
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={dur || 0}
-              step={0.05}
-              value={Math.min(cur, dur || 0)}
-              onChange={(e) => commitSeek(Number(e.target.value))}
-              aria-label="播放进度"
-              className="h-1 min-w-0 flex-1 cursor-pointer accent-signal"
-            />
-            <span className="shrink-0 font-mono text-[11px] text-paper/80">
-              {dur > 0 ? formatTime(dur, false) : "--:--"}
-            </span>
-            <button
-              type="button"
-              onClick={() => toggleMuted()}
-              aria-label={muted || vol === 0 ? "取消静音" : "静音"}
-              className="shrink-0 text-paper/80 transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-            >
-              {muted || vol === 0 ? (
-                <VolumeX className="h-4 w-4" />
-              ) : (
-                <Volume2 className="h-4 w-4" />
+          <div className="absolute inset-x-0 bottom-0 select-none">
+            {/* 细进度条置顶（M19-5 B 站样式）：hover 加粗 */}
+            <div className="px-2 pb-0.5">
+              <input
+                type="range"
+                min={0}
+                max={dur || 0}
+                step={0.05}
+                value={Math.min(cur, dur || 0)}
+                onChange={(e) => commitSeek(Number(e.target.value))}
+                aria-label="播放进度"
+                className="h-1 w-full cursor-pointer accent-signal transition-all hover:h-1.5"
+              />
+            </div>
+            <div className="flex items-center gap-3 bg-gradient-to-t from-black/85 via-black/50 to-transparent px-3 pb-2 pt-1">
+              <button
+                type="button"
+                onClick={togglePlay}
+                aria-label={playing ? "暂停" : "播放"}
+                className="shrink-0 text-paper/85 transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+              >
+                {playing ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+              </button>
+              <span className="shrink-0 font-mono text-[11px] text-paper/85">
+                {formatTime(cur, false)} / {dur > 0 ? formatTime(dur, false) : "--:--"}
+              </span>
+              <div className="min-w-0 flex-1" />
+              <div className="relative shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setRatesOpen((v) => !v)}
+                  aria-label="播放速度"
+                  title="播放速度"
+                  className={`text-xs transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal ${ratesOpen || rate !== 1 ? "text-signal" : "text-paper/85"}`}
+                >
+                  {rate === 1 ? "倍速" : `${rate}x`}
+                </button>
+                {ratesOpen && (
+                  <div
+                    className="absolute bottom-full right-0 mb-2 max-h-64 overflow-y-auto rounded-md border border-hairline bg-ink/95 py-1 shadow-lg"
+                    onMouseLeave={() => setRatesOpen(false)}
+                  >
+                    {RATES.map((r) => (
+                      <button
+                        key={r}
+                        type="button"
+                        onClick={() => {
+                          setRate(r);
+                          setRatesOpen(false);
+                        }}
+                        className={`block w-full px-4 py-1 text-center text-xs transition-colors hover:bg-paper/10 focus:outline-none ${r === rate ? "text-signal" : "text-paper/85"}`}
+                      >
+                        {r}x
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="group relative flex shrink-0 items-center">
+                <button
+                  type="button"
+                  onClick={() => toggleMuted()}
+                  aria-label={muted || vol === 0 ? "取消静音" : "静音"}
+                  className="text-paper/85 transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                >
+                  {muted || vol === 0 ? (
+                    <VolumeX className="h-4 w-4" />
+                  ) : (
+                    <Volume2 className="h-4 w-4" />
+                  )}
+                </button>
+                {/* 音量滑条：hover 展开（绝对定位，不挤动控制栏布局） */}
+                <input
+                  type="range"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={muted ? 0 : vol}
+                  onChange={(e) => setVolume(Number(e.target.value))}
+                  aria-label="音量"
+                  className="pointer-events-none absolute left-7 top-1/2 h-1 w-16 -translate-y-1/2 cursor-pointer accent-signal opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100"
+                />
+              </div>
+              {allowZoom && zoom && (
+                <button
+                  type="button"
+                  onClick={() => setZoom(null)}
+                  aria-label="还原放大"
+                  title="还原放大（Esc / 双击画面）"
+                  className="shrink-0 text-signal transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                >
+                  <Restore className="h-4 w-4" />
+                </button>
               )}
-            </button>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={muted ? 0 : vol}
-              onChange={(e) => setVolume(Number(e.target.value))}
-              aria-label="音量"
-              className="h-1 w-16 shrink-0 cursor-pointer accent-signal"
-            />
-            <button
-              type="button"
-              onClick={toggleFullscreen}
-              aria-label="全屏"
-              title="全屏（Esc 退出）"
-              className="shrink-0 text-paper/80 transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-            >
-              <Maximize2 className="h-4 w-4" />
-            </button>
-            <select
-              value={rate}
-              onChange={(e) => setRate(Number(e.target.value))}
-              aria-label="播放速度"
-              title="播放速度"
-              className="shrink-0 cursor-pointer rounded border border-hairline bg-ink/80 px-1 py-0.5 font-mono text-[11px] text-paper/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
-            >
-              {RATES.map((r) => (
-                <option key={r} value={r}>
-                  {r}x
-                </option>
-              ))}
-            </select>
+              {allowZoom && !zoom && (
+                <span className="shrink-0 text-paper/60" title="Ctrl + 拖拽画面框选放大">
+                  <ZoomIn className="h-4 w-4" />
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                aria-label="全屏"
+                title="全屏（Esc 退出）"
+                className="shrink-0 text-paper/85 transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+              >
+                <Maximize2 className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
       </div>

@@ -59,6 +59,7 @@ export function SrtPreview({
     <div className="overflow-hidden rounded-lg border border-hairline">
       <VideoPlayer
         src={fileSrc(videoPath)}
+        allowZoom
         onTime={(sec) => setCue(activeCueText(cues ?? [], sec))}
         overlay={
           cue !== null && (
