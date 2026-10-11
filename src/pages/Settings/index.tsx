@@ -587,7 +587,7 @@ export default function SettingsPage({
                   onClick={() => void startUpdateDownload()}
                   className="rounded-md bg-signal px-2.5 py-1.5 text-xs font-medium text-ink transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
                 >
-                  下载更新 v{update.version}
+                  下载并安装 v{update.version}
                 </button>
               )}
               {update.status === "downloading" && (
@@ -599,7 +599,7 @@ export default function SettingsPage({
                   onClick={() => void relaunchForUpdate()}
                   className="rounded-md bg-signal px-2.5 py-1.5 text-xs font-medium text-ink transition-opacity hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
                 >
-                  重启安装 v{update.version}
+                  完成安装 v{update.version}
                 </button>
               )}
             </div>

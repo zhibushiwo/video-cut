@@ -471,7 +471,7 @@
 > **关联**：[DESIGN.md](./DESIGN.md) §3.11 修订段 · [DECISIONS.md](./DECISIONS.md) `ADR-046` 修订注 · [BUGS.md](./BUGS.md) `BUG-029`
 > **背景**：0.2.0 实机验证发现双端点不足——用户本地最新代码仍稳定复现 `missing field 'url'`，github.io 与 Release 资产域名在其网络下均被污染（`ADR-046` 修订注）
 
-- [ ] **M20-4 实现**：检查阶段自研直连 `api.github.com`（`repos/{owner}/{repo}/releases/latest` 解析 `tag_name` 比版本号；**原始响应体写入日志**——污染可诊断）；确认有新版后以 `releases/download/v{tag}/latest.json` 为动态端点交官方更新器下载/安装（签名不变）；设置页失败态引导看日志 → 验收：污染网络下检查可成功或可诊断
+- [x] **M20-4 实现**：检查阶段自研直连 `api.github.com`（`repos/{owner}/{repo}/releases/latest` 解析 `tag_name` 比版本号；**原始响应体写入日志**——污染可诊断）；确认有新版后以 `releases/download/v{tag}/latest.json` 为动态端点交官方更新器下载/安装（签名不变）；设置页失败态引导看日志 → 验收：污染网络下检查可成功或可诊断　✅ **2026-10-11 落地**（新增 `commands/update.rs`：`check_update`（reqwest 直连 GitHub API、semver 比较、非 200/非法 JSON/缺 tag_name 三种失败均把响应体截断写日志并给可判读错误）+ `install_update`（`UpdaterBuilder::endpoints` 动态注入 Release 直链 latest.json + `download_and_install`，进度经 `update-progress` 事件 5% 节流；安装器拉起后应用自动退出，UI 一键「下载并安装」）；前端 services 换命令通道（移除 JS 插件直查）、updateState 订阅进度事件；`cargo add semver/url`（均为既有传递依赖）；cargo 123+10+2 · vitest 167 · tsc/eslint/fmt 全绿；手测点：①本机跑 dev「检查更新」——污染时错误可判读且日志含原始响应体 ②网络正常时发现新版 → 下载进度 → 安装器拉起）
 
 ## M21 工作台布局与播放器打磨（2026-10-11 用户八点反馈立项）
 

@@ -6,7 +6,13 @@
  * 断网/端点 404 等失败：静默检查回 `idle`（无声）；手动检查保留 error 提示。
  */
 import { useSyncExternalStore } from "react";
-import { appendFrontendLog, checkForUpdate, downloadAndInstallUpdate } from "../services/tauri";
+import {
+  appendFrontendLog,
+  checkForUpdate,
+  installUpdate,
+  onUpdateProgress,
+  type UnlistenFn,
+} from "../services/tauri";
 
 export interface UpdateStatus {
   status: "idle" | "checking" | "upToDate" | "available" | "downloading" | "ready";
@@ -38,13 +44,13 @@ export function useUpdateStatus(): UpdateStatus {
   );
 }
 
-/** 检查更新（silent = 失败无声回 idle；手动检查保留 error 供 UI 提示） */
+/** 检查更新（M20-4：Rust 直连 api.github.com；silent = 失败无声回 idle，手动检查保留 error） */
 export async function runUpdateCheck(silent: boolean): Promise<void> {
   set({ status: "checking" });
   try {
     const r = await checkForUpdate();
-    if (r.version) {
-      set({ status: "available", version: r.version, notes: r.notes });
+    if (r.latest) {
+      set({ status: "available", version: r.latest, notes: r.notes });
     } else {
       set({ status: "upToDate" });
     }
@@ -55,14 +61,21 @@ export async function runUpdateCheck(silent: boolean): Promise<void> {
   }
 }
 
-/** 下载并安装更新包（进度 0~100）；就绪后 UI 出「重启安装」 */
+/** 下载并安装更新包（M20-4：动态端点 + 签名校验；进度事件 0~100；安装器拉起后应用退出） */
 export async function startUpdateDownload(): Promise<void> {
+  const target = state.version;
+  if (!target) return;
   set((s) => ({ ...s, status: "downloading", progress: 0 }));
+  let unlisten: UnlistenFn | null = null;
   try {
-    await downloadAndInstallUpdate((p) => set((s) => ({ ...s, progress: p })));
+    unlisten = await onUpdateProgress((p) => set((s) => ({ ...s, progress: p })));
+    await installUpdate(target);
+    // 命令返回 = 安装器已拉起、应用即将退出；ready 仅作未退出时的兜底展示
     set((s) => ({ ...s, status: "ready", progress: 100 }));
   } catch (e: unknown) {
-    void appendFrontendLog("error", `[update] 下载更新包失败：${String(e)}`);
+    void appendFrontendLog("error", `[update] 下载/安装失败：${String(e)}`);
     set({ status: "idle", error: String(e) });
+  } finally {
+    unlisten?.();
   }
 }

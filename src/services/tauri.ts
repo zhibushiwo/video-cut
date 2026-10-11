@@ -5,6 +5,8 @@
 import { convertFileSrc, invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+
+export type { UnlistenFn };
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { ask, open } from "@tauri-apps/plugin-dialog";
@@ -311,50 +313,34 @@ export async function pickSrt(): Promise<string | null> {
 }
 
 // ---------------------------------------------------------------------------
-// 应用内自动更新（M20，FR-398，ADR-046）：tauri-plugin-updater + plugin-process。
-// 端点与签名公钥在 tauri.conf.json plugins.updater；检查失败（断网等）由调用方吞掉。
+// 应用内自动更新（M20，FR-398；M20-4 修订：检查自研直连 api.github.com——原始响应
+// 写日志可诊断网络污染；下载/安装走官方更新器动态端点，签名校验不变）。
 
 export interface UpdateCheckResult {
-  /** 新版本号；null = 已是最新 */
-  version: string | null;
-  /** 发布说明（Release body，可能为空） */
+  /** 最新版本号；null = 已是最新 */
+  latest: string | null;
+  /** Release 说明（GitHub Release body） */
   notes: string;
+  /** 当前版本 */
+  current: string;
 }
 
-/** 检查更新：返回 null 版本号 = 已是最新；网络失败向上抛（调用方决定静默或提示） */
-export async function checkForUpdate(): Promise<UpdateCheckResult> {
-  const { check } = await import("@tauri-apps/plugin-updater");
-  const update = await check();
-  if (!update) return { version: null, notes: "" };
-  return { version: update.version, notes: update.body ?? "" };
+/** 检查更新（Rust 直连 api.github.com，失败向上抛——调用方决定静默或提示并写日志） */
+export function checkForUpdate(): Promise<UpdateCheckResult> {
+  return invoke("check_update");
 }
 
-/** 下载并安装更新（进度回调 0~100，基于 Content-Length 累计） */
-export async function downloadAndInstallUpdate(
-  onProgress: (percent: number) => void,
-): Promise<void> {
-  const { check } = await import("@tauri-apps/plugin-updater");
-  const update = await check();
-  if (!update) return;
-  let total = 0;
-  let received = 0;
-  await update.downloadAndInstall((event) => {
-    switch (event.event) {
-      case "Started":
-        total = event.data.contentLength ?? 0;
-        break;
-      case "Progress":
-        received += event.data.chunkLength;
-        if (total > 0) onProgress(Math.min(100, Math.round((received / total) * 100)));
-        break;
-      case "Finished":
-        onProgress(100);
-        break;
-    }
-  });
+/** 下载并安装指定版本更新（动态端点 + 签名校验；进度经 `update-progress` 事件推送） */
+export function installUpdate(tag: string): Promise<void> {
+  return invoke("install_update", { tag });
 }
 
-/** 重启应用以完成安装（NSIS 静默安装后自动拉起） */
+/** 更新下载进度事件（0~100） */
+export function onUpdateProgress(handler: (percent: number) => void) {
+  return listen<number>("update-progress", (e) => handler(e.payload));
+}
+
+/** 重启应用（安装器拉起后应用自动退出，此为兜底） */
 export async function relaunchForUpdate(): Promise<void> {
   const { relaunch } = await import("@tauri-apps/plugin-process");
   await relaunch();

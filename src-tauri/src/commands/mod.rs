@@ -7,6 +7,7 @@ pub mod merge;
 pub mod pipeline;
 pub mod rotate;
 pub mod subtitle;
+pub mod update;
 
 use crate::ffmpeg::command;
 

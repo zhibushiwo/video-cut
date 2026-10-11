@@ -37,6 +37,8 @@ sha2 = "0.10"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 tauri-plugin-updater = "2.13.3"
 tauri-plugin-process = "2.4.0"
+semver = "1.0.28"
+url = "2.5.8"
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

@@ -474,8 +474,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           style={zoom ? zoomStyle : videoStyle}
           className={
             fill
-              ? `h-full w-full bg-black ${cursorClass}`
-              : `mx-auto ${videoMaxClass ?? "max-h-[44vh]"} w-full bg-black ${cursorClass}`
+              ? `h-full w-full bg-black object-contain ${cursorClass}`
+              : `mx-auto ${videoMaxClass ?? "max-h-[44vh]"} w-full bg-black object-contain ${cursorClass}`
           }
           onPointerDown={onVideoPointerDown}
           onDoubleClick={() => {
@@ -580,7 +580,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                     <Volume2 className="h-4 w-4" />
                   )}
                 </button>
-                {/* 音量滑条：hover 展开（绝对定位，不挤动控制栏布局） */}
+                {/* 音量滑条：hover 竖向向上弹出（M21-2——横向展开会压住相邻按钮） */}
                 <input
                   type="range"
                   min={0}
@@ -589,7 +589,7 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                   value={muted ? 0 : vol}
                   onChange={(e) => setVolume(Number(e.target.value))}
                   aria-label="音量"
-                  className="pointer-events-none absolute right-4 top-1/2 h-1 w-16 -translate-y-1/2 cursor-pointer accent-signal opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100"
+                  className="pointer-events-none absolute bottom-full left-1/2 mb-1 h-16 w-1 -translate-x-1/2 cursor-pointer accent-signal opacity-0 transition-opacity duration-150 [writing-mode:vertical-lr] [direction:rtl] group-hover:pointer-events-auto group-hover:opacity-100"
                 />
               </div>
               {allowZoom && zoom && (
