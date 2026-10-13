@@ -13,7 +13,8 @@
     "version:bump": "node scripts/bump-version.mjs",
     "hooks:install": "git config core.hooksPath .githooks",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:build": "cross-env TAURI_SIGNING_PRIVATE_KEY=.tauri/video-cut.key TAURI_SIGNING_PRIVATE_KEY_PASSWORD= tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.2",
@@ -32,6 +33,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
+    "cross-env": "^10.1.0",
     "eslint": "^10.10.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "tailwindcss": "^4.3.3",

@@ -35,7 +35,7 @@
 | 坑 | 症状 | 处置 |
 | --- | --- | --- |
 | Tauri 版本错配 | CI 构建步秒挂：`tauri (v2.x) : @tauri-apps/api (v2.y)` major/minor 不一致 | 升 `@tauri-apps/api` 与 Rust `tauri` crate 同 minor（2026-10-11：api 2.11.1 vs crate 2.12.2，pnpm 重装后新 CLI 才启用该检查） |
-| 签名等待密码挂死 | 本地构建停在打包后无 `.sig`；CI 无 TTY 会挂到超时 | 工作流已设 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""`（空密码密钥必须显式给空串）；本地构建同样带上该 env |
+| 签名等待密码挂死 | 本地构建停在打包后无 `.sig`；CI 无 TTY 会挂到超时 | 工作流已设 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""`（空密码密钥必须显式给空串）；本地构建用 `pnpm tauri:build`（脚本已内置密钥路径与空密码，`TAURI_SIGNING_PRIVATE_KEY` 支持"路径或内容"，`.env` 文件官方明确不支持） |
 | pwsh BOM | latest.json 的 notes 首字符是 `\uFEFF` | 工作流读取时已 replace 掉（读 CHANGELOG 的 `Set-Content -Encoding utf8` 在 PS5.1 写 BOM） |
 | 发布说明截断 | latest.json 的 notes 只有前 500 字符 | 工作流 `.slice(0, 500)`——嫌短改这个数字（latest.json 本身无长度限制） |
 | check-docs 第 5 项失败 | 提交被 pre-commit 拦 | 缺个人测试素材（`video/*.mp4`）的存量问题，`--no-verify` 提交（同 49fabeb 先例） |

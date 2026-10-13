@@ -29,6 +29,7 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 | 开发（含 Rust 热重载） | `pnpm tauri dev` |
 | 仅前端 | `pnpm dev` |
 | 构建（tsc + vite） | `pnpm build` |
+| 桌面打包（含更新器签名，密钥在 `.tauri/video-cut.key`） | `pnpm tauri:build` |
 | 静态检查 | `pnpm lint`（或 `pnpm lint:fix`） |
 | 前端单测（纯函数） | `pnpm test`（= `vitest run`；配置 `vitest.config.ts`，node 环境不含 DOM；用例在 `src/**/*.test.ts`） |
 | 文档一致性（链接 / § 归属 / ID 交叉 / skip 区间） | `pnpm check:docs`（= `node scripts/check-docs.mjs`；`--strict` 更严，`--list` 列出扫描文件） |
@@ -107,7 +108,7 @@ scripts/       fetch-ffmpeg.ps1 / gen-fixtures.ps1 / 图标脚本
 
 1. `pnpm version:bump <x.y.z> --changelog` —— 同步 `package.json` 与 `src-tauri/Cargo.toml`（`src-tauri/tauri.conf.json` 自动跟随，红线见 §3 第 22 条），并把 `docs/CHANGELOG.md` 的 `[Unreleased]` 切成 `## [x.y.z] - YYYY-MM-DD`、顶部重开空段（`[Unreleased]` 只有占位时会拒绝切段，确要强切加 `--force`）
 2. 补写新 `[Unreleased]` 的「开发中」状态说明（切段时会被清空）
-3. 推 `main` 触发 CI 构建（本地 `pnpm tauri build` 冒烟可选）—— 验证 Release 资产三件套（exe + `.sig` + `latest.json`）与更新端点，见 RELEASE.md §2
+3. 推 `main` 触发 CI 构建（本地 `pnpm tauri:build` 冒烟可选——含更新器签名 env，见 RELEASE.md §3）—— 验证 Release 资产三件套（exe + `.sig` + `latest.json`）与更新端点，见 RELEASE.md §2
 4. 干净 Win11 安装冒烟：`NFR-011` · `TC-016`
 
 > 漏切补救：`pnpm version:bump <当前版本> --changelog` —— 版本号与当前相同时只切 CHANGELOG、不动版本号。
