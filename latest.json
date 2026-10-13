@@ -1,0 +1,10 @@
+{
+  "version": "0.3.0",
+  "notes": "### 新增\n- **预览面板高度拖拽**（M21）：工作台与剪切/合并预览底边可拖拽调高，双击复位、重启记忆；预览默认更高\n- **框选放大推广**（M21）：合并页、剪切页与成品渲染预览同样支持 Ctrl+拖拽框选放大（原仅播放器）\n- **日志文件夹**（M20）：设置页可一键打开日志文件夹；检查更新、GPU 探测、模型列表失败会写入日志，便于排查网络与环境问题\n\n### 变更\n- **工作台双列布局**（M21）：素材池与片段池左右双列各占一半、内容各自滚动，时间轴缩矮腾出预览空间\n- **设置页三分区**（M21）：改为「通用 / AI 字幕 / 关于」三个标签页\n- **检查更新通道修订**（M20）：直连 GitHub API 检查版本、失败详情写日志；更新下载显示进度，按钮语义改「下载并安装」\n- **损坏文件提示优化**（M21）：打不开的视频不再倾倒整屏技术输出，改为一句话说明（可能已损坏或不完整）\n- **播放器细节**（M21）：预览拖高后画面不被控制条遮挡；倍速文字与图标对齐\n\n### 修复\n- **打开设置弹系统错误框**（M20，`BUG-028`）：已下",
+  "pub_date": "2026-10-13T16:27:46.420Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTS3BIZXJpOHZaWS9yZTU3TWxJNmtjbVRoMmJYei83ZXhucnY3MjdQamRMdENtVXRmcWVvVTlMeDdhU2FsZ20va0NvZVlDZ09Gc1lYL0VMZWw1NDJySWNnSXkxSWNJVFE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxOTA4ODY1CWZpbGU6dmlkZW8tY3V0XzAuMy4wX3g2NC1zZXR1cC5leGUKU0FFRFp3SFNVMm5nTm42elFCNVpTRllSU2d5alZUSnN5Q2EyL2YzVG5yMjR0KzV2Ulkrb2puWVZzZGtLQVdYdXd4bjFjUkdUNGptcUJNYnl3UHNMQXc9PQo="
+    }
+  }
+}
