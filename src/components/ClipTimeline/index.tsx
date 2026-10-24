@@ -542,7 +542,7 @@ export default function ClipTimeline({
     <div
       ref={listRef}
       className="relative select-none overflow-hidden rounded-md border border-hairline bg-panel/60"
-      style={{ height: 52 }}
+      style={{ height: 44 }}
     >
       {clips.length === 0 ? (
         <div className="flex h-full items-center justify-center px-4 text-center text-xs text-mute/70">
