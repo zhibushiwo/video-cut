@@ -31,7 +31,7 @@ import type {
   Segment,
 } from "../../types";
 import { audioSummary, needsProxy, videoSummary, wantsProxy } from "../../utils/media";
-import { basename, dirname, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
+import { basename, defaultOutputName, dirname, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
 import { actualRemovalOf, planRemoval, type Interval } from "../../utils/removal";
 import {
   MIN_SEG_DURATION_SEC,
@@ -85,6 +85,8 @@ export default function CutPage({
   const [currentTime, setCurrentTime] = useState(0);
   const [selection, setSelection] = useState<Selection>({ start: 0, end: 0 });
   const [segments, setSegments] = useState<Segment[]>([]);
+  /** FR-327（CAND-039）：提取模式勾选「合并输出」——N 个片段按顺序合成一个文件，不再逐片段导出 */
+  const [mergeOutput, setMergeOutput] = useState(false);
   const [outputDir, setOutputDir] = useState(settings.defaultOutputDir);
   const [snap, setSnap] = useState(settings.keyframeSnap);
   const [cutMode, setCutMode] = useState<CutMode>(settings.defaultCutMode);
@@ -435,6 +437,54 @@ export default function CutPage({
   };
 
   /**
+   * 合并输出（`FR-327`）：提取片段映射为同源 `PipelineItem[]`（`FR-326` 同款通道）——
+   * 极速无变换命中规则 A 全 copy；精确带 `precise: true` 走规则 B 逐段重编码。
+   * 成品名 `<源名>_merged.<ext>`（极速源容器 / 精确 mp4，`ADR-033`），撞名加时间戳（决策 #19）。
+   */
+  const mergedItems = useMemo<PipelineItem[]>(
+    () =>
+      inputPath && mergeOutput && segments.length > 0
+        ? segments.map((s) => ({
+            input: inputPath,
+            segment: { startSec: s.startSec, endSec: s.endSec },
+            rotateDeg: 0,
+            hflip: false,
+            vflip: false,
+            crop: null,
+            outWidth: null,
+            outHeight: null,
+            precise: cutMode === "precise",
+          }))
+        : [],
+    [inputPath, mergeOutput, segments, cutMode],
+  );
+
+  const startMergedCut = async () => {
+    if (!inputPath || mergedItems.length === 0 || !outputDir) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const dir = outputDir.replace(/[\\/]+$/, "");
+      const target = await resolveUniqueTarget(
+        dir,
+        defaultOutputName(inputPath, "merged", cutMode === "fast"),
+        fileExists,
+      );
+      await submitTask({
+        type: "pipeline",
+        items: mergedItems,
+        output: target,
+        quality: settings.quality,
+        encoder: settings.encoder === "auto" ? null : settings.encoder,
+      });
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  /**
    * 导出保留部分（`FR-326`）：保留段映射为**同源、无变换**的 pipeline items ⇒ 命中
    * `plan_items` 规则 A（全 copy、秒级、单文件 concat）；成品名 `<源名>_trimmed.<扩展名>`，
    * 目标已存在时按决策 #19 只加时间戳（`resolveUniqueTarget`，不静默覆盖）。
@@ -721,11 +771,22 @@ export default function CutPage({
                 )}
               </>
             ) : (
-              <SegmentList
-                segments={segments}
-                keyframes={usableKeyframes}
-                onRemove={(i) => setSegments((prev) => prev.filter((_, idx) => idx !== i))}
-              />
+              <>
+                <SegmentList
+                  segments={segments}
+                  keyframes={usableKeyframes}
+                  onRemove={(i) => setSegments((prev) => prev.filter((_, idx) => idx !== i))}
+                />
+                <label className="flex cursor-pointer items-center gap-1.5 text-xs text-mute">
+                  <input
+                    type="checkbox"
+                    checked={mergeOutput}
+                    onChange={(e) => setMergeOutput(e.target.checked)}
+                    className="accent-signal"
+                  />
+                  合并输出——按片段顺序合成一个视频（<span className="font-mono">{"<源名>_merged"}</span>）
+                </label>
+              </>
             )}
 
             <p className="text-[11px] text-mute/60">
@@ -736,7 +797,7 @@ export default function CutPage({
         )}
       </div>
 
-      {/* 剪切预览（M16-8 / CAND-027②）：片段按顺序连播核对内容；导出仍为每片段一个独立文件 */}
+      {/* 剪切预览（M16-8 / CAND-027②）：片段按顺序连播核对内容；导出形态随「合并输出」勾选 */}
       <div className="shrink-0 border-t border-hairline px-4 py-3">
         <div className="flex items-center gap-2">
           <button
@@ -767,7 +828,9 @@ export default function CutPage({
           />
         )}
         <p className="mt-1.5 text-[11px] leading-relaxed text-mute/70">
-          预览按片段顺序连续播放（copy/重编码判定与导出一致），用于导出前核对内容；导出仍为每个片段一个独立文件。
+          {mergeOutput
+            ? "预览按片段顺序连续播放（copy/重编码判定与导出一致），用于导出前核对内容；勾选「合并输出」后导出为单个合并文件。"
+            : "预览按片段顺序连续播放（copy/重编码判定与导出一致），用于导出前核对内容；导出仍为每个片段一个独立文件。"}
         </p>
       </div>
       <footer className="flex shrink-0 items-center gap-3 border-t border-hairline px-4 py-3">
@@ -803,11 +866,11 @@ export default function CutPage({
         ) : (
           <button
             type="button"
-            onClick={() => void startCut()}
+            onClick={() => void (mergeOutput ? startMergedCut() : startCut())}
             disabled={submitting || segments.length === 0 || !outputDir}
             className="rounded-md bg-signal px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {submitting ? "提交中…" : "开始剪切"}
+            {submitting ? "提交中…" : mergeOutput ? "剪切并合并" : "开始剪切"}
           </button>
         )}
       </footer>
