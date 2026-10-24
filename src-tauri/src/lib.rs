@@ -138,6 +138,11 @@ pub struct PipelineItem {
     /// 无朝向变换（且无裁剪）时无效果。任一片段为 true 即整批走规则 B（DESIGN §3.8）
     #[serde(default)]
     pub force_transcode: bool,
+    /// true = 帧级精确剪切、无条件转码（M22-6，FR-327/ADR-047：剪切合并输出的精确路径）；
+    /// 与 force_transcode 语义不混——那个"无变换时无效果"，本字段无变换也转码。
+    /// 任一片段为 true 即整批走规则 B（DESIGN §3.8）
+    #[serde(default)]
+    pub precise: bool,
 }
 
 /// 统一任务定义：前端 submit_task 的入参（DESIGN §7）。

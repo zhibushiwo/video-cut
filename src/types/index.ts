@@ -277,6 +277,8 @@ export interface PipelineItem {
   outHeight: number | null;
   /** M17-2：true = 强制重编码烘焙（lib.rs `PipelineItem::force_transcode` 镜像，serde default 缺省 false） */
   forceTranscode?: boolean;
+  /** M22-6：true = 帧级精确剪切、无条件转码（lib.rs `PipelineItem::precise` 镜像，serde default 缺省 false；FR-327/ADR-047） */
+  precise?: boolean;
 }
 
 /** 工作台单片段检测结果 */

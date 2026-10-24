@@ -27,6 +27,8 @@ pub(crate) struct PlanInput {
     pub has_crop: bool,
     /// M17-2：用户强制重编码烘焙（true 时整批禁走规则 A）
     pub force_transcode: bool,
+    /// M22-6：帧级精确剪切（true 时整批禁走规则 A，且本片段无条件转码——FR-327/ADR-047）
+    pub precise: bool,
 }
 
 /// 单片段处理计划：copy（元数据旋转）或 transcode（像素烘焙）。
@@ -65,7 +67,9 @@ pub fn plan_items(items: &[PlanInput]) -> Vec<ItemPlan> {
     // M17-2：任一片段强制烘焙即走规则 B——规则 A 的 copy+矩阵片段与烘焙片段拼不到一起
     //（concat 取第一个文件的矩阵），强制片段在规则 A 下无法单独转码
     let any_forced = items.iter().any(|it| it.force_transcode);
-    if no_crop && all_equal && !any_forced {
+    // M22-6：precise 片段同样阻断规则 A（精确剪切必须重编码，copy+矩阵路径给不了帧级精度）
+    let any_precise = items.iter().any(|it| it.precise);
+    if no_crop && all_equal && !any_forced && !any_precise {
         return targets
             .iter()
             .map(|(deg, hf, vf)| ItemPlan {
@@ -83,7 +87,9 @@ pub fn plan_items(items: &[PlanInput]) -> Vec<ItemPlan> {
         .iter()
         .zip(targets.iter())
         .map(|(it, t)| {
-            if !it.has_crop && *t == (0, false, false) {
+            // M22-6：precise 片段即使无变换也转码（精确剪切语义）；force_transcode 保持
+            // "无变换时无效果"不变（force_transcode_without_transform_keeps_copy 锁定）
+            if !it.has_crop && *t == (0, false, false) && !it.precise {
                 ItemPlan {
                     copy: true,
                     display_deg: 0,
@@ -193,6 +199,9 @@ pub async fn check_pipeline(
             }
             if plan.bake_deg != 0 || plan.bake_hflip || plan.bake_vflip {
                 reasons.push("与其他片段方向不一致，改为像素级旋转以保持整片统一".into());
+            }
+            if it.precise {
+                reasons.push("精确剪切需要重编码".into());
             }
         }
         checks.push(PipelineItemCheck {
@@ -571,6 +580,7 @@ fn plan_inputs(items: &[PipelineItem], facts: &[MergeFileFacts]) -> Vec<PlanInpu
             vflip: it.vflip,
             has_crop: it.crop.is_some(),
             force_transcode: it.force_transcode,
+            precise: it.precise,
         })
         .collect()
 }
@@ -587,6 +597,7 @@ mod tests {
             vflip: vf,
             has_crop: crop,
             force_transcode: false,
+            precise: false,
         }
     }
 
@@ -684,6 +695,40 @@ mod tests {
         let plans = plan_items(&[forced_input(None, 0, false, false, false)]);
         assert!(plans[0].copy);
         assert_eq!(plans[0].display_deg, 0);
+    }
+
+    fn precise_input(rotation: Option<i32>, deg: i32, hf: bool, vf: bool, crop: bool) -> PlanInput {
+        let mut it = input(rotation, deg, hf, vf, crop);
+        it.precise = true;
+        it
+    }
+
+    #[test]
+    fn precise_without_transform_transcodes() {
+        // M22-6（FR-327）：precise 语义 = 无条件转码——无变换无裁剪也重编码
+        //（与 force_transcode 的"无变换时无效果"形成对照）
+        let plans = plan_items(&[precise_input(None, 0, false, false, false)]);
+        assert!(!plans[0].copy, "精确片段必须转码");
+    }
+
+    #[test]
+    fn precise_blocks_rule_a() {
+        // 全部片段本可规则 A 全 copy，任一 precise → 整批走规则 B；
+        // 非精确片段在规则 B 下仍 copy（无损优先）
+        let plans = plan_items(&[
+            precise_input(None, 0, false, false, false),
+            input(None, 0, false, false, false),
+        ]);
+        assert!(!plans[0].copy);
+        assert!(plans[1].copy, "非精确片段保持无损");
+    }
+
+    #[test]
+    fn precise_with_rotation_bakes() {
+        // precise + 旋转 → 烘焙（转码路径同时完成精确剪切与变换）
+        let plans = plan_items(&[precise_input(None, 90, false, false, false)]);
+        assert!(!plans[0].copy);
+        assert_eq!(plans[0].bake_deg, 90);
     }
 
     #[test]
