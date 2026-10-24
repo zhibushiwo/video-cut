@@ -68,7 +68,8 @@ export default function SubtitlePage({
   const [muxSubmitted, setMuxSubmitted] = useState(false);
   const [burnSubmitted, setBurnSubmitted] = useState(false);
   /** 烧录样式（M18-13，FR-396）：留空字段 = libass 默认；不持久化（ADR-045④） */
-  const [burnStyle, setBurnStyle] = useState<SubtitleBurnStyle>({});
+  // 烧录样式默认值来自设置页（M22-11，FR-399）；页内改动仅本次生效、不回写设置
+  const [burnStyle, setBurnStyle] = useState<SubtitleBurnStyle>(settings.subtitleStyle);
   /** 导出卡模式（M19-3 整合）：mux = 无损封装（signal）/ burn = 烧录重编码（warn） */
   const [exportMode, setExportMode] = useState<"mux" | "burn">("mux");
   /** 导出目录覆盖（M19-3）：null = 跟随输出目录规则；会话内记忆不持久化（CAND-037 推广面） */

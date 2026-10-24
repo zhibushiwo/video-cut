@@ -11,6 +11,7 @@ import type {
   ProxyMode,
   QualityPreset,
   SubtitleBackendChoice,
+  SubtitleBurnStyle,
 } from "../types";
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -28,6 +29,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   subtitleLanguage: "auto",
   /** M20/FR-398：启动时静默检查更新（失败无声），可关 */
   updateCheckOnStart: true,
+  /** M22-11（FR-399）：烧录样式默认值——空 = 全走 libass 默认（与未设置时行为一致） */
+  subtitleStyle: {},
 };
 
 const STORE_FILE = "settings.json";
@@ -97,7 +100,25 @@ function sanitize(raw: unknown): AppSettings {
       typeof r.updateCheckOnStart === "boolean"
         ? r.updateCheckOnStart
         : DEFAULT_SETTINGS.updateCheckOnStart,
+    subtitleStyle: sanitizeBurnStyle(r.subtitleStyle),
   };
+}
+
+/** 烧录样式默认值清洗（M22-11）：逐项数字钳到与 Subtitle 页/后端 clamp 同界（字号 0~500 / 描边 0~50 / 底边距 0~500），非法丢弃 */
+function sanitizeBurnStyle(raw: unknown): SubtitleBurnStyle {
+  const r = (raw ?? {}) as Partial<SubtitleBurnStyle>;
+  const pick = (v: unknown, max: number): number | undefined => {
+    if (typeof v !== "number" || !Number.isFinite(v)) return undefined;
+    return Math.min(max, Math.max(0, Math.round(v)));
+  };
+  const fontSize = pick(r.fontSize, 500);
+  const outline = pick(r.outline, 50);
+  const marginV = pick(r.marginV, 500);
+  const out: SubtitleBurnStyle = {};
+  if (fontSize !== undefined) out.fontSize = fontSize;
+  if (outline !== undefined) out.outline = outline;
+  if (marginV !== undefined) out.marginV = marginV;
+  return out;
 }
 
 export async function loadSettings(): Promise<AppSettings> {

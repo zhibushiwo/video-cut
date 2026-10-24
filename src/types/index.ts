@@ -148,6 +148,8 @@ export interface AppSettings {
   subtitleLanguage: string;
   /** 启动时静默检查更新（M20，FR-398，ADR-046）：仅访问 GitHub 查询版本，失败无声 */
   updateCheckOnStart: boolean;
+  /** M22-11（FR-399/CAND-044）：烧录样式默认值（三项可省略；字幕页默认带入、页内改动不回写） */
+  subtitleStyle: SubtitleBurnStyle;
 }
 
 /** 字幕转写后端选择（M18-6，ADR-041②） */

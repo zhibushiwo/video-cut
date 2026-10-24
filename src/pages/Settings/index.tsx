@@ -519,6 +519,42 @@ export default function SettingsPage({
           />
         </Row>
 
+        <Row
+          title="烧录样式默认（M22-11）"
+          desc="字幕页烧录导出的默认字号 / 描边 / 底边距（超范围自动收敛）；留空 = libass 默认样式。字幕页内仍可临时覆盖，不回写此处。"
+        >
+          <div className="flex items-center gap-2">
+            {(
+              [
+                ["fontSize", "字号", 500],
+                ["outline", "描边", 50],
+                ["marginV", "底距", 500],
+              ] as const
+            ).map(([key, label, max]) => (
+              <label key={key} className="flex items-center gap-1 text-xs text-mute">
+                {label}
+                <input
+                  type="number"
+                  min={0}
+                  max={max}
+                  value={settings.subtitleStyle[key] ?? ""}
+                  onChange={(e) => {
+                    const raw = e.target.value.trim();
+                    const n = Math.round(Number(raw));
+                    const v =
+                      raw === "" || !Number.isFinite(n)
+                        ? undefined
+                        : Math.min(max, Math.max(0, n));
+                    onUpdate({ subtitleStyle: { ...settings.subtitleStyle, [key]: v } });
+                  }}
+                  placeholder="默认"
+                  className="w-16 rounded border border-hairline bg-panel px-1.5 py-1 text-right font-mono text-xs text-paper focus:border-signal focus:outline-none"
+                />
+              </label>
+            ))}
+          </div>
+        </Row>
+
         </>
         )}
 
