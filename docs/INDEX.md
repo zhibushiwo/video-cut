@@ -54,6 +54,7 @@
 | [HANDOFF.md](./HANDOFF.md) | 会话状态快照（现在在哪/下一步/近期坑） | 会话开场 |
 | [handoff-archive.md](./archive/handoff-archive.md) | 已交付批次的历史实施要点 | 追溯历史实现细节 |
 | [completed-task-index.md](./archive/completed-task-index.md) | M0–M9 + R1 完成态任务索引（任务 → FR/NFR → AC → 模块 → 测试；**历史快照，不再同步**） | 查老批次的验收归属 |
+| [plan-archive.md](./archive/plan-archive.md) | PLAN 已完成批次(M0–M9/评审修复 R1–R4/M11)的任务行快照(2026-10-25 迁出,只追加) | 追溯老批次任务明细 |
 | [incident-2026-09-19-lost-commits.md](./archive/incident-2026-09-19-lost-commits.md) | 2026-09-19 仓库损坏事故存证与原 24 条提交清单 | 追溯该日历史重建、核对旧提交时 |
 | [code-review-2026-09-19.md](./archive/code-review-2026-09-19.md) | 2026-09-19 四路并行复审全文（`BUG-001`–`BUG-005` / `ADR-033` / `R4` / `T-003` 的来源） | 追溯审查发现与整改依据 |
 | [code-review-2026-09-25-overengineering.md](./archive/code-review-2026-09-25-overengineering.md) | 2026-09-25 全仓过度工程审查全文（`T-005`/`T-006` 的来源；**含豁免清单——下次审查前先读，避免对已排期半成品重复立案**） | 追溯审查发现与整改依据 |
