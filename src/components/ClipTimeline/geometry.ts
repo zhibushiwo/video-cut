@@ -37,10 +37,32 @@ export function clampPps(raw: number, shortestSec: number): number {
   return shortestSec > 0 ? Math.max(pps, MIN_BLOCK_PX / shortestSec) : pps;
 }
 
-/** 适应窗口（\ 键，§18.2）：视口宽装下总时长，再钳制 */
+/** 适应窗口（\ 键，§18.2）：视口宽装下总时长，再钳制——用户显式动作，保持"铺满"语义 */
 export function fitPps(viewportWidth: number, totalSec: number, shortestSec: number): number {
   if (viewportWidth <= 0 || totalSec <= 0) return PPS_MIN;
   return clampPps(viewportWidth / totalSec, shortestSec);
+}
+
+/**
+ * 自动适应（M22-4 / `CAND-045`，未手动缩放时随内容变化走这条）：与 [`fitPps`] 同式但
+ * ① 目标只占视口的 `FIT_FILL_RATIO`（短时间轴右侧留白，后续追加片段不立刻挤满）；
+ * ② PPS 上限压到 `FIT_PPS_MAX`（短内容不再拉到 500px/s 的放大镜极限）。
+ * 动态下限（`MIN_BLOCK_PX`/最短片段）仍可越过上限——块可见性优先于缩放上界（§17.4 同口径）；
+ * 手动缩放与 `\` 不受此上限约束（显式意图优先，硬上限仍是 `PPS_MAX`）。
+ */
+export const FIT_FILL_RATIO = 0.7;
+export const FIT_PPS_MAX = 240;
+
+export function autoFitPps(
+  viewportWidth: number,
+  totalSec: number,
+  shortestSec: number,
+): number {
+  if (viewportWidth <= 0 || totalSec <= 0) return PPS_MIN;
+  return clampPps(
+    Math.min(FIT_PPS_MAX, (viewportWidth * FIT_FILL_RATIO) / totalSec),
+    shortestSec,
+  );
 }
 
 /**

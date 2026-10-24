@@ -31,6 +31,7 @@ import {
   buildGeometry,
   clampPps,
   findTrimEdge,
+  autoFitPps,
   fitPps,
   snapToEdge,
   snapToKeyframe,
@@ -275,7 +276,8 @@ export default function ClipTimeline({
     // 修剪拖动中跳过重适应：预览逐 move 改 geo.total 会把 pps 拉着重拟合（整页跟着
     // 重渲染、世界坐标在指针下泳动）；松手后随 total 变化重跑一次，"素材增删自动适应"不变
     if (!autoFitRef.current || trimPreview) return;
-    const next = fitPps(viewportW, geo.total, shortest);
+    // 自动路径：占比系数 + 适应上限（M22-4 / CAND-045）；`\` 手动适应走 fitPps 铺满语义
+    const next = autoFitPps(viewportW, geo.total, shortest);
     if (next !== ppsRef.current) {
       ppsRef.current = next; // 与 zoomAt/zoomFit 同口径：写入时立即推进
       onChangePps(next);

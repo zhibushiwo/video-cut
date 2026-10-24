@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  FIT_FILL_RATIO,
+  FIT_PPS_MAX,
   MIN_BLOCK_PX,
   PPS_MAX,
   PPS_MIN,
+  autoFitPps,
   blockAtTime,
   buildGeometry,
   clampPps,
@@ -56,6 +59,27 @@ describe("fitPps（适应窗口，§18.2）", () => {
   it("退化输入（视口或总时长 ≤0）回落 PPS_MIN", () => {
     expect(fitPps(0, 10, 1)).toBe(PPS_MIN);
     expect(fitPps(800, 0, 1)).toBe(PPS_MIN);
+  });
+});
+
+describe("autoFitPps（自动适应，M22-4 / CAND-045）", () => {
+  it("目标占视口 FIT_FILL_RATIO，不铺满", () => {
+    expect(autoFitPps(800, 16, 1)).toBe((800 * FIT_FILL_RATIO) / 16);
+  });
+
+  it("短内容顶到 FIT_PPS_MAX（不拉到 PPS_MAX 的放大镜极限）", () => {
+    expect(autoFitPps(800, 2, 1)).toBe(FIT_PPS_MAX);
+    expect(autoFitPps(800, 0.05, 0.05)).toBe(FIT_PPS_MAX);
+    expect(FIT_PPS_MAX).toBeLessThan(PPS_MAX);
+  });
+
+  it("动态下限（最短块可见性）仍可越过适应上限", () => {
+    expect(autoFitPps(400, 16, 0.05)).toBe(MIN_BLOCK_PX / 0.05);
+  });
+
+  it("退化输入（视口或总时长 ≤0）回落 PPS_MIN", () => {
+    expect(autoFitPps(0, 10, 1)).toBe(PPS_MIN);
+    expect(autoFitPps(800, 0, 1)).toBe(PPS_MIN);
   });
 });
 
