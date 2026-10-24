@@ -497,6 +497,7 @@
 
 > **关联**：[CANDIDATES.md](./CANDIDATES.md) `CAND-039`~`CAND-045` · [BUGS.md](./BUGS.md) `BUG-030`/`BUG-031`　·　规格随各任务首批提交补（FR/AC 与 ADR）
 > **顺序**：小缺陷先（立刻见效）→ 功能按用户提出次序 → 契约变更最大的纯音频转字幕最后；`BUG-031` 需真机复现取数，**挂起不进本批**（等用户配合跑日志）。
+> **真机验证（2026-10-24，用户委托 agent 经 CDP 真机执行，工具与明细见 [gui-test/README.md](../scripts/gui-test/README.md)）**：七项断言全部通过——BUG-030 放大 1.54× 严格裁剪；时间轴 44px + 2s 片段填充率 0.39（自适应生效）；剪切合并产物 4.09s（copy 吸附语义）；分组合并产物 10.02s + 撞名时间戳；mp3 字幕页转写出 srt + 信息卡"纯音频"；烧录样式默认 42 持久化 + 字幕页预填。CAND-043 的对话框起始目录无法程序化枚举，未单独断言（defaultPath 与其余用例共用同一填充链路）。
 
 - [x] **M22-1 框选放大溢出修复（`BUG-030`）**：ProductPreview 渲染即预览分支的成品 `<video>` 包一层 `h-full w-full overflow-hidden`（双槽分支 :587 自带、此前漏了）+ 合并页「生成预览」包裹层加 `overflow-hidden rounded-md`（缩放态裁剪按容器圆角）→ **BUG-030 · FR-397 · `ProductPreview`/`Merge` · 手测**　✅ **2026-10-24 落地**（tsc/eslint/vitest/fmt 全绿；手测点：①工作台渲染预览 Ctrl+拖拽放大画面不再溢出容器、平移不再盖住素材区与页脚 ②Esc/双击还原正常 ③合并页生成预览后框选放大同样被裁住 ④未放大时画面显示与之前一致）
 - [x] **M22-2 换素材起始目录（`CAND-043`）**：`pickVideo`/`pickVideos` 加可选起始目录（Tauri `open` 的 `defaultPath`），已有素材时传当前视频所在目录——剪切/编辑/字幕传当前文件目录，合并/工作台传最近添加素材目录；首次打开（无素材）保持系统默认 → **CAND-043 · UI.md §9.2 · `services/tauri.ts` + 五页调用点 · `paths.test.ts` 4 条 · 手测**　✅ **2026-10-24 落地**（tsc/eslint/vitest 171/cargo fmt/cargo test 全绿；手测点：①剪切页改过输出目录后「打开其他视频」从当前视频目录打开 ②编辑/字幕同口径 ③合并/工作台追加素材从最近素材目录 ④无素材首开回系统默认）
