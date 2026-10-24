@@ -679,52 +679,56 @@ export default function ProductPreview({
           }}
         >
           {renderedActive ? (
-            /* 渲染即预览（M12-2）：真实成品单文件——一块 <video>，无源内映射 */
-            <video
-              ref={renderedVideoRef}
-              src={fileSrc(renderedSrc ?? "")}
-              preload="auto"
-              playsInline
-              className={`h-full w-full bg-black object-contain ${videoZoom.cursorClass}`}
-              style={videoZoom.videoStyle}
-              onPointerDown={videoZoom.onPointerDown}
-              onDoubleClick={videoZoom.onDoubleClick}
-              onClick={(e) => {
-                if (videoZoom.suppressClick(e)) return;
-                // 同双槽：点画面走带（M16-5）
-                cbsRef.current.onPlayingChange(!playingRef.current);
-              }}
-              onLoadStart={() => {
-                // 同双槽分支：换源不触发 pause 事件，须显式回写播放态（`BUG-018` 同族）。
-                // 本分支没有"离场槽"问题；重播由 follow effect / 用户手动接手
-                cbsRef.current.onPlayingChange(false);
-              }}
-              onError={() => {
-                void appendFrontendLog(
-                  "warn",
-                  `[preview] 成品视频 error code=${renderedVideoRef.current?.error?.code} ${renderedVideoRef.current?.error?.message ?? ""}`,
-                );
-              }}
-              onLoadedMetadata={() => {
-                const v = renderedVideoRef.current;
-                if (!v) return;
-                setRenderedMeta({ w: v.videoWidth, h: v.videoHeight, dur: v.duration });
-                // 新媒体加载会把 playbackRate 重置回 1 → 补挂（与双槽分支同一个坑）
-                v.playbackRate = rateRef.current;
-                // 元数据就绪时若已在播放态，补一次 play（与双槽分支同一个坑）
-                if (playingRef.current) safePlay(v);
-              }}
-              onPause={() => {
-                // 外部暂停（如页面隐藏保活）同步回播放状态；本分支没有"离场槽"，
-                // 故不需要 BUG-014 那套 slotRef 身份判定
-                cbsRef.current.onPlayingChange(false);
-              }}
-              onEnded={() => {
-                const v = renderedVideoRef.current;
-                cbsRef.current.onPlayingChange(false);
-                cbsRef.current.onPlayhead(v ? v.duration : totalDuration);
-              }}
-            />
+            /* 渲染即预览（M12-2）：真实成品单文件——一块 <video>，无源内映射。
+               溢出裁剪（BUG-030）：框选放大是纯 transform（画到元素框外），宿主必须有
+               overflow-hidden——双槽分支自带（:587），本分支此前漏了 */
+            <div className="h-full w-full overflow-hidden">
+              <video
+                ref={renderedVideoRef}
+                src={fileSrc(renderedSrc ?? "")}
+                preload="auto"
+                playsInline
+                className={`h-full w-full bg-black object-contain ${videoZoom.cursorClass}`}
+                style={videoZoom.videoStyle}
+                onPointerDown={videoZoom.onPointerDown}
+                onDoubleClick={videoZoom.onDoubleClick}
+                onClick={(e) => {
+                  if (videoZoom.suppressClick(e)) return;
+                  // 同双槽：点画面走带（M16-5）
+                  cbsRef.current.onPlayingChange(!playingRef.current);
+                }}
+                onLoadStart={() => {
+                  // 同双槽分支：换源不触发 pause 事件，须显式回写播放态（`BUG-018` 同族）。
+                  // 本分支没有"离场槽"问题；重播由 follow effect / 用户手动接手
+                  cbsRef.current.onPlayingChange(false);
+                }}
+                onError={() => {
+                  void appendFrontendLog(
+                    "warn",
+                    `[preview] 成品视频 error code=${renderedVideoRef.current?.error?.code} ${renderedVideoRef.current?.error?.message ?? ""}`,
+                  );
+                }}
+                onLoadedMetadata={() => {
+                  const v = renderedVideoRef.current;
+                  if (!v) return;
+                  setRenderedMeta({ w: v.videoWidth, h: v.videoHeight, dur: v.duration });
+                  // 新媒体加载会把 playbackRate 重置回 1 → 补挂（与双槽分支同一个坑）
+                  v.playbackRate = rateRef.current;
+                  // 元数据就绪时若已在播放态，补一次 play（与双槽分支同一个坑）
+                  if (playingRef.current) safePlay(v);
+                }}
+                onPause={() => {
+                  // 外部暂停（如页面隐藏保活）同步回播放状态；本分支没有"离场槽"，
+                  // 故不需要 BUG-014 那套 slotRef 身份判定
+                  cbsRef.current.onPlayingChange(false);
+                }}
+                onEnded={() => {
+                  const v = renderedVideoRef.current;
+                  cbsRef.current.onPlayingChange(false);
+                  cbsRef.current.onPlayhead(v ? v.duration : totalDuration);
+                }}
+              />
+            </div>
           ) : (
             <>
               {slotRender("a")}

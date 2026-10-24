@@ -370,7 +370,8 @@ export default function MergePage({
                 </span>
               </div>
               {preview.renderedSrc && (
-                <div className="relative mt-2">
+                // 溢出裁剪（BUG-030）：框选放大是纯 transform（画到元素框外），宿主必须有 overflow-hidden
+                <div className="relative mt-2 overflow-hidden rounded-md">
                   <video
                     src={fileSrc(preview.renderedSrc)}
                     controls
