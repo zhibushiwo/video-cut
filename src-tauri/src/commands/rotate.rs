@@ -64,8 +64,17 @@ pub fn submit_rotate(
 
         let facts = probe::probe_merge_facts_sync(&ffprobe, &job_input)
             .map_err(|e| format!("{}：{e}", in_name))?;
+        if facts.info.video.is_none() {
+            return Err("旋转需要视频流（纯音频文件不支持）".into());
+        }
         let duration = facts.info.duration_sec;
-        let pix_fmt = facts.info.video.pix_fmt.clone();
+        // 纯音频文件走不到重编码分支（页面选择器只收视频）；None 时给空串走软件编码兜底
+        let pix_fmt = facts
+            .info
+            .video
+            .as_ref()
+            .map(|v| v.pix_fmt.clone())
+            .unwrap_or_default();
 
         let args = if transcode {
             let encoder = command::effective_encoder(locked_encoder.as_deref(), &pix_fmt);

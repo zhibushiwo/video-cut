@@ -215,7 +215,7 @@ export default function CutPage({
 
   // ---------- 快捷键（M4-3 / §9.4）：走带共用块见 usePlaybackHotkeys；
   // 页面专属：I/O 设入/出点 · Delete 删最近添加的片段 ----------
-  const frameStep = frameStepOf(info?.video.frameRate ?? 0);
+  const frameStep = frameStepOf(info?.video?.frameRate ?? 0);
   usePlaybackHotkeys({
     enabled: active,
     currentTime,
@@ -306,7 +306,7 @@ export default function CutPage({
             durationSec: duration,
             keyframes: kfLoading ? null : keyframes,
             minKeepSec: MIN_SEG_DURATION_SEC,
-            fps: info?.video.frameRate ?? 0,
+            fps: info?.video?.frameRate ?? 0,
           })
         : null,
     [removeMode, marks, duration, kfLoading, keyframes, info],
@@ -590,7 +590,7 @@ export default function CutPage({
                 <span className="flex gap-3">
                   <span>{videoSummary(info)}</span>
                   {audioSummary(info) && <span>{audioSummary(info)}</span>}
-                  {info.video.bitrate && <span>{formatBitrate(info.video.bitrate)}</span>}
+                  {info.video?.bitrate && <span>{formatBitrate(info.video.bitrate)}</span>}
                   <span>{formatBytes(info.sizeBytes)}</span>
                 </span>
               )}

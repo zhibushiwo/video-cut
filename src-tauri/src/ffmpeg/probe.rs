@@ -299,11 +299,11 @@ pub fn parse_media_json(v: &Value) -> Result<MediaInfo, String> {
         .get("streams")
         .and_then(Value::as_array)
         .ok_or_else(|| "ffprobe 输出缺少 streams".to_string())?;
+    // 视频流可缺（M22-12：纯音频文件如 mp3 也能探测——字幕转写管线只依赖音轨）
     let video_json = streams
         .iter()
-        .find(|s| s.get("codec_type").and_then(Value::as_str) == Some("video"))
-        .ok_or_else(|| "文件中没有视频流".to_string())?;
-    let video = parse_video_stream(video_json)?;
+        .find(|s| s.get("codec_type").and_then(Value::as_str) == Some("video"));
+    let video = video_json.map(parse_video_stream).transpose()?;
 
     let mut audio = Vec::new();
     let mut subtitle_count = 0u32;
@@ -313,6 +313,10 @@ pub fn parse_media_json(v: &Value) -> Result<MediaInfo, String> {
             Some("subtitle") => subtitle_count += 1,
             _ => {}
         }
+    }
+    // 零流（连音轨都没有）= 损坏文件，仍拒绝（M22-12：仅"无视频流"放开）
+    if video.is_none() && audio.is_empty() {
+        return Err("文件中没有可解析的媒体流".to_string());
     }
 
     let format = v
@@ -339,7 +343,7 @@ pub fn parse_media_json(v: &Value) -> Result<MediaInfo, String> {
         video,
         audio,
         subtitle_count,
-        rotation: parse_rotation(video_json),
+        rotation: video_json.and_then(parse_rotation),
     })
 }
 
@@ -499,10 +503,11 @@ C:\video\x.mp4: Invalid data found when processing input"#;
         // 前端 `needsProxy` 按它做容器判定（DESIGN §10 · `BUG-006`），
         // 若哪天改成展示名（如 "QuickTime/MP4"）会静默破坏该判定。
         assert_eq!(info.container, "mov,mp4,m4a,3gp,3g2,mj2");
-        assert_eq!(info.video.codec, "h264");
-        assert_eq!((info.video.width, info.video.height), (1920, 1080));
-        assert_eq!(info.video.frame_rate, 60.0);
-        assert_eq!(info.video.pix_fmt, "yuv420p");
+        let v = info.video.as_ref().expect("有视频流");
+        assert_eq!(v.codec, "h264");
+        assert_eq!((v.width, v.height), (1920, 1080));
+        assert_eq!(v.frame_rate, 60.0);
+        assert_eq!(v.pix_fmt, "yuv420p");
         assert_eq!(info.audio.len(), 1);
         assert_eq!(info.audio[0].codec, "aac");
         assert_eq!(info.audio[0].sample_rate, 44100);
@@ -510,6 +515,21 @@ C:\video\x.mp4: Invalid data found when processing input"#;
         assert!((info.duration_sec - 264.554667).abs() < 1e-6);
         assert_eq!(info.size_bytes, 1_074_504_363);
         assert_eq!(info.rotation, None);
+    }
+
+    #[test]
+    fn audio_only_media_parses_without_video() {
+        // M22-12（FR-400/CAND-042）：纯音频文件探测成功、video = None——字幕转写管线只依赖音轨
+        let v = serde_json::json!({
+            "streams": [{ "codec_name": "mp3", "codec_type": "audio",
+                "sample_rate": "44100", "channels": 2 }],
+            "format": { "format_name": "mp3", "duration": "10.0", "size": "1000" }
+        });
+        let info = parse_media_json(&v).unwrap();
+        assert!(info.video.is_none());
+        assert_eq!(info.audio.len(), 1);
+        assert_eq!(info.audio[0].codec, "mp3");
+        assert!((info.duration_sec - 10.0).abs() < 1e-6);
     }
 
     /// `BUG-006`：容器维度靠 `container` 原样透传，非 ISO-BMFF / Matroska 的容器
@@ -544,8 +564,16 @@ C:\video\x.mp4: Invalid data found when processing input"#;
 
     #[test]
     fn rejects_streams_without_video() {
-        let v = json!({ "streams": [], "format": { "duration": "1", "size": "1" } });
-        assert!(parse_media_json(&v).is_err());
+        // M22-12 修订：无视频流不再报错（纯音频可解析，FR-400）；但**零流**（连音轨都没有，
+        // 多为损坏文件）仍拒绝
+        let audio_only = json!({
+            "streams": [{ "codec_name": "mp3", "codec_type": "audio",
+                "sample_rate": "44100", "channels": 2 }],
+            "format": { "duration": "1", "size": "1" }
+        });
+        assert!(parse_media_json(&audio_only).is_ok());
+        let empty = json!({ "streams": [], "format": { "duration": "1", "size": "1" } });
+        assert!(parse_media_json(&empty).is_err());
     }
 
     #[test]

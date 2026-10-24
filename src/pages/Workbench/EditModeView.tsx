@@ -122,7 +122,7 @@ export function EditModeView({
   };
 
   // 快捷键（M4-3，片段加工）：走带共用块见 usePlaybackHotkeys（无页面专属键）
-  const frameStep = frameStepOf(info.video.frameRate);
+  const frameStep = frameStepOf(info.video?.frameRate ?? 0);
   // 键盘走带同样以区间为界（否则 ←/→ 仍能走到区间外，与刻度自相矛盾）
   usePlaybackHotkeys({
     enabled: active,

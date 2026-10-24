@@ -62,35 +62,47 @@ pub(crate) fn diff_pair(
 ) -> Vec<String> {
     let first = base;
     let mut differences = Vec::new();
-    if cur.video.codec != first.video.codec {
-        differences.push(format!(
-            "{who}视频编码不一致：{} ≠ {}",
-            cur.video.codec, first.video.codec
-        ));
-    }
-    if cur.video.profile != first.video.profile {
-        differences.push(format!(
-            "{who}编码 profile 不一致：{:?} ≠ {:?}",
-            cur.video.profile, first.video.profile
-        ));
-    }
-    if (cur.video.width, cur.video.height) != (first.video.width, first.video.height) {
-        differences.push(format!(
-            "{who}分辨率不一致：{}×{} ≠ {}×{}",
-            cur.video.width, cur.video.height, first.video.width, first.video.height
-        ));
-    }
-    if cur.video.pix_fmt != first.video.pix_fmt {
-        differences.push(format!(
-            "{who}像素格式不一致：{} ≠ {}",
-            cur.video.pix_fmt, first.video.pix_fmt
-        ));
-    }
-    if (cur.video.frame_rate - first.video.frame_rate).abs() > 0.01 {
-        differences.push(format!(
-            "{who}帧率不一致：{:.3} ≠ {:.3}",
-            cur.video.frame_rate, first.video.frame_rate
-        ));
+    // 视频流可缺（M22-12：纯音频与视频互拼直接判不一致；两条纯音频按无视频差异走九项其余项）
+    match (&cur.video, &first.video) {
+        (Some(cur_v), Some(first_v)) => {
+            if cur_v.codec != first_v.codec {
+                differences.push(format!(
+                    "{who}视频编码不一致：{} ≠ {}",
+                    cur_v.codec, first_v.codec
+                ));
+            }
+            if cur_v.profile != first_v.profile {
+                differences.push(format!(
+                    "{who}编码 profile 不一致：{:?} ≠ {:?}",
+                    cur_v.profile, first_v.profile
+                ));
+            }
+            if (cur_v.width, cur_v.height) != (first_v.width, first_v.height) {
+                differences.push(format!(
+                    "{who}分辨率不一致：{}×{} ≠ {}×{}",
+                    cur_v.width, cur_v.height, first_v.width, first_v.height
+                ));
+            }
+            if cur_v.pix_fmt != first_v.pix_fmt {
+                differences.push(format!(
+                    "{who}像素格式不一致：{} ≠ {}",
+                    cur_v.pix_fmt, first_v.pix_fmt
+                ));
+            }
+            if (cur_v.frame_rate - first_v.frame_rate).abs() > 0.01 {
+                differences.push(format!(
+                    "{who}帧率不一致：{:.3} ≠ {:.3}",
+                    cur_v.frame_rate, first_v.frame_rate
+                ));
+            }
+        }
+        (Some(_), None) => differences.push(format!(
+            "{who}第一个文件有视频流、当前文件没有（纯音频与视频无法拼接）"
+        )),
+        (None, Some(_)) => differences.push(format!(
+            "{who}当前文件没有视频流（纯音频），无法与视频文件拼接"
+        )),
+        (None, None) => {}
     }
     if cur_time_base != base_time_base {
         differences.push(format!(
@@ -293,16 +305,22 @@ pub fn submit_merge(
                 temps.push(inter.clone());
                 let _ = std::fs::remove_file(&inter);
                 let dur = facts[i].info.duration_sec;
+                // 纯音频源无视频参数可归一（不可达路径：无视频与视频互拼在 diff 已判不一致）；
+                // 真到达则显式失败优于静默跳过（跳过会让 concat 清单缺文件）
+                let Some(base_v) = &base.video else {
+                    cleanup(&temps);
+                    return Err("纯音频文件不支持重编码合并".into());
+                };
                 let throttle = ProgressThrottle::new();
                 let r = worker::run_ffmpeg(
                     ctx,
                     &ffmpeg,
                     &command::normalize_args(
                         input,
-                        base.video.width,
-                        base.video.height,
-                        base.video.frame_rate,
-                        &base.video.pix_fmt,
+                        base_v.width,
+                        base_v.height,
+                        base_v.frame_rate,
+                        &base_v.pix_fmt,
                         command::parse_timescale(&facts[0].video_time_base),
                         &inter.to_string_lossy(),
                         false,

@@ -133,7 +133,7 @@ export default function EditorPage({
   });
 
   const pxRect = (r: CropRect) =>
-    info ? cropToPx(r, { w: info.video.width, h: info.video.height }) : null;
+    info?.video ? cropToPx(r, { w: info.video.width, h: info.video.height }) : null;
 
   const startEdit = async () => {
     if (!inputPath || !info) return;
@@ -210,7 +210,9 @@ export default function EditorPage({
     );
   }
 
-  const fitScale = info ? Math.min(info.video.width / info.video.height, info.video.height / info.video.width) : 1;
+  const fitScale = info?.video
+    ? Math.min(info.video.width / info.video.height, info.video.height / info.video.width)
+    : 1;
   const transform =
     tool === "rotate" && (rot.deg !== 0 || rot.hflip || rot.vflip)
       ? [
@@ -251,7 +253,7 @@ export default function EditorPage({
                 style={
                   info
                     ? {
-                        aspectRatio: `${info.video.width} / ${info.video.height}`,
+                        aspectRatio: `${info.video?.width ?? 16} / ${info.video?.height ?? 9}`,
                         height: "100%",
                         transform: transform ?? undefined,
                       }
@@ -330,7 +332,7 @@ export default function EditorPage({
 
             {info && tool === "crop" && (
               <CropFields
-                dims={{ w: info.video.width, h: info.video.height }}
+                dims={{ w: info.video?.width ?? 0, h: info.video?.height ?? 0 }}
                 rect={px}
                 onChange={setRect}
                 lockRatio={lockRatio}
@@ -339,7 +341,7 @@ export default function EditorPage({
                 hint={
                   cropView === "preview"
                     ? "预览态：画面即导出构图（裁切区被拉伸填满显示画面，宽高比不保持）。切回编辑态可继续调整选区；预览为近似，导出以 FFmpeg 实际输出为准。"
-                    : `在预览上拖拽框选区域（虚线外不可选）。${cropSizeText(px, { w: info.video.width, h: info.video.height })}画质受重编码影响，可用质量档位权衡。`
+                    : `在预览上拖拽框选区域（虚线外不可选）。${cropSizeText(px, { w: info.video?.width ?? 0, h: info.video?.height ?? 0 })}画质受重编码影响，可用质量档位权衡。`
                 }
                 extra={
                   <label className="flex items-center gap-1.5 pb-2 text-xs text-mute">

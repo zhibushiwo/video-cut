@@ -264,7 +264,7 @@ export default function WorkbenchPage({
       source: (clipId: string) => {
         const clip = clips.find((c) => c.id === clipId);
         const info = clip ? fileById(clip.sourceId)?.info : null;
-        return info ? { fps: info.video.frameRate, durationSec: info.durationSec } : null;
+        return info?.video ? { fps: info.video.frameRate, durationSec: info.durationSec } : null;
       },
       newId: () => freshId("clip"),
     }),
@@ -826,7 +826,7 @@ export default function WorkbenchPage({
       srcIn: c.seg?.start ?? 0,
       srcEnd: c.seg?.end ?? info?.durationSec ?? 0,
       srcDuration: info?.durationSec ?? 0,
-      srcFps: info?.video.frameRate ?? 0,
+      srcFps: info?.video?.frameRate ?? 0,
       keyframes: keyframesBySource[c.sourceId],
     };
   });
@@ -834,7 +834,7 @@ export default function WorkbenchPage({
   /** 时间码帧率（刻度标签，§17.3 总帧数时间码）：轴上首个片段的源帧率，缺省 30（undo 层同口径） */
   const timelineFps = useMemo(() => {
     for (const c of timelineClips) {
-      const fps = clipSource(c)?.info?.video.frameRate;
+      const fps = clipSource(c)?.info?.video?.frameRate;
       if (fps && fps > 0) return fps;
     }
     return DEFAULT_FPS;

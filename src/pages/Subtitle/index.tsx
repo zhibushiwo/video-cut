@@ -133,7 +133,7 @@ export default function SubtitlePage({
 
   const openFile = useCallback(() => {
     // 换素材从当前视频的目录起始（M22-2 / CAND-043）；无视频时缺省系统行为
-    void pickVideo(filePath ?? undefined).then((p) => {
+    void pickVideo(filePath ?? undefined, { withAudio: true }).then((p) => {
       if (p) {
         setFilePath(p);
         setSubmitted(false);
@@ -256,18 +256,27 @@ export default function SubtitlePage({
                     <span>
                       大小 <span className="text-paper">{formatBytes(mediaInfo.sizeBytes)}</span>
                     </span>
-                    <span>
-                      分辨率{" "}
-                      <span className="text-paper">
-                        {mediaInfo.video.width}×{mediaInfo.video.height}
-                      </span>
-                    </span>
-                    <span>
-                      帧率 <span className="text-paper">{mediaInfo.video.frameRate.toFixed(2)} fps</span>
-                    </span>
-                    <span>
-                      编码 <span className="text-paper">{mediaInfo.video.codec}</span>
-                    </span>
+                    {mediaInfo.video ? (
+                      <>
+                        <span>
+                          分辨率{" "}
+                          <span className="text-paper">
+                            {mediaInfo.video.width}×{mediaInfo.video.height}
+                          </span>
+                        </span>
+                        <span>
+                          帧率{" "}
+                          <span className="text-paper">
+                            {mediaInfo.video.frameRate.toFixed(2)} fps
+                          </span>
+                        </span>
+                        <span>
+                          编码 <span className="text-paper">{mediaInfo.video.codec}</span>
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-signal">纯音频（无画面，直接转写）</span>
+                    )}
                     <span>
                       容器 <span className="text-paper">{mediaInfo.container}</span>
                     </span>

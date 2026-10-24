@@ -821,7 +821,13 @@ pub(crate) fn submit_subtitle_burn(
         let facts = probe::probe_merge_facts_sync(&ffprobe, &job_input)
             .map_err(|e| format!("{}：{e}", file_name(&job_input)))?;
         let duration = facts.info.duration_sec;
-        let pix_fmt = facts.info.video.pix_fmt.clone();
+        // 纯音频文件走不到重编码分支（页面选择器只收视频）；None 时给空串走软件编码兜底
+        let pix_fmt = facts
+            .info
+            .video
+            .as_ref()
+            .map(|v| v.pix_fmt.clone())
+            .unwrap_or_default();
         let encoder = command::effective_encoder(locked_encoder.as_deref(), &pix_fmt);
         let args = command::subtitle_burn_args(
             &job_input,

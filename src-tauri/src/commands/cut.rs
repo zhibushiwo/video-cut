@@ -143,6 +143,12 @@ fn submit_cut(
     std::fs::create_dir_all(&output_dir).map_err(|e| format!("无法创建输出目录：{e}"))?;
     let ffmpeg = command::resolve_sidecar("ffmpeg")?;
     let ffprobe = command::resolve_sidecar("ffprobe")?;
+    // 纯音频文件拒绝剪切（DESIGN §14 错误表既有规格行；探测命中 LRU 缓存，代价可忽略）
+    let probe_info =
+        probe::probe_merge_facts_sync(&ffprobe, &input).map_err(|e| format!("{}：{e}", input))?;
+    if probe_info.info.video.is_none() {
+        return Err("剪切需要视频流（纯音频文件不支持）".into());
+    }
 
     let src = Path::new(&input);
     let stem = src
@@ -223,7 +229,12 @@ fn submit_cut(
                 .map_err(|e| format!("{}：{e}", file_name(&job_input)))?;
             Some(command::effective_encoder(
                 locked_encoder.as_deref(),
-                &facts.info.video.pix_fmt,
+                &facts
+                    .info
+                    .video
+                    .as_ref()
+                    .map(|v| v.pix_fmt.clone())
+                    .unwrap_or_default(),
             ))
         } else {
             None

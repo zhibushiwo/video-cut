@@ -66,7 +66,7 @@ export function CutModeView({
   };
 
   // 快捷键（M4-3，源剪切）：走带共用块见 usePlaybackHotkeys；页面专属：I/O 设入/出点
-  const frameStep = frameStepOf(info.video.frameRate);
+  const frameStep = frameStepOf(info.video?.frameRate ?? 0);
   usePlaybackHotkeys({
     enabled: active,
     currentTime: current,

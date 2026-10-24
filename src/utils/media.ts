@@ -53,6 +53,8 @@ export function containerPlayable(container: string): boolean {
  * 该判定只影响预览，处理始终使用原始文件（DESIGN §3.7）。
  */
 export function needsProxy(info: MediaInfo): boolean {
+  // 纯音频无画面可代理（代理管线是视频转码，对 mp3 只会失败）；音频由播放器直接播
+  if (!info.video) return false;
   const videoOk =
     NATIVE_VIDEO.has(info.video.codec.toLowerCase()) &&
     info.video.pixFmt.toLowerCase() === "yuv420p";
@@ -70,12 +72,14 @@ export function wantsProxy(info: MediaInfo, mode: ProxyMode): boolean {
   return mode === "always" || needsProxy(info);
 }
 
-/** 视频摘要行：H.264 · 1920×1080 · 60fps */
+/** 视频摘要行：H.264 · 1920×1080 · 60fps；纯音频 = 「纯音频」（M22-12） */
 export function videoSummary(info: MediaInfo): string {
-  const fps = info.video.frameRate % 1 === 0
-    ? String(Math.round(info.video.frameRate))
-    : info.video.frameRate.toFixed(2);
-  return `${info.video.codec.toUpperCase()} ${info.video.width}×${info.video.height} ${fps}fps`;
+  const v = info.video;
+  if (!v) return "纯音频";
+  const fps = v.frameRate % 1 === 0
+    ? String(Math.round(v.frameRate))
+    : v.frameRate.toFixed(2);
+  return `${v.codec.toUpperCase()} ${v.width}×${v.height} ${fps}fps`;
 }
 
 /** 音频摘要行：AAC 48kHz 立体声（多轨显示数量） */

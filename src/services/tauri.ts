@@ -161,14 +161,28 @@ export function fileSrc(path: string): string {
   return convertFileSrc(path);
 }
 
+/** 音频容器扩展名（M22-13，FR-400/CAND-042）：仅字幕页文件选择合并使用——转写管线只依赖音轨 */
+export const AUDIO_EXTENSIONS = ["mp3", "m4a", "aac", "wav", "flac", "ogg", "opus"];
+
 /** 系统文件对话框：选择一个视频。`startDir` = 起始目录（换素材从当前素材目录继续选，
- *  M22-2 / `CAND-043`——不传时 Windows 打开"上次访问的文件夹"，会被选输出目录的对话框污染）。 */
-export async function pickVideo(startDir?: string): Promise<string | null> {
+ *  M22-2 / `CAND-043`——不传时 Windows 打开"上次访问的文件夹"，会被选输出目录的对话框污染）。
+ *  `withAudio` = 同时收音频容器（M22-13，FR-400：字幕页转写对纯音频同样适用）。 */
+export async function pickVideo(
+  startDir?: string,
+  opts?: { withAudio?: boolean },
+): Promise<string | null> {
   const picked = await open({
     multiple: false,
     directory: false,
     ...(startDir ? { defaultPath: startDir } : {}),
-    filters: [{ name: "视频", extensions: VIDEO_EXTENSIONS }],
+    filters: [
+      {
+        name: opts?.withAudio ? "音视频" : "视频",
+        extensions: opts?.withAudio
+          ? [...VIDEO_EXTENSIONS, ...AUDIO_EXTENSIONS]
+          : VIDEO_EXTENSIONS,
+      },
+    ],
   });
   return typeof picked === "string" ? picked : null;
 }

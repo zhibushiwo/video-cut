@@ -26,11 +26,12 @@ pub async fn check_environment(app: AppHandle) -> EnvironmentInfo {
 pub async fn probe_media(app: AppHandle, input: String) -> Result<MediaInfo, String> {
     let info = probe::probe_media(&app, &input).await?;
     log::debug!(
-        "probe {}：{} {}×{}（{:.3}s）",
+        "probe {}：{}（{:.3}s）",
         input,
-        info.video.codec,
-        info.video.width,
-        info.video.height,
+        info.video.as_ref().map_or_else(
+            || "纯音频".to_string(),
+            |v| format!("{} {}×{}", v.codec, v.width, v.height)
+        ),
         info.duration_sec
     );
     Ok(info)

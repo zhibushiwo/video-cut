@@ -54,6 +54,6 @@ export const newClipOf = (sourceId: string, seg: Clip["seg"]): Omit<Clip, "id"> 
 export function displayedDims(info: MediaInfo, rot: RotateState) {
   const quarter = rot.deg === 90 || rot.deg === 270;
   return quarter
-    ? { w: info.video.height, h: info.video.width }
-    : { w: info.video.width, h: info.video.height };
+    ? { w: info.video?.height ?? 0, h: info.video?.width ?? 0 }
+    : { w: info.video?.width ?? 0, h: info.video?.height ?? 0 };
 }

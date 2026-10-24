@@ -44,7 +44,8 @@ export interface MediaInfo {
   durationSec: number;
   sizeBytes: number;
   bitrate: number | null;
-  video: VideoStreamInfo;
+  /** M22-12：null = 纯音频文件（mp3 等，FR-400/CAND-042）；消费方必须判空 */
+  video: VideoStreamInfo | null;
   audio: AudioStreamInfo[];
   /** 后端发送、前端暂未消费（面板暂无字幕流展示位）；保留以对齐 `lib.rs` 契约 */
   subtitleCount: number;

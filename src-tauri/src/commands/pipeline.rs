@@ -122,9 +122,14 @@ fn display_crop_rect(
     out_width: Option<u32>,
     out_height: Option<u32>,
 ) -> Result<(u32, u32, u32, u32, u32, u32), String> {
+    let (src_w, src_h) = info
+        .video
+        .as_ref()
+        .map(|v| (v.width, v.height))
+        .ok_or_else(|| "裁剪需要视频流（纯音频文件不支持）".to_string())?;
     let (dw, dh) = match bake_deg.rem_euclid(360) {
-        90 | 270 => (info.video.height, info.video.width),
-        _ => (info.video.width, info.video.height),
+        90 | 270 => (src_h, src_w),
+        _ => (src_w, src_h),
     };
     align_rect(dw, dh, r.x, r.y, r.width, r.height, out_width, out_height)
 }
@@ -397,7 +402,12 @@ pub async fn submit_pipeline(
                 };
                 let encoder = command::effective_encoder(
                     locked_encoder.as_deref(),
-                    &facts[i].info.video.pix_fmt,
+                    &facts[i]
+                        .info
+                        .video
+                        .as_ref()
+                        .map(|v| v.pix_fmt.clone())
+                        .unwrap_or_default(),
                 );
                 command::pipeline_transcode_args(
                     seg,
@@ -460,6 +470,11 @@ pub async fn submit_pipeline(
                 cleanup(&temps);
                 return Err("已取消".into());
             }
+            // 纯音频源无视频参数可归一（不可达路径）；真到达则显式失败优于静默跳过
+            let Some(base_v) = &base.info.video else {
+                cleanup(&temps);
+                return Err("纯音频文件不支持工作台重编码".into());
+            };
             let norm = out_dir.join(format!(".pipe_{token}_norm_{i:03}.mp4"));
             temps.push(norm.clone());
             let _ = std::fs::remove_file(&norm);
@@ -471,10 +486,10 @@ pub async fn submit_pipeline(
                 &ffmpeg,
                 &command::normalize_args(
                     &sources[i],
-                    base.info.video.width,
-                    base.info.video.height,
-                    base.info.video.frame_rate,
-                    &base.info.video.pix_fmt,
+                    base_v.width,
+                    base_v.height,
+                    base_v.frame_rate,
+                    &base_v.pix_fmt,
                     base_timescale,
                     &norm.to_string_lossy(),
                     preview,

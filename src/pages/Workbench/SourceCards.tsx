@@ -74,7 +74,9 @@ export function SourceCards({
                   ? "⚠ 读取失败"
                   : !f.info
                     ? "读取中…"
-                    : `${f.info.video.codec.toUpperCase()} ${f.info.video.width}×${f.info.video.height}`}
+                    : f.info.video
+                      ? `${f.info.video.codec.toUpperCase()} ${f.info.video.width}×${f.info.video.height}`
+                      : "纯音频"}
               </p>
             </div>
           </button>

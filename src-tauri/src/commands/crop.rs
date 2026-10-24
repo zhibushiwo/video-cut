@@ -60,16 +60,12 @@ pub async fn validate_crop_rect(
     out_height: Option<u32>,
 ) -> Result<(u32, u32, u32, u32, u32, u32), String> {
     let info = probe::probe_media(app, input).await?;
-    align_rect(
-        info.video.width,
-        info.video.height,
-        x,
-        y,
-        width,
-        height,
-        out_width,
-        out_height,
-    )
+    let (src_w, src_h) = info
+        .video
+        .as_ref()
+        .map(|v| (v.width, v.height))
+        .ok_or_else(|| "局部放大需要视频流（纯音频文件不支持）".to_string())?;
+    align_rect(src_w, src_h, x, y, width, height, out_width, out_height)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -116,7 +112,13 @@ pub fn submit_crop(
         let facts = probe::probe_merge_facts_sync(&ffprobe, &job_input)
             .map_err(|e| format!("{}：{e}", in_name))?;
         let duration = facts.info.duration_sec;
-        let pix_fmt = facts.info.video.pix_fmt.clone();
+        // 纯音频文件走不到局部放大（提交前已拒绝）；None 兜底走软件编码
+        let pix_fmt = facts
+            .info
+            .video
+            .as_ref()
+            .map(|v| v.pix_fmt.clone())
+            .unwrap_or_default();
 
         let encoder = command::effective_encoder(locked_encoder.as_deref(), &pix_fmt);
         let args = command::crop_zoom_args(

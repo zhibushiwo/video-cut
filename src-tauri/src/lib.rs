@@ -79,7 +79,8 @@ pub struct MediaInfo {
     pub duration_sec: f64,
     pub size_bytes: u64,
     pub bitrate: Option<u64>,
-    pub video: VideoStreamInfo,
+    /// 视频流；None = 纯音频文件（M22-12，FR-400/CAND-042：mp3 等也能探测，字幕转写可用）
+    pub video: Option<VideoStreamInfo>,
     pub audio: Vec<AudioStreamInfo>,
     pub subtitle_count: u32,
     pub rotation: Option<i32>,

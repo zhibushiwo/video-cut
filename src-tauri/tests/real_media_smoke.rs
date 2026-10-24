@@ -532,10 +532,10 @@ fn t6_real_workbench_pipeline_end_to_end() {
         e,
         &cmd::normalize_args(
             &s(&seg2),
-            f1.info.video.width,
-            f1.info.video.height,
-            f1.info.video.frame_rate,
-            &f1.info.video.pix_fmt,
+            f1.info.video.as_ref().unwrap().width,
+            f1.info.video.as_ref().unwrap().height,
+            f1.info.video.as_ref().unwrap().frame_rate,
+            &f1.info.video.as_ref().unwrap().pix_fmt,
             cmd::parse_timescale(&f1.video_time_base),
             &s(&seg2n),
             false,
@@ -599,18 +599,12 @@ fn t7_real_big_probe_is_correct_and_cached() {
     );
 
     let facts = probe::probe_merge_facts_sync(&e.ffprobe, &path).unwrap();
-    assert_eq!(
-        (facts.info.video.width, facts.info.video.height),
-        (1920, 1080)
-    );
+    let v = facts.info.video.as_ref().expect("夹具含视频流");
+    assert_eq!((v.width, v.height), (1920, 1080));
     assert_eq!(facts.video_time_base, "1/60000");
     println!(
         "  合并事实：{}×{} @ {:.3}fps {} tb={}",
-        facts.info.video.width,
-        facts.info.video.height,
-        facts.info.video.frame_rate,
-        facts.info.video.pix_fmt,
-        facts.video_time_base
+        v.width, v.height, v.frame_rate, v.pix_fmt, facts.video_time_base
     );
 }
 
