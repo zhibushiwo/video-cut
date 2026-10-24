@@ -5,7 +5,7 @@
 > **读时机**：新会话第一个读它；提问"这事定过没有 / 该改哪个文件 / 这个编号是什么"时先查这里。
 > **写规则**：新增或调整文档分工、新增 ID 命名空间、改动矩阵时改本文；规格类内容一律改对应专题文档，不写在这里。
 > **关联**：[../AGENTS.md](../AGENTS.md)（agent 作业规程） · 上位 [DESIGN.md](./DESIGN.md)（规格仲裁者） · 进度 [PLAN.md](./PLAN.md)
-> **最后更新**：2026-10-11（§1 读写表新增 RELEASE.md 行）——矩阵与批次状态明细见 §5 对应行，历史头部注记迁 [archive/handoff-archive.md](./archive/handoff-archive.md)（2026-10-11 头部瘦身）
+> **最后更新**：2026-10-25（§1 读写表新增 FEATURES.md 行）——矩阵与批次状态明细见 §5 对应行，历史头部注记迁 [archive/handoff-archive.md](./archive/handoff-archive.md)（2026-10-11 头部瘦身）
 
 ---
 
@@ -23,6 +23,7 @@
 | 改应用内更新（M20：检查/下载/安装） | [DESIGN.md](./DESIGN.md) §3.11（`FR-398`） | [DECISIONS.md](./DECISIONS.md)（`ADR-046`） · [CANDIDATES.md](./CANDIDATES.md)（`CAND-038`） |
 | 改任务系统、并发、取消、事件 | [DESIGN.md](./DESIGN.md) §8 | [FFMPEG.md](./FFMPEG.md) §6.4 |
 | 执行发版 / 排查发版 CI | [RELEASE.md](./RELEASE.md) | [../AGENTS.md](../AGENTS.md) §5.1 · [CHANGELOG.md](./CHANGELOG.md) |
+| 问"现在有哪些功能" | [FEATURES.md](./FEATURES.md) | 功能行为以 [DESIGN.md](./DESIGN.md) 为准 · 发布表述见 [CHANGELOG.md](./CHANGELOG.md) |
 | 问"这事定过没有 / 为什么这么做" | [DECISIONS.md](./DECISIONS.md) | — |
 | 想知道"下一步做什么 / 做到哪了" | [PLAN.md](./PLAN.md) | [HANDOFF.md](./HANDOFF.md)（当前状态） |
 | 想加新功能（还没立项） | [CANDIDATES.md](./CANDIDATES.md) | [DECISIONS.md](./DECISIONS.md)（晋升规则） |
@@ -58,6 +59,7 @@
 | [incident-2026-09-19-lost-commits.md](./archive/incident-2026-09-19-lost-commits.md) | 2026-09-19 仓库损坏事故存证与原 24 条提交清单 | 追溯该日历史重建、核对旧提交时 |
 | [code-review-2026-09-19.md](./archive/code-review-2026-09-19.md) | 2026-09-19 四路并行复审全文（`BUG-001`–`BUG-005` / `ADR-033` / `R4` / `T-003` 的来源） | 追溯审查发现与整改依据 |
 | [code-review-2026-09-25-overengineering.md](./archive/code-review-2026-09-25-overengineering.md) | 2026-09-25 全仓过度工程审查全文（`T-005`/`T-006` 的来源；**含豁免清单——下次审查前先读，避免对已排期半成品重复立案**） | 追溯审查发现与整改依据 |
+| [FEATURES.md](./FEATURES.md) | 已完成功能一览(按功能域;派生视图,不承担真源) | 介绍产品能力 / 评估新功能关系 |
 | [CHANGELOG.md](./CHANGELOG.md) | 用户可见变更 | 发版前 |
 | [../README.md](../README.md) | 对外介绍、安装使用 | 给外部读者 |
 | [../AGENTS.md](../AGENTS.md) | agent 作业规程（命令、红线、完事标准） | agent 每次开工前 |
