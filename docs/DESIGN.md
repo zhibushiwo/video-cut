@@ -101,8 +101,8 @@
 
 ### 3.3 合并（Merge） · FR-330
 
-**需求**：FR-330（组级）　·　FR-331 九项参数检测　·　FR-332 无损合并　·　FR-333 自动统一后合并
-**验收**：AC-331-1　·　AC-332-1　·　AC-332-2　·　AC-333-1　——　执行：TESTING.md TC-001 · TC-011；口径以本节为准。
+**需求**：FR-330（组级）　·　FR-331 九项参数检测　·　FR-332 无损合并　·　FR-333 自动统一后合并　·　FR-334 分组无损合并
+**验收**：AC-331-1　·　AC-332-1　·　AC-332-2　·　AC-333-1　·　AC-334-1~3　——　执行：TESTING.md TC-001 · TC-011；口径以本节为准。
 
 - 文件列表支持拖拽排序、增删
 - 提交前用 ffprobe 对比所有文件的以下字段（全部一致才可无损合并）：
@@ -118,6 +118,8 @@
 - **一致** → 显示绿色检测面板（✓ 各项一致，可无损合并，预计速度极快），concat demuxer + stream copy
 - **不一致** → 显示 ⚠ 检测面板 + 选择：
   - **自动统一后合并**：以第一个文件的参数为基准重编码全部（或用户选目标档位：保持首文件参数 / 1080p H.264 高兼容）
+  - **分组无损合并 · FR-334**（CAND-041 晋升，`ADR-048`，2026-10-24）：按九项比对口径把文件自动分组（组内**两两相容**——帧率 0.01 容差比较不满足传递性，只跟组代表比可能败于执行期复检），检测面板列出各组与单文件组；「分组无损合并」按钮对每个 ≥2 文件的组各提交一个无损合并任务（任务系统并发 2 排队），**单文件组跳过并提示**（用户裁决）；每组输出名 = 组内首文件派生 `<文件名>_merged.<扩展名>`（用户裁决，`ADR-033` 容器口径，撞名加时间戳决策 #19）。分组结果随 `MergeComparison.groups`（0 基索引，组内保持列表序）下发，前端零重判定
+    - **验收**：AC-334-1 分组展示与实际相容性一致（组内任意两文件九项比对为空）；AC-334-2 逐组提交 N 个合并任务、各自无损完成、组内顺序 = 列表顺序；AC-334-3 单文件组跳过且有提示、参数全一致时按钮不出现、「自动统一后合并」行为不变
   - **取消**
 - 合并输出大小 ≈ 各源文件之和（容器 moov/mdat 重组会有 ±1% 级别差异，需在 UI 向用户说明，不承诺字节数相等）
 
@@ -408,7 +410,7 @@ src-tauri/src/
 | `generate_proxy` | 生成预览代理（内部任务，同源去重） | `input: String` | `ProxyStart { taskId: Option<String>, proxyPath: String }`（`taskId = null` 表示代理已存在、无需再生成） |
 | `generate_thumbnails` | 批量生成源首帧缩略图 | `inputs: Vec<String>` | `Vec<FileThumbnail>` |
 | `generate_clip_thumbnails` | 批量生成**片段起点帧**缩略图（M6-8；缓存 key = 路径@时间两位小数） | `requests: Vec<ClipThumbRequest>` | `Vec<ClipThumbnail>` |
-| `check_merge` / `check_pipeline` | 合并/工作台导出前检测（参数一致性 + 无损判定） | `inputs` / `items: Vec<PipelineItem>` | `MergeComparison` / `PipelineCheck` |
+| `check_merge` / `check_pipeline` | 合并/工作台导出前检测（参数一致性 + 无损判定；M22-9 起含分组 `groups: number[][]`，0 基索引、组内保持列表序） | `inputs` / `items: Vec<PipelineItem>` | `MergeComparison` / `PipelineCheck` |
 | `expand_video_inputs` | 拖入目录递归展开为视频文件列表（M7-7，≤8 层、跳过隐藏项、排序） | `paths: Vec<String>` | `Vec<String>` |
 | `file_exists` | 导出前同名检测（M7-4，决定是否追加时间戳） | `path: String` | `bool` |
 | `cache_usage` / `clear_cache` | 缓存占用统计 / 一键清理（M4-8 含代理与缩略图；**M12-2 起含渲染预览** `preview/`，占用文件跳过并计数；**M18 起含字幕模型与 GPU 加速包**——内置模型与 sidecar 二进制除外） | — | `CacheUsage` / `CacheClearResult` |
