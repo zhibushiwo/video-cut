@@ -502,10 +502,15 @@
 - [x] **M22-2 换素材起始目录（`CAND-043`）**：`pickVideo`/`pickVideos` 加可选起始目录（Tauri `open` 的 `defaultPath`），已有素材时传当前视频所在目录——剪切/编辑/字幕传当前文件目录，合并/工作台传最近添加素材目录；首次打开（无素材）保持系统默认 → **CAND-043 · UI.md §9.2 · `services/tauri.ts` + 五页调用点 · `paths.test.ts` 4 条 · 手测**　✅ **2026-10-24 落地**（tsc/eslint/vitest 171/cargo fmt/cargo test 全绿；手测点：①剪切页改过输出目录后「打开其他视频」从当前视频目录打开 ②编辑/字幕同口径 ③合并/工作台追加素材从最近素材目录 ④无素材首开回系统默认）
 - [x] **M22-3 时间轴高度再降档（`CAND-040`）**：工作台 `ClipTimeline` 固定高 52→44px → **CAND-040 · `ClipTimeline/index.tsx:545` · 手测**　✅ **2026-10-24 落地**（源剪切 Timeline 维持 64px 不跟随——它显示整源、用户反馈的是成品时间轴；tsc/eslint/vitest 171/cargo fmt/cargo test 全绿；手测点：①时间轴变矮 ②修剪手柄边缘热区仍可命中 ③池→轴拖投放正常 ④刻度文字不挤 ⑤空态文案单行完整 ⑥块选中/拖拽视觉清晰）
 - [x] **M22-4 时间轴自适应占比（`CAND-045`）**：`autoFitPps` = `clamp(min(FIT_PPS_MAX, 视口宽×FIT_FILL_RATIO/总时长), 动态下限)`（常量 0.7 / 240）；自动路径接线、`\` 适应窗口保持 `fitPps` 铺满、手动缩放仍可用 `PPS_MAX=500`；未手动缩放时总时长变化仍自动重适应 → **CAND-045 · TIMELINE.md §17 缩放行 · `geometry.ts` + 4 条单测 · 手测**　✅ **2026-10-24 落地**（tsc/eslint/vitest 175/cargo fmt/cargo test 全绿；手测点：①单条短片段不再铺满全宽(约视口七成、且 ≤240px/s) ②追加长片段后自动重适应缩小 ③手动 +/− 仍可放大到极限(≤500) ④`\` 仍铺满 ⑤修剪中拖动不重拟合）
-- [ ] **M22-5 剪切合并输出（`CAND-039`）**：提取模式「合并输出」勾选——极速 = 规则 A 全 copy 零后端改动；精确 = `PipelineItem` 新增 `precise` 标志（`force_transcode` 语义不可复用）→ 规格批（新 ADR + DESIGN §3.2 新 FR（327 段编号空闲，登记时定稿）+ §7）→ 后端（`plan_items` 分支 + 单测）→ 前端（checkbox + 合并提交 + types 双写 + 命名 `_merged`）→ 三提交
-- [ ] **M22-6 合并分组无损合并（`CAND-041`）**：`merge.rs` 新纯函数 `group_merge_facts`（复用 `diff_pair`、组内两两相容）+ `MergeComparison.groups` 字段 + 前端分组展示与「分组无损合并」逐组提交 → 规格批（新 ADR + DESIGN §3.3 新 FR（334 段编号空闲，登记时定稿）+ §7）→ 后端 → 前端，三提交
-- [ ] **M22-7 字幕样式默认设置（`CAND-044`）**：烧录样式默认值进 `AppSettings`（settings.json），字幕页默认带入、临时改动不回写；颜色/字体是否随批另行裁决 → **CAND-044 · `AppSettings` 双写 + 设置页 + 字幕页 · 手测**
-- [ ] **M22-8 纯音频转字幕（`CAND-042`）**：字幕页选择器加音频档 + `MediaInfo.video` 改 `Option<VideoStreamInfo>`（契约双写 + 下游空值安全梳理）+ 信息卡纯音频形态 → **CAND-042 · DESIGN §7/§10 · 契约批→后端→前端，三提交**
+- [x] **M22-5 剪切合并输出·规格批（`CAND-039`）**：新 ADR（复用 pipeline + `precise` 语义边界 + 命名 `_merged`）+ DESIGN §3.2 新 FR（327 段编号空闲）+ §7 `PipelineItem` 类型行　✅ **2026-10-24 落地**（`ADR-047` + `FR-327`/AC-327-1~3 + §7 `precise` 字段行；CAND-039 → accepted）
+- [ ] **M22-6 剪切合并输出·后端（`CAND-039`）**：`lib.rs` `PipelineItem` 加 `precise`（serde default）+ `pipeline.rs` `PlanInput`/`plan_items` 分支（precise 阻断规则 A、规则 B 内无条件转码）+ `check_pipeline` reasons + 单测
+- [ ] **M22-7 剪切合并输出·前端（`CAND-039`）**：提取模式「合并输出」checkbox + 合并提交链路（极速 items / 精确 `precise: true`）+ types 双写 + `defaultOutputName(input,"merged",…)` 命名 + 预览文案条件化
+- [ ] **M22-8 合并分组无损合并·规格批（`CAND-041`）**：新 ADR（分组口径同源 + 两两相容依据 + 跳过与命名）+ DESIGN §3.3 新 FR（334 段编号空闲）+ §7 `MergeComparison.groups`
+- [ ] **M22-9 合并分组无损合并·后端（`CAND-041`）**：`merge.rs` 纯函数 `group_merge_facts`（复用 `diff_pair`、组内两两相容）+ `MergeComparison.groups` 字段 + 单测
+- [ ] **M22-10 合并分组无损合并·前端（`CAND-041`）**：检测面板分组展示 + 「分组无损合并」按钮逐组提交 + types 双写
+- [ ] **M22-11 字幕样式默认设置（`CAND-044`）**：烧录样式默认值进 `AppSettings`（settings.json），字幕页默认带入、临时改动不回写；颜色/字体是否随批另行裁决 → **CAND-044 · `AppSettings` 双写 + 设置页 + 字幕页 · 手测**
+- [ ] **M22-12 纯音频转字幕·契约批（`CAND-042`）**：`MediaInfo.video` 改 `Option<VideoStreamInfo>`（Rust/TS 双写 + DESIGN §7/§10 + 下游 `info.video.` 访问点空值安全梳理）
+- [ ] **M22-13 纯音频转字幕·实施批（`CAND-042`）**：字幕页选择器加音频档 + 信息卡纯音频形态（时长/大小/码率/音轨，隐藏分辨率帧率）
 
 ## M13 打磨（可选，视 M11/M12 体验决定，决策 #31）
 
