@@ -67,6 +67,8 @@ export default function MergePage({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmNormalize, setConfirmNormalize] = useState(false);
+  /** 分组合并的提交后提示（FR-334）：单文件组跳过等非错误信息 */
+  const [groupMsg, setGroupMsg] = useState<string | null>(null);
   // 素材首帧缩略图（T-005 收敛进 hooks/useThumbnails）
   const { thumbs, clearThumbs } = useThumbnails(files);
   // 拖拽导入：每次新的拖入都追加（App 层原地分发，页面不跳转）
@@ -89,6 +91,7 @@ export default function MergePage({
   // 列表变化 → 重新检测（≥2 个文件时）
   useEffect(() => {
     setConfirmNormalize(false);
+    setGroupMsg(null);
     if (files.length < 2) {
       setCheck(null);
       setCheckError(null);
@@ -187,6 +190,43 @@ export default function MergePage({
       await submitToUniqueTarget(outputDir, outputName, (target) =>
         submitTask({ type: "merge", inputs: files, output: target, forceTranscode: force }),
       );
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  /**
+   * 分组无损合并（`FR-334`/`ADR-048`）：仅取 ≥2 文件的组逐组提交无损合并
+   * （组内两两相容由后端 `group_merge_facts` 保证，执行期复检必过）；单文件组跳过并提示
+   * （用户裁决）。每组命名 = 组内首文件派生 `<名>_merged.<源容器>`（组内全 copy ⇒ lossless），
+   * 撞名加时间戳（决策 #19）；组内顺序 = 列表顺序。
+   */
+  const mergeableGroups = useMemo(
+    () => (check && !check.compatible ? check.groups.filter((g) => g.length >= 2) : []),
+    [check],
+  );
+  const singletonCount =
+    check && !check.compatible ? check.groups.filter((g) => g.length < 2).length : 0;
+
+  const startGroupedMerge = async () => {
+    if (mergeableGroups.length === 0 || !outputDir) return;
+    setSubmitting(true);
+    setError(null);
+    setGroupMsg(null);
+    try {
+      for (const g of mergeableGroups) {
+        const first = files[g[0] ?? -1];
+        if (!first) continue;
+        const inputs = g.map((i) => files[i] ?? "").filter(Boolean);
+        await submitToUniqueTarget(outputDir, defaultOutputName(first, "merged", true), (target) =>
+          submitTask({ type: "merge", inputs, output: target, forceTranscode: false }),
+        );
+      }
+      if (singletonCount > 0) {
+        setGroupMsg(`已跳过 ${singletonCount} 个参数独特的文件（无法参与分组合并）。`);
+      }
     } catch (err) {
       setError(String(err));
     } finally {
@@ -338,6 +378,24 @@ export default function MergePage({
                         <li key={d}>{d}</li>
                       ))}
                     </ul>
+                    {mergeableGroups.length > 0 && (
+                      <div className="mt-2 space-y-0.5 text-xs">
+                        <p className="text-mute">
+                          可分成 {mergeableGroups.length} 组无损合并（各组独立出文件）：
+                        </p>
+                        {mergeableGroups.map((g, gi) => (
+                          <p key={gi} className="text-mute">
+                            组 {gi + 1}（{g.length} 个）：
+                            {g.map((i) => basename(files[i] ?? "")).join("、")}
+                          </p>
+                        ))}
+                        {singletonCount > 0 && (
+                          <p className="text-warn">
+                            {singletonCount} 个文件参数独特，无法参与分组合并（提交时将跳过）。
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 ) : null}
               </div>
@@ -410,6 +468,11 @@ export default function MergePage({
               {error}
             </span>
           )}
+          {!error && groupMsg && (
+            <span className="min-w-0 flex-1 truncate text-xs text-mute" title={groupMsg}>
+              {groupMsg}
+            </span>
+          )}
           {confirmNormalize && (
             <>
               <span className="text-xs text-mute">
@@ -431,6 +494,17 @@ export default function MergePage({
                 确认重编码并合并
               </button>
             </>
+          )}
+          {!confirmNormalize && !checking && mergeableGroups.length > 0 && (
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={() => void startGroupedMerge()}
+              title="参数一致的文件各自无损合并，参数独特的文件将被跳过"
+              className="rounded-md bg-signal/90 px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              分组无损合并
+            </button>
           )}
           {!confirmNormalize && check && !check.compatible && !checking && (
             <button
