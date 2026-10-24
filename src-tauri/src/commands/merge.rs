@@ -20,6 +20,35 @@ pub struct MergeComparison {
     pub files: Vec<MergeFileFacts>,
     pub compatible: bool,
     pub differences: Vec<String>,
+    /// 分组结果（FR-334/ADR-048）：0 基索引、组内保持列表序；参数全一致时 = 单组全成员。
+    /// 组内两两相容 ⇒ `submit_merge` 作业体"全部 vs 首文件"复检必过
+    pub groups: Vec<Vec<usize>>,
+}
+
+/// 分组（FR-334/ADR-048）：按列表顺序贪心——每个文件加入第一个与其**组内两两相容**的组
+/// （对每个成员 `diff_pair` 为空），否则新开一组。两两相容而非只跟组代表比：帧率比对带
+/// 0.01 容差，容差比较不满足传递性（A≈B、B≈C 但 A≉C），只跟组首比可能败于执行期复检。
+pub(crate) fn group_merge_facts(files: &[MergeFileFacts]) -> Vec<Vec<usize>> {
+    let mut groups: Vec<Vec<usize>> = Vec::new();
+    for (i, f) in files.iter().enumerate() {
+        let placed = groups.iter_mut().find(|g| {
+            g.iter().all(|&j| {
+                diff_pair(
+                    "",
+                    &files[j].info,
+                    &files[j].video_time_base,
+                    &f.info,
+                    &f.video_time_base,
+                )
+                .is_empty()
+            })
+        });
+        match placed {
+            Some(g) => g.push(i),
+            None => groups.push(vec![i]),
+        }
+    }
+    groups
 }
 
 /// 两个文件的九项比对（DESIGN §3.3），`who` 标注差异来源。
@@ -129,6 +158,7 @@ pub fn compare_merge_facts(files: &[MergeFileFacts]) -> MergeComparison {
         files: files.to_vec(),
         compatible: differences.is_empty(),
         differences,
+        groups: group_merge_facts(files),
     }
 }
 
@@ -369,6 +399,67 @@ mod tests {
         let b = facts(sample_video(), sample_audio(), "1/15360");
         let cmp = compare_merge_facts(&[a, b]);
         assert!(cmp.compatible, "不应有差异：{:?}", cmp.differences);
+    }
+
+    fn group_of(cmp: &MergeComparison, file: usize) -> usize {
+        cmp.groups
+            .iter()
+            .position(|g| g.contains(&file))
+            .expect("每个文件必须属于恰好一组")
+    }
+
+    #[test]
+    fn grouping_splits_incompatible_files() {
+        // FR-334：{0,2} 一组（h264），{1} 一组（hevc）——组内两两相容、组间不同
+        let h264 = facts(sample_video(), sample_audio(), "1/15360");
+        let mut hevc_v = sample_video();
+        hevc_v["codec_name"] = json!("hevc");
+        let hevc = facts(hevc_v, sample_audio(), "1/15360");
+        let cmp = compare_merge_facts(&[h264.clone(), hevc, h264.clone()]);
+        assert!(!cmp.compatible);
+        assert_eq!(cmp.groups.len(), 2);
+        assert_eq!(group_of(&cmp, 0), group_of(&cmp, 2));
+        assert_ne!(group_of(&cmp, 0), group_of(&cmp, 1));
+        assert_eq!(cmp.groups[0], vec![0, 2], "组内保持列表序");
+    }
+
+    #[test]
+    fn grouping_all_compatible_is_single_group() {
+        let a = facts(sample_video(), sample_audio(), "1/15360");
+        let b = facts(sample_video(), sample_audio(), "1/15360");
+        let c = facts(sample_video(), sample_audio(), "1/15360");
+        let cmp = compare_merge_facts(&[a, b, c]);
+        assert!(cmp.compatible);
+        assert_eq!(cmp.groups, vec![vec![0, 1, 2]]);
+    }
+
+    #[test]
+    fn grouping_isolates_single_file_group() {
+        // 三个互不相容的文件 → 三组，每组一个成员（前端跳过单文件组）
+        let mut v2 = sample_video();
+        v2["codec_name"] = json!("hevc");
+        let mut v3 = sample_video();
+        v3["width"] = json!(1280);
+        v3["height"] = json!(720);
+        let cmp = compare_merge_facts(&[
+            facts(sample_video(), sample_audio(), "1/15360"),
+            facts(v2, sample_audio(), "1/15360"),
+            facts(v3, sample_audio(), "1/15360"),
+        ]);
+        assert_eq!(cmp.groups.len(), 3);
+        assert!(cmp.groups.iter().all(|g| g.len() == 1));
+    }
+
+    #[test]
+    fn grouping_preserves_list_order_within_groups() {
+        // 相同参数的 0/2/4 与 1/3 分成两组，组内严格按列表序
+        let a = facts(sample_video(), sample_audio(), "1/15360");
+        let mut lo = sample_video();
+        lo["width"] = json!(1280);
+        lo["height"] = json!(720);
+        let b = facts(lo, sample_audio(), "1/15360");
+        let cmp = compare_merge_facts(&[a.clone(), b.clone(), a.clone(), b.clone(), a]);
+        assert_eq!(cmp.groups, vec![vec![0, 2, 4], vec![1, 3]]);
     }
 
     #[test]

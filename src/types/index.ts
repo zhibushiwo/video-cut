@@ -361,6 +361,8 @@ export interface MergeComparison {
   files: MergeFileFacts[];
   compatible: boolean;
   differences: string[];
+  /** M22-9（FR-334/ADR-048）：分组结果，0 基索引、组内保持列表序；全一致 = 单组全成员 */
+  groups: number[][];
 }
 
 /** 首帧缩略图结果 */
