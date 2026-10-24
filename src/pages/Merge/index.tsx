@@ -18,7 +18,7 @@ import { EmptyImport } from "../../components/EmptyImport";
 import { PageHeader } from "../../components/PageHeader";
 import { moveAt } from "../../utils/array";
 import { audioSummary, videoSummary } from "../../utils/media";
-import { basename, defaultOutputName, resolveOutputDir } from "../../utils/paths";
+import { basename, defaultOutputName, dirname, resolveOutputDir } from "../../utils/paths";
 import { formatBytes } from "../../utils/time";
 
 /** 默认输出文件名（`M14-3` 会把它换成"按首个素材派生 + `ADR-033` 扩展名预判"） */
@@ -134,7 +134,9 @@ export default function MergePage({
   }, [files, check]);
 
   const addFiles = useCallback(async () => {
-    const picked = await pickVideos();
+    // 追加素材从最近一个素材的目录起始（M22-2 / CAND-043）；列表为空时缺省系统行为
+    const last = files[files.length - 1];
+    const picked = await pickVideos(last ? dirname(last) : undefined);
     if (picked.length === 0) return;
     setFiles((prev) => {
       const next = [...prev];
@@ -143,7 +145,7 @@ export default function MergePage({
       }
       return next;
     });
-  }, []);
+  }, [files]);
 
   const removeAt = (index: number) =>
     setFiles((prev) => prev.filter((_, i) => i !== index));

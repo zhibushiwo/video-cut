@@ -47,7 +47,7 @@ import type {
 import { moveAt } from "../../utils/array";
 import { cropToPx } from "../../utils/crop";
 import { wantsProxy } from "../../utils/media";
-import { basename, resolveOutputDir, defaultOutputName } from "../../utils/paths";
+import { basename, resolveOutputDir, defaultOutputName, dirname } from "../../utils/paths";
 import { createSpanRecorder, formatPerfLine } from "../../utils/perf";
 import { DEFAULT_FPS, formatTime } from "../../utils/time";
 import {
@@ -344,9 +344,11 @@ export default function WorkbenchPage({
   useConsumeInitialFiles(initialFiles, (fs) => void addFiles(fs));
 
   const openFiles = useCallback(async () => {
-    const picked = await pickVideos();
+    // 追加素材从最近一个素材的目录起始（M22-2 / CAND-043）；无素材时缺省系统行为
+    const last = files[files.length - 1]?.path;
+    const picked = await pickVideos(last ? dirname(last) : undefined);
     if (picked.length > 0) void addFiles(picked);
-  }, [addFiles]);
+  }, [addFiles, files]);
 
   // ---------- 素材操作 ----------
   const reorderSources = useCallback((from: number, to: number) => {

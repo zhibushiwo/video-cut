@@ -161,21 +161,24 @@ export function fileSrc(path: string): string {
   return convertFileSrc(path);
 }
 
-/** 系统文件对话框：选择一个视频 */
-export async function pickVideo(): Promise<string | null> {
+/** 系统文件对话框：选择一个视频。`startDir` = 起始目录（换素材从当前素材目录继续选，
+ *  M22-2 / `CAND-043`——不传时 Windows 打开"上次访问的文件夹"，会被选输出目录的对话框污染）。 */
+export async function pickVideo(startDir?: string): Promise<string | null> {
   const picked = await open({
     multiple: false,
     directory: false,
+    ...(startDir ? { defaultPath: startDir } : {}),
     filters: [{ name: "视频", extensions: VIDEO_EXTENSIONS }],
   });
   return typeof picked === "string" ? picked : null;
 }
 
-/** 系统文件对话框：选择多个视频 */
-export async function pickVideos(): Promise<string[]> {
+/** 系统文件对话框：选择多个视频（`startDir` 语义同 [`pickVideo`]） */
+export async function pickVideos(startDir?: string): Promise<string[]> {
   const picked = await open({
     multiple: true,
     directory: false,
+    ...(startDir ? { defaultPath: startDir } : {}),
     filters: [{ name: "视频", extensions: VIDEO_EXTENSIONS }],
   });
   if (Array.isArray(picked)) return picked;

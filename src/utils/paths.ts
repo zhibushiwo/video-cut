@@ -15,6 +15,12 @@ export function basename(p: string): string {
   return p.split(/[\\/]/).pop() ?? p;
 }
 
+/** 目录部分：最后一个 / 或 \ 之前的内容；无分隔符返回空串（弹窗起始目录缺省回退系统行为）。 */
+export function dirname(p: string): string {
+  const i = Math.max(p.lastIndexOf("/"), p.lastIndexOf("\\"));
+  return i > 0 ? p.slice(0, i) : "";
+}
+
 /**
  * 输出目标防覆盖（DESIGN 决策 #19"同名才追加时间戳"）：目标已存在时在扩展名前插入
  * 时间戳（merged.mp4 → merged_20260913_153001.mp4），否则原样返回。

@@ -25,7 +25,7 @@ import type {
 } from "../../types";
 import { cropPreviewTransform, cropSizeText, cropToPx } from "../../utils/crop";
 import { needsProxy, wantsProxy } from "../../utils/media";
-import { basename, defaultOutputName, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
+import { basename, defaultOutputName, dirname, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
 import { QUALITY_LABELS } from "../../utils/quality";
 
 export default function EditorPage({
@@ -94,9 +94,10 @@ export default function EditorPage({
   }, []);
 
   const openFile = useCallback(async () => {
-    const path = await pickVideo();
+    // 换素材从当前视频的目录起始（M22-2 / CAND-043）；无视频时缺省系统行为
+    const path = await pickVideo(inputPath ? dirname(inputPath) : undefined);
     if (path) void loadFile(path);
-  }, [loadFile]);
+  }, [loadFile, inputPath]);
 
   /** 未导出的操作产物（决定「重置」是否二次确认）：M17-1 起两个工具各自的加工态一并算——
    *  重置会同时清掉旋转与选区，任一存在都该确认 */

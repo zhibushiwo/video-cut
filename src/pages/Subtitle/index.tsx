@@ -131,14 +131,15 @@ export default function SubtitlePage({
   );
 
   const openFile = useCallback(() => {
-    void pickVideo().then((p) => {
+    // 换素材从当前视频的目录起始（M22-2 / CAND-043）；无视频时缺省系统行为
+    void pickVideo(filePath ?? undefined).then((p) => {
       if (p) {
         setFilePath(p);
         setSubmitted(false);
         setError(null);
       }
     });
-  }, []);
+  }, [filePath]);
 
   const selectedReady =
     models?.find((m) => m.id === settings.subtitleModel)?.ready ?? false;

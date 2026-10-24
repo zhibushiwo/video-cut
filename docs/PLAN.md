@@ -499,7 +499,7 @@
 > **顺序**：小缺陷先（立刻见效）→ 功能按用户提出次序 → 契约变更最大的纯音频转字幕最后；`BUG-031` 需真机复现取数，**挂起不进本批**（等用户配合跑日志）。
 
 - [x] **M22-1 框选放大溢出修复（`BUG-030`）**：ProductPreview 渲染即预览分支的成品 `<video>` 包一层 `h-full w-full overflow-hidden`（双槽分支 :587 自带、此前漏了）+ 合并页「生成预览」包裹层加 `overflow-hidden rounded-md`（缩放态裁剪按容器圆角）→ **BUG-030 · FR-397 · `ProductPreview`/`Merge` · 手测**　✅ **2026-10-24 落地**（tsc/eslint/vitest/fmt 全绿；手测点：①工作台渲染预览 Ctrl+拖拽放大画面不再溢出容器、平移不再盖住素材区与页脚 ②Esc/双击还原正常 ③合并页生成预览后框选放大同样被裁住 ④未放大时画面显示与之前一致）
-- [ ] **M22-2 换素材起始目录（`CAND-043`）**：`pickVideo`/`pickVideos` 加可选起始目录（Tauri `open` 的 `defaultPath`），已有素材时传当前视频所在目录——剪切/合并/工作台的「打开其他视频 / 换素材 / 添加视频」从**当前素材目录**继续选；首次打开（无素材）保持系统默认 → **CAND-043 · `services/tauri.ts` + 三页调用点 · 手测**
+- [x] **M22-2 换素材起始目录（`CAND-043`）**：`pickVideo`/`pickVideos` 加可选起始目录（Tauri `open` 的 `defaultPath`），已有素材时传当前视频所在目录——剪切/编辑/字幕传当前文件目录，合并/工作台传最近添加素材目录；首次打开（无素材）保持系统默认 → **CAND-043 · UI.md §9.2 · `services/tauri.ts` + 五页调用点 · `paths.test.ts` 4 条 · 手测**　✅ **2026-10-24 落地**（tsc/eslint/vitest 171/cargo fmt/cargo test 全绿；手测点：①剪切页改过输出目录后「打开其他视频」从当前视频目录打开 ②编辑/字幕同口径 ③合并/工作台追加素材从最近素材目录 ④无素材首开回系统默认）
 - [ ] **M22-3 时间轴高度再降档（`CAND-040`）**：工作台 `ClipTimeline` 固定高 52→44px（实机对比后可微调）→ **CAND-040 · `ClipTimeline` · 手测**（修剪热区/拖投放/刻度/空态四核对）
 - [ ] **M22-4 时间轴自适应占比（`CAND-045`）**：`fitPps` 加目标填充系数（~0.7）与自动适应上限（`FIT_PPS_MAX` ~240）；手动缩放仍可用到 `PPS_MAX=500`、`\` 保持铺满语义；未手动缩放时总时长变化仍自动重适应 → **CAND-045 · TIMELINE.md §18.2 修订 · `geometry.ts` + 单测 · 手测**
 - [ ] **M22-5 剪切合并输出（`CAND-039`）**：提取模式「合并输出」勾选——极速 = 规则 A 全 copy 零后端改动；精确 = `PipelineItem` 新增 `precise` 标志（`force_transcode` 语义不可复用）→ 规格批（新 ADR + DESIGN §3.2 新 FR（327 段编号空闲，登记时定稿）+ §7）→ 后端（`plan_items` 分支 + 单测）→ 前端（checkbox + 合并提交 + types 双写 + 命名 `_merged`）→ 三提交

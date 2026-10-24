@@ -31,7 +31,7 @@ import type {
   Segment,
 } from "../../types";
 import { audioSummary, needsProxy, videoSummary, wantsProxy } from "../../utils/media";
-import { basename, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
+import { basename, dirname, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
 import { actualRemovalOf, planRemoval, type Interval } from "../../utils/removal";
 import {
   MIN_SEG_DURATION_SEC,
@@ -149,9 +149,10 @@ export default function CutPage({
   });
 
   const openFile = useCallback(async () => {
-    const path = await pickVideo();
+    // 换素材从当前视频的目录起始（M22-2 / CAND-043）；无视频时缺省系统行为
+    const path = await pickVideo(inputPath ? dirname(inputPath) : undefined);
     if (path) void loadFile(path);
-  }, [loadFile]);
+  }, [loadFile, inputPath]);
 
   /** 未导出的操作产物（决定「重置」是否二次确认）：提取式片段或删除式标记任一存在 */
   const hasWork = segments.length > 0 || marks.length > 0;

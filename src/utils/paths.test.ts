@@ -2,12 +2,31 @@ import { describe, expect, it } from "vitest";
 import {
   basename,
   defaultOutputName,
+  dirname,
   predictedExt,
   resolveUniqueTarget,
   sourceExtOf,
   stemOf,
   subtitleMuxExt,
 } from "./paths";
+
+describe("dirname（M22-2 / CAND-043 弹窗起始目录）", () => {
+  it("Windows 反斜杠", () => {
+    expect(dirname("D:\\片\\a.mp4")).toBe("D:\\片");
+  });
+
+  it("正斜杠", () => {
+    expect(dirname("D:/片/a.mp4")).toBe("D:/片");
+  });
+
+  it("混合分隔符取最后一个", () => {
+    expect(dirname("D:\\片/sub/a.mp4")).toBe("D:\\片/sub");
+  });
+
+  it("无分隔符返回空串（回退系统默认起始目录）", () => {
+    expect(dirname("a.mp4")).toBe("");
+  });
+});
 
 describe("basename", () => {
   it("Windows 反斜杠", () => {
