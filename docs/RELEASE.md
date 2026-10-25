@@ -39,6 +39,7 @@
 | pwsh BOM | latest.json 的 notes 首字符是 `\uFEFF` | 工作流读取时已 replace 掉（读 CHANGELOG 的 `Set-Content -Encoding utf8` 在 PS5.1 写 BOM） |
 | 发布说明截断 | latest.json 的 notes 只有前 500 字符 | 工作流 `.slice(0, 500)`——嫌短改这个数字（latest.json 本身无长度限制） |
 | check-docs 第 5 项失败 | 提交被 pre-commit 拦 | 缺个人测试素材（`video/*.mp4`）的存量问题，`--no-verify` 提交（同 49fabeb 先例） |
+| latest.json 缺 `url`（0.4.0 实踩） | 旧版应用检查更新报 `missing field \`url\`` | 工作流 `URL` 变量未 `export`，`process.env.URL` 为 undefined 被 JSON.stringify 丢弃——已修（a8c91b2）；**且双通道都会中招**：Pages 端点与 Release 资产 latest.json 由同一段代码生成。存量修复：替换 Release 资产（DELETE + POST uploads.github.com，需 token）+ 重推 gh-pages，资产下载 CDN 有分钟级缓存，替换后公开 URL 稍后才生效 |
 
 ## 4. 更新端点与容错
 
