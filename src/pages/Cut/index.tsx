@@ -31,7 +31,7 @@ import type {
   Segment,
 } from "../../types";
 import { audioSummary, needsProxy, videoSummary, wantsProxy } from "../../utils/media";
-import { basename, defaultOutputName, dirname, resolveOutputDir, resolveUniqueTarget } from "../../utils/paths";
+import { basename, defaultOutputName, dirname, resolveOutputDir, resolveUniqueTarget, stemOf } from "../../utils/paths";
 import { actualRemovalOf, planRemoval, type Interval } from "../../utils/removal";
 import {
   MIN_SEG_DURATION_SEC,
@@ -459,6 +459,36 @@ export default function CutPage({
     [inputPath, mergeOutput, segments, cutMode],
   );
 
+  /**
+   * 导出 GIF（`FR-401`/`ADR-049`）：作用于**当前选区**——表情包工作流,不进片段列表、
+   * 不受「合并输出」影响;fps 15、长边 ≤480(服务端按探测计算)、无音轨(按钮 title 明示)。
+   */
+  const startGifExport = async () => {
+    if (!inputPath || !outputDir) return;
+    if (selection.end - selection.start < 0.05) {
+      setError("先在预览上框选要导出的区间");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const dir = outputDir.replace(/[\/]+$/, "");
+      const target = await resolveUniqueTarget(dir, `${stemOf(inputPath)}_gif.gif`, fileExists);
+      await submitTask({
+        type: "gif",
+        input: inputPath,
+        startSec: selection.start,
+        endSec: selection.end,
+        output: target,
+        fps: 15,
+      });
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const startMergedCut = async () => {
     if (!inputPath || mergedItems.length === 0 || !outputDir) return;
     setSubmitting(true);
@@ -844,6 +874,15 @@ export default function CutPage({
           className="rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
         >
           更改目录
+        </button>
+        <button
+          type="button"
+          onClick={() => void startGifExport()}
+          disabled={submitting || !outputDir || !inputPath || selection.end - selection.start < 0.05}
+          title={`把当前选区导出为 GIF 动图(fps 15、长边 ≤480、无音轨)${selection.end - selection.start > 15 ? ";选区超过 15 秒,GIF 体积可能较大" : ""}`}
+          className="rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          导出 GIF
         </button>
         <span
           className={`rounded border px-1.5 py-0.5 text-xs ${

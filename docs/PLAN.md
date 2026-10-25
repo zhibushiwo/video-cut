@@ -279,7 +279,7 @@
 
 - [ ] **M23-1 规格批**：`ADR-049` + DESIGN §3.2 `FR-401`/AC-401-1~2 + §7 `VideoTask::Gif` + §8.3 `_gif` 命名 + §12 `FR-402`
 - [x] **M23-2 GIF 后端**：`lib.rs` `VideoTask::Gif` + types 双写（红线 17）+ `command.rs` `gif_args`（参数序列断言，红线 1）+ `cut.rs` `submit_gif`（probe 算 scale 长边≤480 偶数、区间校验、磁盘预检、`_gif.gif` 命名防覆盖）
-- [ ] **M23-3 GIF 前端**：剪切页页脚「导出 GIF」（作用于当前选区；title 明示无音轨与 >15s 体积提示；与「合并输出」互不影响）
+- [x] **M23-3 GIF 前端**：剪切页页脚「导出 GIF」（作用于当前选区；title 明示无音轨与 >15s 体积提示；与「合并输出」互不影响）　✅ **2026-10-25 落地**（`startGifExport` = `resolveUniqueTarget` 生成 `<源名>_gif.gif` 目标 + `submitTask` type:gif fps:15；选区 <0.05s 禁用并提示；SECONDARY 样式与「更改目录」并列;tsc/eslint 全绿；手测点：①框选后导出 GIF 产物可循环播放、时长=选区 ②未框选禁用 ③>15s title 提示 ④与合并输出互不影响）
 - [ ] **M23-4 临时导出目录推广（FR-402）**：合并页 + 工作台 Footer + 编辑页接字幕页 M19-3 交互（临时目录 + "（本次临时）" + 恢复默认；不持久化）
 - [ ] **M23-5 真机验证收尾**：GIF 端到端（产物帧率/尺寸/时长断言）+ 目录推广各页走查 + §4 完事标准
 
