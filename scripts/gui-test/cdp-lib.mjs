@@ -2,7 +2,8 @@
  * CDP 助手库(gui-test 共用):单连接 + 常用驱动/断言原语。
  * cdp.mjs 是 CLI 壳;测试脚本 import 本模块避免 shell 引号层叠。
  */
-const PORT = 9222;
+/** 调试端口：默认 9222,可用环境变量 CDP_PORT 覆盖（多实例并行调试时用） */
+const PORT = Number(process.env.CDP_PORT ?? 9222);
 
 async function findTarget() {
   const list = await (await fetch(`http://127.0.0.1:${PORT}/json/list`)).json();

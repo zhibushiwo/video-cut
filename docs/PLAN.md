@@ -284,14 +284,14 @@
 > **关联**：DESIGN §3.2 `FR-401`（入口修订）/`FR-403`（片段截图新增）· §5.4 `extract_frame` · §12 `toastAutoCloseSec` 默认值 · UI.md §9.4/§9.5/§9.7/§9.9 · [CANDIDATES.md](./CANDIDATES.md) `CAND-046`~`048`/`051`
 > **用户裁决（开工前 AskUserQuestion）**：① 任务面板 = 改自动消失 + 卡片 ✕，去「清空已完成」（CAND-047 方向 B）；② GIF = **只留片段入口**，页脚选区按钮移除（CAND-051）
 
-- [ ] **M24-1 规格批**：DESIGN §3.2 `FR-401` 入口修订 + `FR-403`/AC-403-1~2 新增 + §5.4 `extract_frame` + §12 默认自动关闭；UI.md §9.4/§9.5/§9.7/§9.9；CANDIDATES 晋升注记
-- [ ] **M24-2 后端**：`command.rs` `frame_png_args`（输出侧 seek + `-frames:v 1`，参数序列断言红线 1）+ `cut.rs` `extract_frame` 同步命令（`spawn_hidden` 红线 3 / `atomic_replace` 红线 19）+ `lib.rs` 注册（红线 18）+ e2e
-- [ ] **M24-3a GIF 片段级入口（CAND-051）**：剪切页片段列表每条「导出 GIF」（按片段区间 `submitTask type:gif`）+ 移除页脚选区按钮
-- [ ] **M24-3b 合并分组卡片 + 勾选（CAND-048）**：分组渲染为卡片（文件名+时长，勾选默认全选，取消组不提交）+ 单文件组灰色区 + 全选/反选；纯前端
-- [ ] **M24-3c 任务卡片自动关闭（CAND-047 方向 B）**：`toastAutoCloseSec` 默认 0→5 + 移除「清空已完成」按钮（卡片 ✕ 已有，后端 `clear_finished_tasks` 保留）
-- [ ] **M24-3d 剪切页预览拖高（CAND-021 收尾）**：`usePanelHeight` 接剪切页预览面板（页键 `cut`，clamp/双击复位/localStorage 同 §9.1）
-- [ ] **M24-3e 片段截图按钮（CAND-046）**：片段列表每条「截图」（中点帧）调 `extract_frame`，png 落输出目录
-- [ ] **M24-4 真机验证收尾**：五项 §4 完事标准 + CDP 走查（GIF 片段级 / 截图 / 分组勾选 / 拖高 / 自动关闭）
+- [x] **M24-1 规格批**　✅ **2026-10-25 落地**（提交 50f74b0）：DESIGN §3.2 `FR-401` 入口修订 + `FR-403`/AC-403-1~2 新增 + §5.4 `extract_frame` + §12 默认自动关闭；UI.md §9.4/§9.5/§9.7/§9.9；CANDIDATES 晋升注记
+- [x] **M24-2 后端**　✅ **2026-10-25 落地**（提交 7bdeb15；seek 侧修订为输入侧解码路径——帧级精确且免长视频全程解码，规格同步；cargo test 135 单测+11 e2e 全绿）：`command.rs` `frame_png_args`（输出侧 seek + `-frames:v 1`，参数序列断言红线 1）+ `cut.rs` `extract_frame` 同步命令（`spawn_hidden` 红线 3 / `atomic_replace` 红线 19）+ `lib.rs` 注册（红线 18）+ e2e
+- [x] **M24-3a GIF 片段级入口（CAND-051）**　✅ 2026-10-25（提交 388c2e0）：剪切页片段列表每条「导出 GIF」（按片段区间 `submitTask type:gif`）+ 移除页脚选区按钮
+- [x] **M24-3b 合并分组卡片 + 勾选（CAND-048）**　✅ 2026-10-25（提交 388c2e0；单文件组为提示行非卡片，与规格一致）：分组渲染为卡片（文件名+时长，勾选默认全选，取消组不提交）+ 单文件组灰色区 + 全选/反选；纯前端
+- [x] **M24-3c 任务卡片自动关闭（CAND-047 方向 B）**　✅ 2026-10-25（提交 388c2e0）：`toastAutoCloseSec` 默认 0→5 + 移除「清空已完成」按钮（卡片 ✕ 已有，后端 `clear_finished_tasks` 保留）
+- [x] **M24-3d 剪切页预览拖高（CAND-021 收尾）**　✅ 2026-10-25（提交 388c2e0；默认 34vh，页键 cut.preview）：`usePanelHeight` 接剪切页预览面板（页键 `cut`，clamp/双击复位/localStorage 同 §9.1）
+- [x] **M24-3e 片段截图按钮（CAND-046）**　✅ 2026-10-25（提交 388c2e0）：片段列表每条「截图」（中点帧）调 `extract_frame`，png 落输出目录
+- [x] **M24-4 真机验证收尾**：五项 §4 完事标准 + CDP 走查（GIF 片段级 / 截图 / 分组勾选 / 拖高 / 自动关闭）　✅ **2026-10-25 真机 CDP 验证**（`scripts/gui-test/t10-m24.mjs`/`t10b`/`t10c`，CDP_PORT 环境变量支持多实例）：①GIF 片段级——片段行按钮存在、页脚无「导出 GIF」、产物 `_gif.gif` ffprobe 实测 2.000s（=片段 0~2s 帧级）/480×270/30 帧=15fps；②截图——`<源名>_1.000.png`（片段 0~2 中点）落 out-m24，1280×720 全幅；③分组卡片——3 文件渲染 1 组卡+单文件组提示、取消勾选→「分组无损合并」按钮禁用、重新勾选提交→任务卡 `合并 2 个文件 → _merged_时间戳.mp4`；④自动关闭——设置页 0→5 持久化后，GIF 终态卡片 8s 内消失、全页无「清空已完成」按钮（存量 0 值用户保持不关，符合逐字段清洗语义）；⑤拖高——面板 272px→352px（+80 精确跟手）、双击复位 272px、localStorage `panel-height:cut.preview` 同步；tsc/eslint/vitest 175/cargo test 135+11/check-docs 前四项全绿
 - [x] **M23-2 GIF 后端**：`lib.rs` `VideoTask::Gif` + types 双写（红线 17）+ `command.rs` `gif_args`（参数序列断言，红线 1）+ `cut.rs` `submit_gif`（probe 算 scale 长边≤480 偶数、区间校验、磁盘预检、`_gif.gif` 命名防覆盖）
 - [x] **M23-3 GIF 前端**：剪切页页脚「导出 GIF」（作用于当前选区；title 明示无音轨与 >15s 体积提示；与「合并输出」互不影响）　✅ **2026-10-25 落地**（`startGifExport` = `resolveUniqueTarget` 生成 `<源名>_gif.gif` 目标 + `submitTask` type:gif fps:15；选区 <0.05s 禁用并提示；SECONDARY 样式与「更改目录」并列;tsc/eslint 全绿；手测点：①框选后导出 GIF 产物可循环播放、时长=选区 ②未框选禁用 ③>15s title 提示 ④与合并输出互不影响）
 - [x] **M23-4 临时导出目录推广（FR-402）**：合并页 + 工作台 Footer + 编辑页接字幕页 M19-3 交互（临时目录 + "（本次临时）" + 恢复默认；不持久化）　✅ **2026-10-25 落地**（各页 exportDir state 覆盖 §12 默认规则,提交链路自动生效;合并页无文件/工作台无输出时更改按钮禁用;tsc/eslint/vitest 175/cargo fmt/test 全绿;手测点:①合并/工作台/编辑页改目录后导出落新目录 ②「恢复默认」回 §12 规则 ③(本次临时)标注 ④不写入设置默认输出目录）
