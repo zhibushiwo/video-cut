@@ -357,6 +357,7 @@ pub fn run() {
             commands::merge::check_merge,
             commands::pipeline::check_pipeline,
             commands::cut::submit_task,
+            commands::cut::extract_frame,
             commands::media::append_frontend_log,
             commands::media::cache_usage,
             commands::media::clear_cache,

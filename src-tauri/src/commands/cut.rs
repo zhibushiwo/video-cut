@@ -387,3 +387,52 @@ fn submit_cut(
         .0
         .submit(Arc::new(TauriEmitter(app)), "cut", &label, job))
 }
+
+/// 单帧截图（M24，`FR-403`）：同步命令——单帧秒级以内，不进任务面板（红线 7 的
+/// "长耗时"不适用）；走 `spawn_hidden`（红线 3）与 `.part` → `atomic_replace`（红线 5/19）。
+#[tauri::command]
+pub async fn extract_frame(input: String, time_sec: f64, output: String) -> Result<String, String> {
+    if !Path::new(&input).is_file() {
+        return Err(format!("输入文件不存在：{input}"));
+    }
+    if !time_sec.is_finite() || time_sec < 0.0 {
+        return Err(format!("截图时刻无效：{time_sec}"));
+    }
+    crate::fs::reject_if_input_equals(Path::new(&output), &[input.as_str()])?;
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let ffmpeg = command::resolve_sidecar("ffmpeg")?;
+        let token = super::temp_token(&output);
+        let part = PathBuf::from(format!("{}.part.{token}.png", output));
+        let result = (|| -> Result<(), String> {
+            let mut cmd = std::process::Command::new(&ffmpeg);
+            cmd.args(command::frame_png_args(
+                time_sec,
+                &input,
+                &part.to_string_lossy(),
+            ));
+            command::spawn_hidden(&mut cmd);
+            let out = cmd.output().map_err(|e| format!("ffmpeg 启动失败：{e}"))?;
+            if !out.status.success() {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                let tail: String = stderr
+                    .chars()
+                    .rev()
+                    .take(300)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect();
+                return Err(format!("截图失败：{tail}"));
+            }
+            // 原子替换：不得先删旧产物再改名，否则 rename 失败时两头空（`BUG-002`）
+            crate::fs::atomic_replace(&part, Path::new(&output))
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&part);
+        }
+        result.map(|_| output)
+    })
+    .await
+    .map_err(|e| format!("截图任务失败：{e}"))?
+}

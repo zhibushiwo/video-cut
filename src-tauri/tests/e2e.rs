@@ -808,3 +808,50 @@ fn subtitle_mux_chain() {
         Some("subrip")
     );
 }
+
+/// M24（FR-403 片段截图）：`frame_png_args` 真跑——3s 处（3.5s 片段中点近似）提取
+/// 单帧 png，产物存在、PNG 魔数正确、ffprobe 可识别为 png 图片。
+#[test]
+fn extract_frame_png() {
+    let Some(fx) = setup() else { return };
+    let out = fx.dir.join("e2e_frame.png");
+    let _ = std::fs::remove_file(&out);
+
+    let args = cmd::frame_png_args(3.0, &s(&fx.src_a), &s(&out));
+    let o = Command::new(&fx.ffmpeg)
+        .args(&args)
+        .output()
+        .expect("ffmpeg 启动");
+    assert!(
+        o.status.success(),
+        "单帧提取失败：{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+
+    let bytes = std::fs::read(&out).expect("png 应存在");
+    assert!(bytes.len() > 100, "png 不应为空");
+    assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n", "应为 PNG 魔数");
+
+    // ffprobe 复核：恰一条流且为 png 视频（无音频）
+    assert_eq!(probe_stream_count(fx, &out, "v"), 1, "恰一条视频流");
+    assert_eq!(probe_stream_count(fx, &out, "a"), 0, "无音频流");
+    let o = Command::new(&fx.ffprobe)
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=codec_name",
+            "-of",
+            "csv=p=0",
+        ])
+        .arg(&out)
+        .output()
+        .expect("ffprobe 启动");
+    assert_eq!(
+        String::from_utf8_lossy(&o.stdout).trim(),
+        "png",
+        "流编码应为 png"
+    );
+}

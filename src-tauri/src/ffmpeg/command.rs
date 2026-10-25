@@ -730,6 +730,20 @@ pub fn gif_args(
     args
 }
 
+/// 单帧提取 png（M24，`FR-403` 片段截图）：输入侧 seek + `-frames:v 1`，png 无损单帧。
+/// 输入侧 seek 走**解码路径**（从关键帧解码并丢弃到目标帧）——与 copy 的 BUG-007
+/// "退关键帧"语义不同，这里帧级精确，且免去长视频从头解码到中点的开销。
+/// 6 位小数：中点时刻可能落在两帧之间，毫秒舍入会取到邻帧。
+pub fn frame_png_args(start_sec: f64, input: &str, output: &str) -> Vec<String> {
+    let mut args = base_args();
+    args.extend(["-ss".into(), format!("{start_sec:.6}")]);
+    args.extend(["-i".into(), input.into()]);
+    args.extend(["-map".into(), "0:v:0".into()]);
+    args.extend(["-frames:v".into(), "1".into()]);
+    args.extend(["-y".into(), output.into()]);
+    args
+}
+
 // ---------- 工作台流水线（DESIGN §3.8、§6.3⑨⑩） ----------
 
 /// 工作台无损片段：剪切（可选）+ 元数据旋转（可选）一条 copy 命令完成。
@@ -862,6 +876,36 @@ mod tests {
                 "make_zero",
                 "-y",
                 "out.mp4",
+            ]
+        );
+    }
+
+    #[test]
+    fn frame_png_args_follows_design_template() {
+        // M24（FR-403 片段截图）：全序列逐字断言——输入侧 seek（解码路径，帧级精确）、
+        // -map 0:v:0、-frames:v 1、png 无损单帧
+        let args = frame_png_args(35.5, "in.mp4", "out.png");
+        assert_eq!(
+            args,
+            vec![
+                "-hide_banner",
+                "-nostats",
+                "-loglevel",
+                "error",
+                "-progress",
+                "pipe:1",
+                "-stats_period",
+                "0.2",
+                "-ss",
+                "35.500000",
+                "-i",
+                "in.mp4",
+                "-map",
+                "0:v:0",
+                "-frames:v",
+                "1",
+                "-y",
+                "out.png",
             ]
         );
     }
