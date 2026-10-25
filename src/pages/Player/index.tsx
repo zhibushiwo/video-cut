@@ -16,7 +16,7 @@ import { useProxyPreview } from "../../hooks/useProxyPreview";
 import { fileSrc, pickVideo, probeMedia } from "../../services/tauri";
 import type { AppSettings, MediaInfo } from "../../types";
 import { wantsProxy } from "../../utils/media";
-import { dirname } from "../../utils/paths";
+import { basename, dirname } from "../../utils/paths";
 
 const POS_PREFIX = "player-pos:";
 const posKey = (path: string) => POS_PREFIX + path;
@@ -180,7 +180,13 @@ export default function PlayerPage({
           />
 
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs text-mute">观看工具（不落文件）：</span>
+            <span
+              className="min-w-0 max-w-48 truncate text-xs text-paper"
+              title={inputPath}
+            >
+              {basename(inputPath)}
+            </span>
+            <span className="shrink-0 text-xs text-mute">观看工具（不落文件）：</span>
             <button
               type="button"
               onClick={() => setFlip((f) => ({ ...f, h: !f.h }))}
