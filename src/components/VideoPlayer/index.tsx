@@ -87,11 +87,18 @@ interface VideoPlayerProps {
    * 变 flex-col、视频 flex-1。全屏态保持悬浮沉浸。默认悬浮（B 站样式）。
    */
   controlsInline?: boolean;
+  /**
+   * 水平/垂直翻转（M25，`FR-405` 播放页）：CSS transform 只作用于视频本体，**仅观看
+   * 不落文件**；与框选放大（`allowZoom`）可同时生效（transform 复合）。
+   */
+  flip?: { h: boolean; v: boolean };
+  /** 循环播放（`<video loop>`，M25 播放页用；默认关） */
+  loop?: boolean;
 }
 
 const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
   function VideoPlayer(
-    { src, onTime, onSeeked, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass, videoStyle, onPlayStateChange, onVideoClick, allowZoom = false, controlsInline = false },
+    { src, onTime, onSeeked, onLoadedMetadata, onError, banner, fill, controls = true, overlay, videoMaxClass, videoStyle, onPlayStateChange, onVideoClick, allowZoom = false, controlsInline = false, flip, loop = false },
     ref,
   ) {
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -340,6 +347,16 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       reset: zoomReset,
     } = videoZoom;
 
+    // 翻转（M25，`FR-405` 播放页）：transform 追加在缩放/用户样式**之后**——scale 复合可交换，
+    // 缩放平移态下翻转仍生效；无缩放时叠加在 videoStyle（通常无 transform）上
+    const flipTransform = flip
+      ? ` scaleX(${flip.h ? -1 : 1}) scaleY(${flip.v ? -1 : 1})`
+      : "";
+    const baseVideoStyle = zoomed ? zoomStyle : videoStyle;
+    const flipStyle = flipTransform
+      ? { ...baseVideoStyle, transform: `${baseVideoStyle?.transform ?? ""}${flipTransform}` }
+      : undefined;
+
     const onVideoClickInternal = (e: React.MouseEvent) => {
       // 拖拽过（框选/平移）或 Ctrl 修饰的点击都不是"点画面走带"（hook 判定）
       if (suppressClick(e)) return;
@@ -367,7 +384,8 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           ref={videoRef}
           src={src}
           preload="metadata"
-          style={zoomed ? zoomStyle : videoStyle}
+          loop={loop}
+          style={flipStyle ?? (zoomed ? zoomStyle : videoStyle)}
           className={
             fill
               ? controlsInline

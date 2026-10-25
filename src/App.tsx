@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import CutPage from "./pages/Cut";
 import MergePage from "./pages/Merge";
 import EditorPage from "./pages/Editor";
+import PlayerPage from "./pages/Player";
 import SubtitlePage from "./pages/Subtitle";
 import WorkbenchPage from "./pages/Workbench";
 import HistoryPage from "./pages/History";
@@ -121,6 +122,16 @@ export default function App() {
             settings={settings}
             onBack={() => navigate("workbench")}
             initialFiles={page === "editor" ? pending : null}
+          />
+        </div>
+      )}
+      {settingsReady && (
+        <div className={page === "player" ? "h-full overflow-hidden" : "hidden"}>
+          <PlayerPage
+            settings={settings}
+            active={page === "player"}
+            onBack={() => navigate("workbench")}
+            initialFiles={page === "player" ? pending : null}
           />
         </div>
       )}
