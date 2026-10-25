@@ -110,7 +110,7 @@ jobs:
         run: |
           EXE="video-cut_${VER}_x64-setup.exe"
           SIG_PATH="src-tauri/target/release/bundle/nsis/${EXE}.sig"
-          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VER}/${EXE}"
+          export URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VER}/${EXE}"
           node -e "
             const fs = require('fs');
             const json = {
