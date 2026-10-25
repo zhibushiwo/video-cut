@@ -42,3 +42,6 @@ src-tauri/resources/models/
 
 # 应用更新签名私钥（M20/ADR-046：绝不入库；CI 用 GitHub Secrets 里的副本）
 .tauri/
+.zcode/
+# 本地个人脚本（个人素材路径等，绝不入库）
+scripts/local/

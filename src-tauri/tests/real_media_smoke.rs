@@ -11,6 +11,9 @@
 //! cargo test --test real_media_smoke -- --ignored --nocapture --test-threads=1
 //! ```
 //!
+//! 长片素材：`video/long.mp4`，或用环境变量 `VIDEO_CUT_LONG_FILE` 指向任意本地长片
+//! （个人素材名只写在不入库的本地脚本里，见 `scripts/local/`）。
+//!
 //! 全部走 `command.rs` 的真实参数构建器；断言全部独立用 ffprobe 复核。
 
 use std::path::{Path, PathBuf};
@@ -45,7 +48,11 @@ fn fx() -> Option<&'static Env> {
         let a = root.join("merge_test_a.mp4");
         let b = root.join("merge_test_b.mp4");
         let small = root.join("123.mp4");
-        let big = root.join("极乐净土 1080p ultra.mp4");
+        // 长片默认找 `video/long.mp4`，可用 VIDEO_CUT_LONG_FILE 指向任意本地素材
+        // （个人素材路径只存在于不入库的本地脚本，见 scripts/local/）
+        let big = std::env::var("VIDEO_CUT_LONG_FILE")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| root.join("long.mp4"));
         for p in [&a, &b, &small, &big] {
             if !p.exists() {
                 eprintln!("skip: 缺素材 {}", p.display());
@@ -348,7 +355,8 @@ fn t2_real_fast_cut_snaps_within_one_gop() {
     let kfs = keyframes(e, &e.big);
     let max_gop = kfs.windows(2).map(|w| w[1] - w[0]).fold(0.0_f64, f64::max);
     println!(
-        "  极乐净土：{} 个关键帧，最大 GOP={max_gop:.3}s，首帧={:.3}",
+        "  长片 {}：{} 个关键帧，最大 GOP={max_gop:.3}s，首帧={:.3}",
+        e.big.file_name().unwrap_or_default().to_string_lossy(),
         kfs.len(),
         kfs[0]
     );
@@ -612,7 +620,7 @@ fn t7_real_big_probe_is_correct_and_cached() {
 
 /// 关键帧解析完整性（UI 吸附与时间轴刻度都吃这份数据）。
 ///
-/// ffprobe 对**部分**帧会多输出一个空 CSV 字段（实测：极乐净土第 1 行 `0.000000,`、
+/// ffprobe 对**部分**帧会多输出一个空 CSV 字段（实测：长片素材第 1 行 `0.000000,`、
 /// `123.mp4` 第 3 行 `5.753333,`；`merge_test_a/b` 不出现），而 `parse_keyframes`
 /// 用整行 `parse::<f64>()` 解析 → 这些行被静默丢弃。
 /// 本用例断言"解析条数 == ffprobe 原始行数"，丢一条就红。

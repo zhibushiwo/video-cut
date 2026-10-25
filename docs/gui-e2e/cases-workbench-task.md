@@ -8,7 +8,7 @@
 ## TC-037 工作台：多素材多片段 → 合成导出
 
 - **覆盖**：FR-380 → AC-380-1（组级）
-- **夹具**：`video/merge_test_a.mp4` + `video/merge_test_b.mp4`（同参数）；可选 `video/极乐净土 1080p ultra.mp4`（长片）
+- **夹具**：`video/merge_test_a.mp4` + `video/merge_test_b.mp4`（同参数）；可选 `video/long.mp4`（长片，见 [TESTING.md](../TESTING.md) §2 夹具表）
 
 ### 步骤
 

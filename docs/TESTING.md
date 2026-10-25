@@ -31,7 +31,7 @@
 | 夹具 | 来源 | 用途 |
 | --- | --- | --- |
 | `video/merge_test_a.mp4` / `merge_test_b.mp4` | `scripts/gen-fixtures.ps1` 生成，参数一致 | 无损合并、copy 链路、e2e |
-| `video/极乐净土 1080p ultra.mp4` | 手工放入（约 1GB） | 性能基线（极速剪切 ≤10s、关键帧扫描） |
+| 长片素材（任意 1080p 长视频，约 1GB 更佳，GOP 不均、含长 GOP 的素材效果最好） | 手工放入 `video/` 并命名为 `long.mp4`，或用环境变量 `VIDEO_CUT_LONG_FILE` 指向任意本地文件（不入库） | 性能基线（极速剪切 ≤10s、关键帧扫描，`real_media_smoke` t2/t8 用） |
 | 100 片段串联夹具 | 生成命令见 [gui-e2e/cases-m11-perf.md](./gui-e2e/cases-m11-perf.md) §1（M11-9，testsrc 100×1s） | 时间线性能验收（拖拽/播放头/撤销 P50/P95） |
 | 手机竖拍视频（带 rotation metadata） | 手工 | 元数据旋转无损路径 |
 | 4K HEVC 文件 | 手工 | 合并不一致检测、代理预览 |

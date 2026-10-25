@@ -475,7 +475,7 @@ C:\video\x.mp4: Invalid data found when processing input"#;
     use super::*;
     use serde_json::json;
 
-    /// 取自真实 ffprobe 9.0.1 输出（video/极乐净土 1080p ultra.mp4，有删节）。
+    /// 取自真实 ffprobe 9.0.1 输出（1080p 长片素材，有删节）。
     #[test]
     fn parses_real_world_probe_json() {
         let v = json!({
@@ -583,7 +583,7 @@ C:\video\x.mp4: Invalid data found when processing input"#;
     }
 
     /// BUG-008 回归：ffprobe 会给**个别**关键帧行多输出一个空 CSV 字段（尾逗号），
-    /// 按整行解析会丢掉这些关键帧——实测 `极乐净土` 因此丢了 `0.0`（列表首项变成
+    /// 按整行解析会丢掉这些关键帧——实测某长片素材因此丢了 `0.0`（列表首项变成
     /// 5.883）、`123.mp4` 丢了 5.753333。样本取自真实 ffprobe 9.0.1 输出。
     #[test]
     fn keyframe_csv_keeps_rows_with_extra_fields() {
