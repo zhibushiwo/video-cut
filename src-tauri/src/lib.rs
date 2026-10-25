@@ -240,6 +240,7 @@ pub enum VideoTask {
     /// GIF 短片段导出（M23，FR-401，ADR-049）：输出侧 seek + fps + scale（服务端按探测尺寸
     /// 计算长边 ≤480 的等比偶数宽高下发）+ 两遍调色板一条命令；`-map 0:v:0` 无音轨；
     /// 产物容器 gif（ADR-033② 显式例外）
+    #[serde(rename_all = "camelCase")]
     Gif {
         input: String,
         start_sec: f64,
