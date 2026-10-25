@@ -1,0 +1,10 @@
+{
+  "version": "0.4.0",
+  "notes": "### 新增\n- 剪切页「合并输出」：提取的多个片段可直接按顺序合成一个视频（极速无损拼接 / 精确帧级重编码两种模式都支持），不再逐片段出独立文件\n- 合并页「分组无损合并」：参数不一致时按参数自动分组，各组各自无损合并（并发执行），参数独特的文件跳过并提示\n- 合并页分组勾选：分组以卡片展示（组内文件与总时长），默认全选、取消勾选的组不提交\n- 剪切页片段截图：片段列表每条可一键截取片段中点帧为 png（全分辨率，落到输出目录）\n- 剪切页 GIF 导出改片段级：片段列表每条「导出 GIF」按该片段区间出图（原页脚选区入口移除——选区易在添加片段后变化造成误解）\n- 剪切页预览面板拖高：底边拖拽调高、双击复位、跨重启记忆（与工作台同款交互）\n- 片段再编辑：剪切页片段列表每条可「编辑」——区间回填选区重新定点后保存替换（Esc 取消）\n- 「播放」页：只看不编的本地播放器——Ctrl+拖拽局部缩放/平移、水平/垂直翻转（仅观看）、倍速 0.2~3、循环播放、记住每个视频的上次播放位置\n- 播放页增强：↑↓ 音量/M 静音/F 全屏/双击全屏/S 截图快捷键、跳转指定时间（支持 h:",
+  "pub_date": "2026-10-25T09:10:03.808Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVTS3BIZXJpOHZaWTFpaDhOczViQ09nWEVzZWV3U3lyYVl4TEpCZjNtWGpnc1pERGlVTVQ2Z3dQdXdEaEtMNnJNVG9qaTBSQ0p1ZzVCR3V1ckNQcDZVc3NTemh2OGVJYVF3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyOTE5NDAyCWZpbGU6dmlkZW8tY3V0XzAuNC4wX3g2NC1zZXR1cC5leGUKZkFtRi9hNENvc1Z5K2VhQ2swd2lTc21EQk1LaFVHd2ZiNi9xSzJmY0kxb1R2KzZobWNTRmZkb2RhZGt3MTVBZXcvZkFod0JLUWVZRFZrZS9SeHEzQkE9PQo="
+    }
+  }
+}
