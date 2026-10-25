@@ -292,6 +292,16 @@
 - [x] **M24-3d 剪切页预览拖高（CAND-021 收尾）**　✅ 2026-10-25（提交 388c2e0；默认 34vh，页键 cut.preview）：`usePanelHeight` 接剪切页预览面板（页键 `cut`，clamp/双击复位/localStorage 同 §9.1）
 - [x] **M24-3e 片段截图按钮（CAND-046）**　✅ 2026-10-25（提交 388c2e0）：片段列表每条「截图」（中点帧）调 `extract_frame`，png 落输出目录
 - [x] **M24-4 真机验证收尾**：五项 §4 完事标准 + CDP 走查（GIF 片段级 / 截图 / 分组勾选 / 拖高 / 自动关闭）　✅ **2026-10-25 真机 CDP 验证**（`scripts/gui-test/t10-m24.mjs`/`t10b`/`t10c`，CDP_PORT 环境变量支持多实例）：①GIF 片段级——片段行按钮存在、页脚无「导出 GIF」、产物 `_gif.gif` ffprobe 实测 2.000s（=片段 0~2s 帧级）/480×270/30 帧=15fps；②截图——`<源名>_1.000.png`（片段 0~2 中点）落 out-m24，1280×720 全幅；③分组卡片——3 文件渲染 1 组卡+单文件组提示、取消勾选→「分组无损合并」按钮禁用、重新勾选提交→任务卡 `合并 2 个文件 → _merged_时间戳.mp4`；④自动关闭——设置页 0→5 持久化后，GIF 终态卡片 8s 内消失、全页无「清空已完成」按钮（存量 0 值用户保持不关，符合逐字段清洗语义）；⑤拖高——面板 272px→352px（+80 精确跟手）、双击复位 272px、localStorage `panel-height:cut.preview` 同步；tsc/eslint/vitest 175/cargo test 135+11/check-docs 前四项全绿
+
+## M25 中量批：片段再编辑 + 纯播放页（2026-10-25 用户指示继续开工；`CAND-050`/`CAND-053` 晋升）
+
+> **关联**：DESIGN §3.2 `FR-404`（片段再编辑）· §3.12 `FR-405`（纯播放页）· UI.md §9.2/§9.4/§9.13 · [CANDIDATES.md](./CANDIDATES.md) `CAND-050`/`CAND-053`
+> **范围**：纯前端批，后端零改动；v1 裁决 = 再编辑入口为片段行按钮、保存走与添加同口径；播放页 v1 = 缩放/翻转/倍速/快捷键/循环/记忆位置，AB 循环留后续
+
+- [ ] **M25-1 规格批**：DESIGN §3.2 `FR-404`/AC-404-1~2 + §3.12 `FR-405`/AC-405-1~2 新增；UI.md §9.2 导航/§9.4 再编辑/§9.13 播放页；CANDIDATES 晋升注记
+- [ ] **M25-2 片段再编辑（CAND-050）**：SegmentList 行「✎ 编辑」+ Cut 页编辑态（回填选区/跳播放头/保存替换/取消 Esc）
+- [ ] **M25-3 纯播放页（CAND-053）**：`PageName` 加 `player` + `NAV_ITEMS` 第 5 项 + `src/pages/Player/index.tsx`（VideoPlayer allowZoom + 翻转开关 + 循环 + 位置记忆 + 走带快捷键）
+- [ ] **M25-4 验证收尾**：§4 完事标准 + CDP 走查（再编辑保存/取消、播放页翻转/循环/记忆位置）+ PLAN/FEATURES/CHANGELOG
 - [x] **M23-2 GIF 后端**：`lib.rs` `VideoTask::Gif` + types 双写（红线 17）+ `command.rs` `gif_args`（参数序列断言，红线 1）+ `cut.rs` `submit_gif`（probe 算 scale 长边≤480 偶数、区间校验、磁盘预检、`_gif.gif` 命名防覆盖）
 - [x] **M23-3 GIF 前端**：剪切页页脚「导出 GIF」（作用于当前选区；title 明示无音轨与 >15s 体积提示；与「合并输出」互不影响）　✅ **2026-10-25 落地**（`startGifExport` = `resolveUniqueTarget` 生成 `<源名>_gif.gif` 目标 + `submitTask` type:gif fps:15；选区 <0.05s 禁用并提示；SECONDARY 样式与「更改目录」并列;tsc/eslint 全绿；手测点：①框选后导出 GIF 产物可循环播放、时长=选区 ②未框选禁用 ③>15s title 提示 ④与合并输出互不影响）
 - [x] **M23-4 临时导出目录推广（FR-402）**：合并页 + 工作台 Footer + 编辑页接字幕页 M19-3 交互（临时目录 + "（本次临时）" + 恢复默认；不持久化）　✅ **2026-10-25 落地**（各页 exportDir state 覆盖 §12 默认规则,提交链路自动生效;合并页无文件/工作台无输出时更改按钮禁用;tsc/eslint/vitest 175/cargo fmt/test 全绿;手测点:①合并/工作台/编辑页改目录后导出落新目录 ②「恢复默认」回 §12 规则 ③(本次临时)标注 ④不写入设置默认输出目录）
