@@ -193,6 +193,8 @@ export type VideoTask =
       encoder: string | null;
     }
   | { type: "merge"; inputs: string[]; output: string; forceTranscode: boolean }
+  /** M23（FR-401/ADR-049）：GIF 短片段导出（lib.rs `VideoTask::Gif` 镜像）；fps 固定 15（v1） */
+  | { type: "gif"; input: string; startSec: number; endSec: number; output: string; fps: number }
   | {
       type: "rotate";
       input: string;

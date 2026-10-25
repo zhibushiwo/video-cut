@@ -108,7 +108,104 @@ pub async fn submit_task(
             subtitle_path,
             output,
         } => super::subtitle::submit_subtitle_mux(app, &state, input, subtitle_path, output),
+        VideoTask::Gif {
+            input,
+            start_sec,
+            end_sec,
+            output,
+            fps,
+        } => submit_gif(app, &state, input, start_sec, end_sec, output, fps).await,
     }
+}
+
+/// 提交 GIF 短片段导出（M23，FR-401，ADR-049）：作用于剪切页**当前选区**；
+/// scale 由探测尺寸计算（长边 ≤480 等比取偶），产物容器 gif（`ADR-033`② 显式例外）。
+pub(crate) async fn submit_gif(
+    app: AppHandle,
+    state: &State<'_, AppTasks>,
+    input: String,
+    start_sec: f64,
+    end_sec: f64,
+    output: String,
+    fps: u32,
+) -> Result<String, String> {
+    if !Path::new(&input).is_file() {
+        return Err(format!("输入文件不存在：{input}"));
+    }
+    if !(1..=30).contains(&fps) {
+        return Err(format!("GIF 帧率超出范围（1~30）：{fps}"));
+    }
+    if !super::valid_segment_span(start_sec, end_sec) {
+        return Err(format!("GIF 区间无效：{} ~ {}", start_sec, end_sec));
+    }
+    let info = probe::probe_media(&app, &input)
+        .await
+        .map_err(|e| format!("{}：{e}", input))?;
+    let Some(v) = info.video.as_ref() else {
+        return Err("GIF 需要视频流（纯音频文件不支持）".into());
+    };
+    // 出点钳制到源时长；钳制后复查最小区间
+    let end = if info.duration_sec > 0.0 {
+        end_sec.min(info.duration_sec)
+    } else {
+        end_sec
+    };
+    if !super::valid_segment_span(start_sec, end) {
+        return Err(format!("GIF 区间无效（钳制后）：{} ~ {}", start_sec, end));
+    }
+    let dur = end - start_sec;
+
+    // scale：长边 ≤480 等比，宽高取偶（缩放器友好）
+    let long = v.width.max(v.height) as f64;
+    let k = if long > 480.0 { 480.0 / long } else { 1.0 };
+    let scale_w = ((v.width as f64 * k).round() as u32).max(2) & !1;
+    let scale_h = ((v.height as f64 * k).round() as u32).max(2) & !1;
+
+    crate::fs::reject_if_input_equals(Path::new(&output), &[input.as_str()])?;
+    // 容器口径（ADR-049③）：gif 固定；前端名校正 + 同名不静默覆盖兜底（决策 #19）
+    let out = crate::fs::output_path_for(Path::new(&output), "gif");
+    crate::fs::reject_if_input_equals(&out, &[input.as_str()])?;
+    let super::PreparedOutput {
+        out_dir,
+        out_name,
+        token,
+        ffmpeg,
+        ..
+    } = super::prepare_output(&out, &output)?;
+    let part = out_dir.join(format!("{out_name}.part.{token}.gif"));
+
+    let job_input = input.clone();
+    let job_part = part.to_string_lossy().into_owned();
+    let job_final = out.clone();
+    let label = format!("GIF {}", file_name(&input));
+
+    let job: Job = Box::new(move |ctx: &TaskContext| {
+        // 磁盘空间预检（DESIGN §8.2）：GIF 产物通常远小于源，按源体积预估即安全
+        super::require_disk_space(
+            Path::new(&job_final)
+                .parent()
+                .ok_or_else(|| "输出路径无效".to_string())?,
+            super::file_size(&job_input),
+        )?;
+        let args = command::gif_args(start_sec, dur, &job_input, &job_part, fps, scale_w, scale_h);
+        let throttle = ProgressThrottle::new();
+        let r = worker::run_ffmpeg(ctx, &ffmpeg, &args, dur, &|local, speed| {
+            if throttle.update(local) {
+                ctx.set_progress(local, speed);
+            }
+        });
+        if r.is_err() {
+            let _ = std::fs::remove_file(&job_part);
+        }
+        r?;
+        // 原子落位：`.part` → 最终产物（`BUG-002` 同口径）
+        crate::fs::atomic_replace(Path::new(&job_part), Path::new(&job_final))?;
+        ctx.add_output(job_final.to_string_lossy().into_owned());
+        Ok(())
+    });
+    Ok(state
+        .0
+        .submit(Arc::new(TauriEmitter(app)), "gif", &label, job))
 }
 
 struct CutItem {

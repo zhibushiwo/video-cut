@@ -698,6 +698,38 @@ pub fn precise_cut_args(
     args
 }
 
+/// GIF 短片段导出（M23，FR-401，ADR-049）：输出侧 seek（`-ss`/`-t` 在 `-i` 后，帧级精确）
+/// + fps + scale（调用方按探测尺寸算好长边 ≤480 的等比**偶数**宽高，filter 内无表达式）
+/// + 两遍调色板（palettegen/paletteuse）一条命令；`-map 0:v:0` 只取视频流——GIF 无音轨
+/// （ADR-049）；产物容器 gif（`ADR-033`② 显式例外），`-loop 0` 无限循环。
+pub fn gif_args(
+    start_sec: f64,
+    duration_sec: f64,
+    input: &str,
+    output: &str,
+    fps: u32,
+    scale_w: u32,
+    scale_h: u32,
+) -> Vec<String> {
+    let mut args = base_args();
+    args.extend(["-i".into(), input.into()]);
+    args.extend([
+        "-ss".into(),
+        fmt_sec(start_sec),
+        "-t".into(),
+        fmt_sec(duration_sec),
+    ]);
+    args.extend(["-map".into(), "0:v:0".into()]);
+    args.extend([
+        "-vf".into(),
+        format!(
+            "fps={fps},scale={scale_w}:{scale_h}:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse"
+        ),
+    ]);
+    args.extend(["-loop".into(), "0".into(), "-y".into(), output.into()]);
+    args
+}
+
 // ---------- 工作台流水线（DESIGN §3.8、§6.3⑨⑩） ----------
 
 /// 工作台无损片段：剪切（可选）+ 元数据旋转（可选）一条 copy 命令完成。
@@ -830,6 +862,40 @@ mod tests {
                 "make_zero",
                 "-y",
                 "out.mp4",
+            ]
+        );
+    }
+
+    #[test]
+    fn gif_args_follows_design_template() {
+        // M23（FR-401/ADR-049）：全序列逐字断言——输出侧 seek（-ss/-t 在 -i 后）、
+        // 两遍调色板、-map 0:v:0 无音轨、-loop 0、gif 容器（ADR-033② 例外）
+        let args = gif_args(5.0, 2.5, "in.mp4", "out.gif", 15, 480, 270);
+        assert_eq!(
+            args,
+            vec![
+                "-hide_banner",
+                "-nostats",
+                "-loglevel",
+                "error",
+                "-progress",
+                "pipe:1",
+                "-stats_period",
+                "0.2",
+                "-i",
+                "in.mp4",
+                "-ss",
+                "5.000",
+                "-t",
+                "2.500",
+                "-map",
+                "0:v:0",
+                "-vf",
+                "fps=15,scale=480:270:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse",
+                "-loop",
+                "0",
+                "-y",
+                "out.gif",
             ]
         );
     }
