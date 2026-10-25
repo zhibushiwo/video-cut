@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from "react";
 import { formatTime, parseTime } from "../../utils/time";
 
 interface TimeFieldProps {
-  label: string;
+  /** 竖排小标签；不传 = 紧凑态（M27 播放页工具行：与按钮同行对齐，仅输入框） */
+  label?: string;
   value: number;
   onCommit: (t: number) => void;
 }
@@ -31,7 +32,7 @@ export function TimeField({ label, value, onCommit }: TimeFieldProps) {
 
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-[11px] text-mute">{label}</span>
+      {label && <span className="text-[11px] text-mute">{label}</span>}
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
@@ -39,6 +40,7 @@ export function TimeField({ label, value, onCommit }: TimeFieldProps) {
         onKeyDown={(e) => {
           if (e.key === "Enter") (e.target as HTMLInputElement).blur();
         }}
+        aria-label={label ?? "跳转时间"}
         className="w-32 rounded border border-hairline bg-panel px-2 py-1.5 font-mono text-sm text-paper focus:border-signal focus:outline-none"
       />
     </label>

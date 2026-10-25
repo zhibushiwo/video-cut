@@ -6,8 +6,12 @@
  * 播放位置按文件路径存 localStorage（`player-pos:<path>`），加载后恢复。
  *
  * v2 增强（M26）：快捷键 ↑↓/M/F/S、双击全屏（VideoPlayer 分态）、跳转时间输入框、
- * 最近播放 8 条 + 首次进页自动恢复、窗口标题随文件名、截图（复用 `extract_frame`）、
- * 视频信息折叠卡。
+ * 最近播放 8 条 + 首次进页自动恢复、窗口标题随文件名、截图（复用 `extract_frame`）。
+ *
+ * M27 真机打磨（用户反馈）：①大画面布局——`fill + controlsInline` 吃满窗口剩余高度
+ * （原 max-h-44vh 预览默认值导致黑边+页面大空白）；②最近播放下拉左锚（原 right-0
+ * 在页头左侧时面板伸出屏幕外被裁）+ 点外部/Esc 关闭 + 去原生 title 气泡；③移除视频
+ * 信息卡（用户裁决"没有什么用"）；④跳转输入改紧凑态与按钮同行对齐。
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -35,9 +39,8 @@ import {
   setWindowTitle,
 } from "../../services/tauri";
 import type { AppSettings, MediaInfo } from "../../types";
-import { audioSummary, wantsProxy } from "../../utils/media";
+import { wantsProxy } from "../../utils/media";
 import { basename, dirname, resolveOutputDir, resolveUniqueTarget, stemOf } from "../../utils/paths";
-import { formatBytes, formatTime } from "../../utils/time";
 
 const POS_PREFIX = "player-pos:";
 const posKey = (path: string) => POS_PREFIX + path;
@@ -115,6 +118,7 @@ export default function PlayerPage({
   const [notice, setNotice] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const playerRef = useRef<VideoPlayerHandle>(null);
+  const recentsRootRef = useRef<HTMLDivElement>(null);
   /** 位置节流落盘基准（onTime rAF 高频，localStorage 每 ~2s 写一次足够） */
   const lastSaveRef = useRef(0);
   /** 首次进页自动恢复只做一次（之后由用户操作主导） */
@@ -178,6 +182,25 @@ export default function PlayerPage({
     setFlip({ h: false, v: false });
     setLoop(false);
   }, [inputPath]);
+
+  // 最近播放下拉：点外部 / Esc 关闭（M27，用户真机反馈"不会自动关、挡画面"）
+  useEffect(() => {
+    if (!recentsOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (recentsRootRef.current && !recentsRootRef.current.contains(e.target as Node)) {
+        setRecentsOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setRecentsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [recentsOpen]);
 
   // 位置记忆（FR-405）：加载后恢复上次位置；onTime 节流写入
   useEffect(() => {
@@ -261,18 +284,6 @@ export default function PlayerPage({
     return () => window.removeEventListener("keydown", onKey);
   }, [active, inputPath, shot]);
 
-  const infoLines = info
-    ? [
-        ["画面", `${info.video?.width ?? 0}×${info.video?.height ?? 0}`],
-        ["视频", info.video?.codec ?? "—"],
-        ["帧率", info.video ? `${info.video.frameRate.toFixed(2)} fps` : "—"],
-        ["音频", audioSummary(info) ?? "—"],
-        ["大小", formatBytes(info.sizeBytes)],
-        ["时长", formatTime(info.durationSec, false)],
-        ["路径", inputPath ?? ""],
-      ]
-    : [];
-
   return (
     <div className="flex h-full flex-col">
       <PageHeader
@@ -281,7 +292,7 @@ export default function PlayerPage({
         right={
           <div className="flex shrink-0 items-center gap-2">
             {recents.length > 0 && (
-              <div className="relative">
+              <div className="relative" ref={recentsRootRef}>
                 <button
                   type="button"
                   onClick={() => setRecentsOpen((v) => !v)}
@@ -292,7 +303,7 @@ export default function PlayerPage({
                   <ChevronDown className="h-3 w-3" />
                 </button>
                 {recentsOpen && (
-                  <div className="absolute right-0 top-full z-20 mt-1 w-72 rounded-md border border-hairline bg-panel py-1 shadow-lg">
+                  <div className="absolute left-0 top-full z-20 mt-1 w-72 rounded-md border border-hairline bg-panel py-1 shadow-lg">
                     {recents.map((r) => (
                       <button
                         key={r.path}
@@ -301,7 +312,6 @@ export default function PlayerPage({
                           setRecentsOpen(false);
                           void loadFile(r.path);
                         }}
-                        title={r.path}
                         className="block w-full truncate px-3 py-1.5 text-left text-xs text-mute transition-colors hover:bg-panel hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
                       >
                         {basename(r.path)}
@@ -343,7 +353,6 @@ export default function PlayerPage({
                     key={r.path}
                     type="button"
                     onClick={() => void loadFile(r.path)}
-                    title={r.path}
                     className="block w-full truncate rounded px-2 py-1 text-left text-xs text-mute transition-colors hover:bg-panel hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
                   >
                     {basename(r.path)}
@@ -354,22 +363,26 @@ export default function PlayerPage({
           )}
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4">
-          {probeError && <p className="text-xs text-warn">{probeError}</p>}
-          {error && <p className="text-xs text-warn">{error}</p>}
-          <VideoPlayer
-            ref={playerRef}
-            allowZoom
-            src={fileSrc(proxyPath ?? inputPath)}
-            onTime={handleTime}
-            onPlayStateChange={setPlaying}
-            onError={onError}
-            onLoadedMetadata={(d) => setDuration(d)}
-            flip={flip}
-            loop={loop}
-          />
+        // 大画面布局（M27）：播放区吃满剩余高度（fill + controlsInline 净画面），
+        // 工具行贴其下——不再用预览默认的 44vh 限高（黑边+页面大空白，用户真机反馈）
+        <div className="flex min-h-0 flex-1 flex-col gap-2 p-4">
+          <div className="min-h-0 flex-1">
+            <VideoPlayer
+              ref={playerRef}
+              allowZoom
+              fill
+              controlsInline
+              src={fileSrc(proxyPath ?? inputPath)}
+              onTime={handleTime}
+              onPlayStateChange={setPlaying}
+              onError={onError}
+              onLoadedMetadata={(d) => setDuration(d)}
+              flip={flip}
+              loop={loop}
+            />
+          </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
             <span
               className="min-w-0 max-w-48 truncate text-xs text-paper"
               title={inputPath}
@@ -415,7 +428,6 @@ export default function PlayerPage({
               截图
             </button>
             <TimeField
-              label="跳转到"
               value={currentTime}
               onCommit={(t) => {
                 playerRef.current?.seek(Math.min(Math.max(0, t), duration || t));
@@ -423,29 +435,13 @@ export default function PlayerPage({
             />
             <span className="flex-1" />
             {notice && <span className="shrink-0 text-xs text-signal">{notice}</span>}
+            {error && <span className="shrink-0 text-xs text-warn">{error}</span>}
           </div>
-          <p className="text-[11px] text-mute/70">
+          <p className="shrink-0 text-[11px] text-mute/70">
             Ctrl+拖拽框选放大 · 双击全屏（放大态双击还原） · 空格 播放/暂停 · ←→ ±1s · Shift 逐帧
             · ↑↓ 音量 · M 静音 · F 全屏 · S 截图
           </p>
-
-          {infoLines.length > 0 && (
-            <details className="rounded-md border border-hairline px-3 py-2 text-xs">
-              <summary className="cursor-pointer select-none text-mute hover:text-paper">
-                视频信息
-              </summary>
-              <div className="mt-2 grid gap-x-6 gap-y-0.5 font-mono text-[11px] text-mute sm:grid-cols-2">
-                {infoLines.map(([k, v]) => (
-                  <div key={k} className="flex min-w-0 gap-2">
-                    <span className="shrink-0 text-mute/70">{k}</span>
-                    <span className="truncate text-paper" title={v}>
-                      {v}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </details>
-          )}
+          {probeError && <p className="shrink-0 text-xs text-warn">{probeError}</p>}
         </div>
       )}
     </div>

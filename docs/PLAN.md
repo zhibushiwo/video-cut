@@ -313,6 +313,14 @@
 - [x] **M26-3 最近播放**　✅ 2026-10-25（提交 1b4627c）：`player-recents` 8 条 + 空态列表与页头下拉 + 首次进页自动恢复最近视频 + 窗口标题随文件名（services 封装 `setWindowTitle`，红线 10）
 - [x] **M26-4 截图与信息卡**　✅ 2026-10-25（提交 1b4627c）：截图按钮/`S` 键（`extract_frame` 当前帧，输出目录规则+撞名时间戳+页脚通知）+ 可折叠视频信息卡
 - [x] **M26-5 验证收尾**：§4 完事标准 + CDP 走查 + PLAN/FEATURES/CHANGELOG　✅ **2026-10-25 真机 CDP 验证**（`scripts/gui-test/t12-m26.mjs`）：自动恢复最近视频（首跑 recents 空属预期，写入后 reload 再进页自动加载）、窗口标题 `h264_aac_720p.mp4 - video-cut`、音量 ↓↓ 1→0.9/↑ 回 0.95、M 静音/F 全屏/双击全屏、跳转 `00:00:05`→currentTime=5、S 截图 png 3→4、最近下拉点选重看、信息卡含 1280×720/h264。**真机抓出三处修复随本提交**：①capability 漏 `core:window:allow-set-title`（setTitle 被静默拒绝,红线 18）；②`parseTime` 只认三段完整格式——扩两段 mm:ss(.ms) 与纯秒（规格承诺口径,补 4 组单测,vitest 179）；③字母快捷键判断 `e.code==="KeyM"` 对测试驱动注入的 `code:"m"` 不命中——改 `e.key` 小写比较（真键盘两口径均兼容）；vitest 179/cargo test 135+11/check-docs 前四项全绿
+
+## M27 播放页真机打磨（2026-10-25 用户实机截图反馈；纯前端）
+
+> **关联**：UI.md §9.12（音量弹层）/§9.13（v2 修订）· DESIGN §3.12 `FR-405` v2 ⑥移除
+> **用户反馈四点**：最近播放下拉伸出屏幕显示不全；视频信息卡没用（删）；音量滑条弹出路径穿进度条触发误事件（B 站把弹层放在进度条上方）；（连带采纳）画面太小/黑边多、title 白气泡突兀
+
+- [x] **M27-1 音量弹层 hover 桥**　✅ 2026-10-25（弹层容器式重构：透明桥 h-24 w-8 覆盖按钮→滑条路径，z-30 悬于进度条之上，hover 期间才接管指针——真机 elementFromPoint 验证桥中段命中滑条而非进度条）：`VideoPlayer` 音量弹层改容器式——透明桥覆盖按钮→滑条路径（z 层压过进度条、hover 期间才接管指针），滑条整体悬于进度条上方
+- [x] **M27-2 播放页布局与交互**　✅ 2026-10-25（fill+controlsInline 视频高度 584px/容器 646px（旧 44vh 限高仅 ~352px）；下拉左锚 left=99 不出屏、pointerdown 外点与 Esc 双路关闭、去 title 气泡；信息卡移除；TimeField label 改可选紧凑态）：大画面布局（`fill + controlsInline` 吃满剩余高度）；最近播放下拉左锚 + 点外部/Esc 关闭 + 去 title 气泡；移除视频信息卡；跳转输入紧凑态（`TimeField` label 改可选）
 - [x] **M23-2 GIF 后端**：`lib.rs` `VideoTask::Gif` + types 双写（红线 17）+ `command.rs` `gif_args`（参数序列断言，红线 1）+ `cut.rs` `submit_gif`（probe 算 scale 长边≤480 偶数、区间校验、磁盘预检、`_gif.gif` 命名防覆盖）
 - [x] **M23-3 GIF 前端**：剪切页页脚「导出 GIF」（作用于当前选区；title 明示无音轨与 >15s 体积提示；与「合并输出」互不影响）　✅ **2026-10-25 落地**（`startGifExport` = `resolveUniqueTarget` 生成 `<源名>_gif.gif` 目标 + `submitTask` type:gif fps:15；选区 <0.05s 禁用并提示；SECONDARY 样式与「更改目录」并列;tsc/eslint 全绿；手测点：①框选后导出 GIF 产物可循环播放、时长=选区 ②未框选禁用 ③>15s title 提示 ④与合并输出互不影响）
 - [x] **M23-4 临时导出目录推广（FR-402）**：合并页 + 工作台 Footer + 编辑页接字幕页 M19-3 交互（临时目录 + "（本次临时）" + 恢复默认；不持久化）　✅ **2026-10-25 落地**（各页 exportDir state 覆盖 §12 默认规则,提交链路自动生效;合并页无文件/工作台无输出时更改按钮禁用;tsc/eslint/vitest 175/cargo fmt/test 全绿;手测点:①合并/工作台/编辑页改目录后导出落新目录 ②「恢复默认」回 §12 规则 ③(本次临时)标注 ④不写入设置默认输出目录）

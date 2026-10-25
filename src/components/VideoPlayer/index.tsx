@@ -509,17 +509,22 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                     <Volume2 className="h-4 w-4" />
                   )}
                 </button>
-                {/* 音量滑条：hover 竖向向上弹出（M21-2——横向展开会压住相邻按钮） */}
-                <input
-                  type="range"
-                  min={0}
-                  max={1}
-                  step={0.05}
-                  value={muted ? 0 : vol}
-                  onChange={(e) => setVolume(Number(e.target.value))}
-                  aria-label="音量"
-                  className="pointer-events-none absolute bottom-full left-1/2 mb-1 h-16 w-1 -translate-x-1/2 cursor-pointer accent-signal opacity-0 transition-opacity duration-150 [writing-mode:vertical-lr] [direction:rtl] group-hover:pointer-events-auto group-hover:opacity-100"
-                />
+                {/* 音量滑条：hover 竖向向上弹出（M21-2——横向展开会压住相邻按钮）。
+                    M27：弹层容器从按钮行底起、整体悬于进度条之上（z-30 + hover 期间
+                    pointer-events 接管该竖条），按钮→滑条的移动路径被透明桥覆盖，
+                    不会半路触发进度条 hover/seek（B 站同款交互，用户真机反馈） */}
+                <div className="pointer-events-none absolute bottom-0 left-1/2 z-30 flex h-24 w-8 -translate-x-1/2 flex-col items-center justify-end gap-1.5 pb-1 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100">
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={muted ? 0 : vol}
+                    onChange={(e) => setVolume(Number(e.target.value))}
+                    aria-label="音量"
+                    className="h-16 w-1 cursor-pointer accent-signal [writing-mode:vertical-lr] [direction:rtl]"
+                  />
+                </div>
               </div>
               {allowZoom && zoomed && (
                 <button

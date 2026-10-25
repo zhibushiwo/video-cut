@@ -38,7 +38,9 @@ public class WinMsg3 {
     }
 }
 "@
-$proc = Get-Process video-cut -ErrorAction SilentlyContinue | Select-Object -First 1
+# 多实例并存时优先取调试实例（target\debug 路径）；M27 起用户安装版可能同时在跑
+$proc = Get-Process video-cut -ErrorAction SilentlyContinue | Where-Object { $_.Path -like '*target\debug*' } | Select-Object -First 1
+if (-not $proc) { $proc = Get-Process video-cut -ErrorAction SilentlyContinue | Select-Object -First 1 }
 if (-not $proc) { Write-Output "no-process"; exit 1 }
 $dialogs = [WinMsg3]::Dialogs([uint32]$proc.Id)
 switch ($Mode) {
