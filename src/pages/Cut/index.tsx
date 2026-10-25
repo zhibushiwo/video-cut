@@ -215,6 +215,33 @@ export default function CutPage({
     [duration],
   );
 
+  // ---------- 片段再编辑（M25 / `FR-404` / `CAND-050`）：行「编辑」回填选区，保存替换 ----------
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  /** Esc 处理器在 useHotkeys 闭包里（依赖数组固定 active），经 ref 读最新值 */
+  const editingIndexRef = useRef<number | null>(null);
+  editingIndexRef.current = editingIndex;
+  const startEditSegment = (i: number) => {
+    const seg = segments[i];
+    if (!seg) return;
+    setEditingIndex(i);
+    setSelection({ start: seg.startSec, end: seg.endSec });
+    playerRef.current?.seek(seg.startSec);
+  };
+  const saveEditSegment = () => {
+    if (editingIndex === null || !canAdd) return;
+    setSegments((prev) =>
+      prev.map((s, idx) =>
+        idx === editingIndex ? { startSec: selection.start, endSec: selection.end } : s,
+      ),
+    );
+    setEditingIndex(null);
+  };
+  // 切到删除模式 / 换素材时退出编辑态（两套列表独立，编辑只作用于提取式）
+  useEffect(() => {
+    if (tab === "remove") setEditingIndex(null);
+  }, [tab]);
+  useEffect(() => setEditingIndex(null), [inputPath]);
+
   // ---------- 快捷键（M4-3 / §9.4）：走带共用块见 usePlaybackHotkeys；
   // 页面专属：I/O 设入/出点 · Delete 删最近添加的片段 ----------
   const frameStep = frameStepOf(info?.video?.frameRate ?? 0);
@@ -245,6 +272,9 @@ export default function CutPage({
       // 删"最近添加的一条"，作用于**当前模式**的列表（两套列表各自保留，UI.md §9.4）
       if (tab === "remove") setMarks((prev) => prev.slice(0, -1));
       else setSegments((prev) => (prev.length > 0 ? prev.slice(0, -1) : prev));
+    }
+    if (e.key === "Escape" && !e.repeat && editingIndexRef.current !== null) {
+      setEditingIndex(null); // 取消片段再编辑（FR-404），不改选区
     }
   }, active);
 
@@ -734,6 +764,29 @@ export default function CutPage({
                 >
                   标记为删除
                 </button>
+              ) : editingIndex !== null ? (
+                // 片段再编辑态（FR-404）：保存替换该条目 / 取消
+                <>
+                  <button
+                    type="button"
+                    onClick={saveEditSegment}
+                    disabled={!canAdd}
+                    title={`把当前选区保存为片段 ${editingIndex + 1} 的新区间`}
+                    className="rounded-md border border-signal/40 bg-signal/10 px-4 py-2 text-sm text-signal transition-colors hover:bg-signal/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    保存修改（片段 {editingIndex + 1}）
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditingIndex(null)}
+                    className="rounded-md border border-hairline px-3 py-2 text-sm text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                  >
+                    取消
+                  </button>
+                  <span className="pb-2 text-xs text-mute">
+                    正在编辑片段 {editingIndex + 1}——拖动手柄或 I/O 定新区间，Esc 取消
+                  </span>
+                </>
               ) : (
                 <button
                   type="button"
@@ -845,6 +898,8 @@ export default function CutPage({
                   segments={segments}
                   keyframes={usableKeyframes}
                   onRemove={(i) => setSegments((prev) => prev.filter((_, idx) => idx !== i))}
+                  onEdit={startEditSegment}
+                  editingIndex={editingIndex}
                   onGif={(i) => {
                     const seg = segments[i];
                     if (seg) void startSegmentGif(seg);

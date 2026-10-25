@@ -1,4 +1,4 @@
-import { Camera, Clapperboard, X } from "lucide-react";
+import { Camera, Clapperboard, Pencil, X } from "lucide-react";
 import type { Segment } from "../../types";
 import type { Interval } from "../../utils/removal";
 import { formatTime, realCutStart, realStartDiffers } from "../../utils/time";
@@ -10,6 +10,10 @@ interface SegmentListProps {
   onGif?: (index: number) => void;
   /** 截取该片段中点帧为 png（M24，`FR-403`；不传 = 隐藏按钮） */
   onShot?: (index: number) => void;
+  /** 编辑该片段（M25，`FR-404`：选区回填 + 保存替换；不传 = 隐藏按钮） */
+  onEdit?: (index: number) => void;
+  /** 当前编辑中的片段下标（`FR-404` 编辑态高亮该行） */
+  editingIndex?: number | null;
   /**
    * 无损（copy）路径的关键帧列表（升序）。给了就按**真实落点**（≤入点的最近关键帧）算时长，
    * 因为无损剪切只能从关键帧开始，界面显示的时长必须等于产物时长（NFR-004 / BUG-007）。
@@ -19,7 +23,15 @@ interface SegmentListProps {
 }
 
 /** 已添加的剪切片段列表。 */
-export function SegmentList({ segments, onRemove, onGif, onShot, keyframes }: SegmentListProps) {
+export function SegmentList({
+  segments,
+  onRemove,
+  onGif,
+  onShot,
+  onEdit,
+  editingIndex = null,
+  keyframes,
+}: SegmentListProps) {
   if (segments.length === 0) return null;
   return (
     <div className="divide-y divide-hairline rounded-md border border-hairline">
@@ -27,8 +39,12 @@ export function SegmentList({ segments, onRemove, onGif, onShot, keyframes }: Se
         const effStart =
           keyframes && keyframes.length > 0 ? realCutStart(s.startSec, keyframes) : s.startSec;
         const adjusted = realStartDiffers(effStart, s.startSec);
+        const editing = editingIndex === i;
         return (
-          <div key={`${s.startSec}-${s.endSec}-${i}`} className="flex items-center gap-3 px-3 py-2">
+          <div
+            key={`${s.startSec}-${s.endSec}-${i}`}
+            className={`flex items-center gap-3 px-3 py-2 ${editing ? "bg-signal/5 ring-1 ring-inset ring-signal/40" : ""}`}
+          >
             <span className="w-16 shrink-0 text-xs text-mute">片段 {i + 1}</span>
             <span className="font-mono text-xs text-paper">
               {formatTime(s.startSec)} <span className="text-mute">→</span> {formatTime(s.endSec)}
@@ -45,6 +61,17 @@ export function SegmentList({ segments, onRemove, onGif, onShot, keyframes }: Se
             >
               {(s.endSec - effStart).toFixed(1)}s
             </span>
+            {onEdit && (
+              <button
+                type="button"
+                onClick={() => onEdit(i)}
+                aria-label={`编辑片段 ${i + 1}`}
+                title="编辑该片段：选区回填,重新定点后保存替换"
+                className="flex h-6 w-6 items-center justify-center rounded text-mute transition-colors hover:bg-signal/10 hover:text-signal focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+            )}
             {onGif && (
               <button
                 type="button"
