@@ -11,6 +11,7 @@ import {
   confirmDialog,
   fileExists,
   fileSrc,
+  pickDirectory,
   pickVideo,
   probeMedia,
   submitTask,
@@ -38,6 +39,8 @@ export default function EditorPage({
   initialFiles?: string[] | null;
 }) {
   const [inputPath, setInputPath] = useState<string | null>(null);
+  /** 本次临时导出目录（FR-402/M23，字幕页 M19-3 同款）：null = 走 §12 默认规则；不持久化 */
+  const [exportDir, setExportDir] = useState<string | null>(null);
   const [info, setInfo] = useState<MediaInfo | null>(null);
   const [probeError, setProbeError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -142,7 +145,7 @@ export default function EditorPage({
     // 转码旋转与局部放大是重编码（统一 mp4）。命名口径收敛在 `utils/paths.ts`（`M14-3`），
     // 与合并页 `_merged` / 工作台 `_workbench` 共用同一实现；后端还会再校正一次兜底。
     const lossless = tool === "rotate" && !rotateTranscode;
-    const dir = resolveOutputDir(src, settings.defaultOutputDir);
+    const dir = exportDir ?? resolveOutputDir(src, settings.defaultOutputDir);
     // 同名才追加时间戳（DESIGN 决策 #19）：上次导出还在时不静默覆盖
     const target = await resolveUniqueTarget(
       dir,
@@ -370,9 +373,27 @@ export default function EditorPage({
       <footer className="flex shrink-0 items-center gap-3 border-t border-hairline px-4 py-3">
         <span className="min-w-0 flex-1 text-xs text-mute">
           {info
-            ? `输出到视频所在目录，文件名自动加 _${tool === "rotate" ? "rotated" : "zoomed"} 后缀`
+            ? `输出到 ${exportDir ?? "视频所在目录"}${exportDir ? "（本次临时）" : ""}，文件名自动加 _${tool === "rotate" ? "rotated" : "zoomed"} 后缀`
             : ""}
         </span>
+        <button
+          type="button"
+          onClick={() => void pickDirectory().then((d) => d && setExportDir(d))}
+          disabled={!info}
+          title="本次导出使用的文件夹（不改动设置里的默认输出目录）"
+          className="rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          更改目录
+        </button>
+        {exportDir && (
+          <button
+            type="button"
+            onClick={() => setExportDir(null)}
+            className="rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+          >
+            恢复默认
+          </button>
+        )}
         <span
           className={`rounded border px-1.5 py-0.5 text-xs ${
             tool === "rotate" && !rotateTranscode

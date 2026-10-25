@@ -4,6 +4,7 @@ import {
   checkMerge,
   confirmDialog,
   fileSrc,
+  pickDirectory,
   pickVideos,
   submitTask,
   submitToUniqueTarget,
@@ -69,14 +70,15 @@ export default function MergePage({
   const [confirmNormalize, setConfirmNormalize] = useState(false);
   /** 分组合并的提交后提示（FR-334）：单文件组跳过等非错误信息 */
   const [groupMsg, setGroupMsg] = useState<string | null>(null);
+  /** 本次临时导出目录（FR-402/M23，字幕页 M19-3 同款）：null = 走 §12 默认规则；不持久化 */
+  const [exportDir, setExportDir] = useState<string | null>(null);
   // 素材首帧缩略图（T-005 收敛进 hooks/useThumbnails）
   const { thumbs, clearThumbs } = useThumbnails(files);
   // 拖拽导入：每次新的拖入都追加（App 层原地分发，页面不跳转）
 
   // 输出位置：默认输出目录优先，否则跟随首个源文件目录（DESIGN §12）
-  const outputDir = files[0]
-    ? resolveOutputDir(files[0], settings.defaultOutputDir)
-    : "";
+  const outputDir =
+    exportDir ?? (files[0] ? resolveOutputDir(files[0], settings.defaultOutputDir) : "");
 
   useConsumeInitialFiles(initialFiles, (fs) => {
     setFiles((prev) => {
@@ -448,7 +450,26 @@ export default function MergePage({
               </p>
             </div>
             输出到 {outputDir || "（先添加视频）"}
+            {exportDir && <span className="ml-1 text-mute/80">（本次临时）</span>}
           </span>
+          <button
+            type="button"
+            onClick={() => void pickDirectory().then((d) => d && setExportDir(d))}
+            disabled={!files.length}
+            title="本次导出使用的文件夹（不改动设置里的默认输出目录）"
+            className="rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            更改目录
+          </button>
+          {exportDir && (
+            <button
+              type="button"
+              onClick={() => setExportDir(null)}
+              className="rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+            >
+              恢复默认
+            </button>
+          )}
           <label className="flex items-center gap-1.5 text-xs text-mute">
             文件名
             <input

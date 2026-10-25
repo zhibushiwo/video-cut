@@ -1,10 +1,13 @@
 /** 工作台页脚：检测汇总 + 输出目录/质量/文件名 + 错误 + 合成导出。R2-1 自 index.tsx 拆出。 */
+import { pickDirectory } from "../../services/tauri";
 import type { QualityPreset } from "../../types";
 import { QUALITY_LABELS } from "../../utils/quality";
 
 export function WorkbenchFooter({
   checkSummary,
   outputDir,
+  exportDir,
+  onChangeExportDir,
   quality,
   onQualityChange,
   outputName,
@@ -22,6 +25,9 @@ export function WorkbenchFooter({
 }: {
   checkSummary: string | null;
   outputDir: string;
+  /** FR-402/M23：本次临时导出目录（null = §12 默认规则；不持久化） */
+  exportDir: string | null;
+  onChangeExportDir(dir: string | null): void;
   quality: QualityPreset;
   onQualityChange(q: QualityPreset): void;
   outputName: string;
@@ -69,7 +75,26 @@ export function WorkbenchFooter({
         )}
         <span className="min-w-0 flex-1 truncate text-xs text-mute" title={outputDir}>
           {outputDir ? `输出到 ${outputDir}` : "（先添加视频并剪出片段）"}
+          {exportDir && <span className="ml-1 text-mute/80">（本次临时）</span>}
         </span>
+        <button
+          type="button"
+          onClick={() => void pickDirectory().then((d) => d && onChangeExportDir(d))}
+          disabled={!outputDir}
+          title="本次导出使用的文件夹（不改动设置里的默认输出目录）"
+          className="rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          更改目录
+        </button>
+        {exportDir && (
+          <button
+            type="button"
+            onClick={() => onChangeExportDir(null)}
+            className="rounded-md border border-hairline px-2 py-1 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+          >
+            恢复默认
+          </button>
+        )}
         <label className="flex items-center gap-1.5 text-xs text-mute">
           质量档位
           <select

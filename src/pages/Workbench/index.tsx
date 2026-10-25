@@ -728,14 +728,15 @@ export default function WorkbenchPage({
     encoder: settings.encoder === "auto" ? null : settings.encoder,
   });
 
-  // 输出位置：默认输出目录优先，否则跟随首个源文件目录（DESIGN §12）
+  // 输出位置：默认输出目录优先，否则跟随首个源文件目录（DESIGN §12）；
+  // exportDir = 本次临时覆盖（FR-402/M23，不持久化）
+  const [exportDir, setExportDir] = useState<string | null>(null);
   const firstSourcePath = timelineClips[0]
     ? clipSource(timelineClips[0])?.path
     : undefined;
-  const outputDir = resolveOutputDir(
-    firstSourcePath ?? files[0]?.path ?? "",
-    settings.defaultOutputDir,
-  );
+  const outputDir =
+    exportDir ??
+    resolveOutputDir(firstSourcePath ?? files[0]?.path ?? "", settings.defaultOutputDir);
 
   /**
    * 默认输出名（`M14-3`，UI.md §9.8）：`<首个素材名>_workbench.<扩展名>`。
@@ -1294,6 +1295,8 @@ export default function WorkbenchPage({
       </div>
 
       <WorkbenchFooter
+        exportDir={exportDir}
+        onChangeExportDir={setExportDir}
         checkSummary={checkSummary}
         outputDir={outputDir}
         quality={quality}
