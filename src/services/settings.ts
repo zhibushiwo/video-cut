@@ -22,7 +22,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   proxyMode: "auto",
   encoder: "auto",
   quality: "balanced",
-  toastAutoCloseSec: 0,
+  /** M7-5；M24（CAND-047）默认 5=终态卡片 5 秒自动消失（0 = 不关） */
+  toastAutoCloseSec: 5,
   accent: "green",
   subtitleBackend: "auto",
   subtitleModel: "tiny",

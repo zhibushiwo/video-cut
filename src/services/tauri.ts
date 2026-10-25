@@ -106,9 +106,14 @@ export function listTasks(): Promise<TaskSnapshot[]> {
   return invoke("list_tasks");
 }
 
-/** 清除已到终态的任务记录，返回清除数（DESIGN §5.4） */
+/** 清除已到终态的任务记录，返回清除数（DESIGN §5.4；M24 起前端无入口，保留复用） */
 export function clearFinishedTasks(): Promise<number> {
   return invoke("clear_finished_tasks");
+}
+
+/** 单帧截图（M24，FR-403）：同步命令，返回输出路径 */
+export function extractFrame(input: string, timeSec: number, output: string): Promise<string> {
+  return invoke("extract_frame", { input, timeSec, output });
 }
 
 export function generateProxy(

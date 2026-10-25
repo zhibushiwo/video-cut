@@ -7,6 +7,7 @@ import { TimeField } from "../../components/TimeField";
 import Timeline, { type Selection } from "../../components/Timeline";
 import VideoPlayer, { type VideoPlayerHandle } from "../../components/VideoPlayer";
 import { useConsumeInitialFiles } from "../../hooks/useConsumeInitialFiles";
+import { usePanelHeight } from "../../hooks/usePanelHeight";
 import { usePlaybackHotkeys } from "../../hooks/usePlaybackHotkeys";
 import { useHotkeys } from "../../hooks/useHotkeys";
 import { usePreviewRender } from "../../hooks/usePreviewRender";
@@ -14,6 +15,7 @@ import { useProxyPreview } from "../../hooks/useProxyPreview";
 import {
   checkPipeline,
   confirmDialog,
+  extractFrame,
   fileExists,
   fileSrc,
   listKeyframes,
@@ -273,6 +275,10 @@ export default function CutPage({
     auto: false,
   });
 
+  // 剪切预览面板高度拖拽（M24，CAND-021 剪切页跟进）：默认 34vh（原视频 max-h-30vh 量级），
+  // localStorage 页键 cut，clamp 240px~70vh（UI.md §9.1）
+  const cutPreviewPanel = usePanelHeight("cut.preview", 34);
+
   const canAdd =
     duration > 0 && selection.end - selection.start >= 0.1;
   const removeMode = tab === "remove";
@@ -459,16 +465,27 @@ export default function CutPage({
     [inputPath, mergeOutput, segments, cutMode],
   );
 
+  /** 操作完成提示（截图等同步命令无任务卡片，短暂展示结果） */
+  const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const showNotice = useCallback((msg: string) => {
+    setNotice(msg);
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = setTimeout(() => setNotice(null), 4000);
+  }, []);
+  useEffect(
+    () => () => {
+      if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
+    },
+    [],
+  );
+
   /**
-   * 导出 GIF（`FR-401`/`ADR-049`）：作用于**当前选区**——表情包工作流,不进片段列表、
-   * 不受「合并输出」影响;fps 15、长边 ≤480(服务端按探测计算)、无音轨(按钮 title 明示)。
+   * 导出 GIF（`FR-401`，M24 片段级入口 `CAND-051`）：作用于**单个片段**——表情包工作流；
+   * 页脚选区按钮已随用户裁决移除。fps 15、长边 ≤480(服务端按探测计算)、无音轨(按钮 title 明示)。
    */
-  const startGifExport = async () => {
+  const startSegmentGif = async (seg: Segment) => {
     if (!inputPath || !outputDir) return;
-    if (selection.end - selection.start < 0.05) {
-      setError("先在预览上框选要导出的区间");
-      return;
-    }
     setSubmitting(true);
     setError(null);
     try {
@@ -477,11 +494,33 @@ export default function CutPage({
       await submitTask({
         type: "gif",
         input: inputPath,
-        startSec: selection.start,
-        endSec: selection.end,
+        startSec: seg.startSec,
+        endSec: seg.endSec,
         output: target,
         fps: 15,
       });
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  /** 片段截图（`FR-403`，M24）：取片段中点帧导出 png 到输出目录（同步命令，不进任务面板） */
+  const startSegmentShot = async (seg: Segment) => {
+    if (!inputPath || !outputDir) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const mid = (seg.startSec + seg.endSec) / 2;
+      const dir = outputDir.replace(/[\/]+$/, "");
+      const target = await resolveUniqueTarget(
+        dir,
+        `${stemOf(inputPath)}_${mid.toFixed(3)}.png`,
+        fileExists,
+      );
+      await extractFrame(inputPath, mid, target);
+      showNotice(`已截图 ${basename(target)}`);
     } catch (err) {
       setError(String(err));
     } finally {
@@ -806,6 +845,14 @@ export default function CutPage({
                   segments={segments}
                   keyframes={usableKeyframes}
                   onRemove={(i) => setSegments((prev) => prev.filter((_, idx) => idx !== i))}
+                  onGif={(i) => {
+                    const seg = segments[i];
+                    if (seg) void startSegmentGif(seg);
+                  }}
+                  onShot={(i) => {
+                    const seg = segments[i];
+                    if (seg) void startSegmentShot(seg);
+                  }}
                 />
                 <label className="flex cursor-pointer items-center gap-1.5 text-xs text-mute">
                   <input
@@ -827,62 +874,64 @@ export default function CutPage({
         )}
       </div>
 
-      {/* 剪切预览（M16-8 / CAND-027②）：片段按顺序连播核对内容；导出形态随「合并输出」勾选 */}
-      <div className="shrink-0 border-t border-hairline px-4 py-3">
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => cutPreview.renderNow()}
-            disabled={!inputPath || segments.length === 0}
-            className="rounded-md border border-hairline px-2.5 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:opacity-50"
-          >
-            生成预览
-          </button>
-          <span className="text-[11px] text-mute">
-            {cutPreview.phase === "rendering"
-              ? "渲染预览中…（不进任务面板与历史）"
-              : cutPreview.phase === "failed"
-                ? "上次渲染失败，可重试"
-                : cutPreview.renderedSrc
-                  ? "预览就绪"
-                  : segments.length === 0
-                    ? "先添加至少一个片段"
-                    : "点「生成预览」按片段顺序渲染连播"}
-          </span>
+      {/* 剪切预览（M16-8 / CAND-027②）：片段按顺序连播核对内容；导出形态随「合并输出」勾选。
+          预览面板高度拖拽（M24，CAND-021 剪切页跟进，UI.md §9.1/§9.4）：底边热区 + 双击复位 */}
+      <div className="shrink-0 border-t border-hairline px-4 py-3" style={{ height: cutPreviewPanel.height }}>
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => cutPreview.renderNow()}
+              disabled={!inputPath || segments.length === 0}
+              className="rounded-md border border-hairline px-2.5 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:opacity-50"
+            >
+              生成预览
+            </button>
+            <span className="text-[11px] text-mute">
+              {cutPreview.phase === "rendering"
+                ? "渲染预览中…（不进任务面板与历史）"
+                : cutPreview.phase === "failed"
+                  ? "上次渲染失败，可重试"
+                  : cutPreview.renderedSrc
+                    ? "预览就绪"
+                    : segments.length === 0
+                      ? "先添加至少一个片段"
+                      : "点「生成预览」按片段顺序渲染连播"}
+            </span>
+          </div>
+          {cutPreview.renderedSrc && (
+            <video
+              src={fileSrc(cutPreview.renderedSrc)}
+              controls
+              className="mt-2 min-h-0 w-full flex-1 rounded bg-black"
+            />
+          )}
+          <p className="mt-1.5 text-[11px] leading-relaxed text-mute/70">
+            {mergeOutput
+              ? "预览按片段顺序连续播放（copy/重编码判定与导出一致），用于导出前核对内容；勾选「合并输出」后导出为单个合并文件。"
+              : "预览按片段顺序连续播放（copy/重编码判定与导出一致），用于导出前核对内容；导出仍为每个片段一个独立文件。"}
+          </p>
         </div>
-        {cutPreview.renderedSrc && (
-          <video
-            src={fileSrc(cutPreview.renderedSrc)}
-            controls
-            className="mt-2 max-h-[30vh] w-full rounded bg-black"
-          />
-        )}
-        <p className="mt-1.5 text-[11px] leading-relaxed text-mute/70">
-          {mergeOutput
-            ? "预览按片段顺序连续播放（copy/重编码判定与导出一致），用于导出前核对内容；勾选「合并输出」后导出为单个合并文件。"
-            : "预览按片段顺序连续播放（copy/重编码判定与导出一致），用于导出前核对内容；导出仍为每个片段一个独立文件。"}
-        </p>
+        {/* 底边拖拽热区（CAND-021）：向下拖变高 / 双击复位 */}
+        <div
+          onPointerDown={cutPreviewPanel.startDrag}
+          onDoubleClick={cutPreviewPanel.reset}
+          title="拖拽调高预览；双击复位"
+          className="mx-auto h-1.5 w-40 cursor-row-resize rounded bg-hairline transition-colors hover:bg-mute/50"
+        />
       </div>
       <footer className="flex shrink-0 items-center gap-3 border-t border-hairline px-4 py-3">
         <span className="min-w-0 flex-1 truncate text-xs text-mute" title={outputDir}>
           输出到 {outputDir || "（未选择）"}
         </span>
         {gateReason && <span className="shrink-0 text-xs text-warn">{gateReason}</span>}
+        {notice && <span className="shrink-0 text-xs text-signal">{notice}</span>}
         <button
           type="button"
           onClick={() => void changeDir()}
           className="rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
         >
           更改目录
-        </button>
-        <button
-          type="button"
-          onClick={() => void startGifExport()}
-          disabled={submitting || !outputDir || !inputPath || selection.end - selection.start < 0.05}
-          title={`把当前选区导出为 GIF 动图(fps 15、长边 ≤480、无音轨)${selection.end - selection.start > 15 ? ";选区超过 15 秒,GIF 体积可能较大" : ""}`}
-          className="rounded-md border border-hairline px-3 py-1.5 text-xs text-mute transition-colors hover:border-mute hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          导出 GIF
         </button>
         <span
           className={`rounded border px-1.5 py-0.5 text-xs ${

@@ -20,7 +20,7 @@ import { PageHeader } from "../../components/PageHeader";
 import { moveAt } from "../../utils/array";
 import { audioSummary, videoSummary } from "../../utils/media";
 import { basename, defaultOutputName, dirname, resolveOutputDir } from "../../utils/paths";
-import { formatBytes } from "../../utils/time";
+import { formatBytes, formatTime } from "../../utils/time";
 
 /** 默认输出文件名（`M14-3` 会把它换成"按首个素材派生 + `ADR-033` 扩展名预判"） */
 const DEFAULT_OUTPUT_NAME = "merged.mp4";
@@ -68,6 +68,8 @@ export default function MergePage({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmNormalize, setConfirmNormalize] = useState(false);
+  /** 分组勾选（M24，CAND-048）：默认全选，取消勾选的组不随「分组无损合并」提交 */
+  const [groupChecked, setGroupChecked] = useState<boolean[]>([]);
   /** 分组合并的提交后提示（FR-334）：单文件组跳过等非错误信息 */
   const [groupMsg, setGroupMsg] = useState<string | null>(null);
   /** 本次临时导出目录（FR-402/M23，字幕页 M19-3 同款）：null = 走 §12 默认规则；不持久化 */
@@ -212,13 +214,19 @@ export default function MergePage({
   const singletonCount =
     check && !check.compatible ? check.groups.filter((g) => g.length < 2).length : 0;
 
+  // 检测结果变化时重置分组勾选 = 默认全选（M24，CAND-048）
+  useEffect(() => {
+    setGroupChecked(mergeableGroups.map(() => true));
+  }, [mergeableGroups]);
+
   const startGroupedMerge = async () => {
-    if (mergeableGroups.length === 0 || !outputDir) return;
+    const checkedGroups = mergeableGroups.filter((_, i) => groupChecked[i]);
+    if (checkedGroups.length === 0 || !outputDir) return;
     setSubmitting(true);
     setError(null);
     setGroupMsg(null);
     try {
-      for (const g of mergeableGroups) {
+      for (const g of checkedGroups) {
         const first = files[g[0] ?? -1];
         if (!first) continue;
         const inputs = g.map((i) => files[i] ?? "").filter(Boolean);
@@ -226,9 +234,11 @@ export default function MergePage({
           submitTask({ type: "merge", inputs, output: target, forceTranscode: false }),
         );
       }
-      if (singletonCount > 0) {
-        setGroupMsg(`已跳过 ${singletonCount} 个参数独特的文件（无法参与分组合并）。`);
-      }
+      const skippedGroups = mergeableGroups.length - checkedGroups.length;
+      const parts: string[] = [];
+      if (skippedGroups > 0) parts.push(`已取消勾选 ${skippedGroups} 组（不提交）。`);
+      if (singletonCount > 0) parts.push(`已跳过 ${singletonCount} 个参数独特的文件。`);
+      if (parts.length > 0) setGroupMsg(parts.join(" "));
     } catch (err) {
       setError(String(err));
     } finally {
@@ -381,18 +391,67 @@ export default function MergePage({
                       ))}
                     </ul>
                     {mergeableGroups.length > 0 && (
-                      <div className="mt-2 space-y-0.5 text-xs">
-                        <p className="text-mute">
-                          可分成 {mergeableGroups.length} 组无损合并（各组独立出文件）：
-                        </p>
-                        {mergeableGroups.map((g, gi) => (
-                          <p key={gi} className="text-mute">
-                            组 {gi + 1}（{g.length} 个）：
-                            {g.map((i) => basename(files[i] ?? "")).join("、")}
+                      <div className="mt-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs text-mute">
+                            可分成 {mergeableGroups.length} 组无损合并（各组独立出文件），取消勾选的组不提交：
                           </p>
-                        ))}
+                          <span className="flex shrink-0 gap-2 text-[11px]">
+                            <button
+                              type="button"
+                              onClick={() => setGroupChecked(mergeableGroups.map(() => true))}
+                              className="text-mute transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                            >
+                              全选
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setGroupChecked((prev) => prev.map(() => false))}
+                              className="text-mute transition-colors hover:text-paper focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+                            >
+                              全不选
+                            </button>
+                          </span>
+                        </div>
+                        <div className="mt-1.5 grid gap-1.5">
+                          {mergeableGroups.map((g, gi) => {
+                            const checked = groupChecked[gi] ?? true;
+                            const totalSec = g.reduce(
+                              (acc, i) => acc + (check?.files[i]?.durationSec ?? 0),
+                              0,
+                            );
+                            return (
+                              <label
+                                key={gi}
+                                className={`flex cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs transition-colors ${
+                                  checked
+                                    ? "border-signal/30 bg-signal/5"
+                                    : "border-hairline bg-panel/40 opacity-60"
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={(e) =>
+                                    setGroupChecked((prev) =>
+                                      prev.map((v, idx) => (idx === gi ? e.target.checked : v)),
+                                    )
+                                  }
+                                  className="accent-signal"
+                                />
+                                <span className="shrink-0 text-mute">组 {gi + 1}</span>
+                                <span className="min-w-0 flex-1 truncate text-mute" title={g.map((i) => basename(files[i] ?? "")).join("、")}>
+                                  {g.map((i) => basename(files[i] ?? "")).join("、")}
+                                </span>
+                                <span className="shrink-0 font-mono text-[11px] text-mute">
+                                  {g.length} 个 · {formatTime(totalSec, false)}
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </div>
                         {singletonCount > 0 && (
-                          <p className="text-warn">
+                          <p className="mt-1.5 text-xs text-warn">
                             {singletonCount} 个文件参数独特，无法参与分组合并（提交时将跳过）。
                           </p>
                         )}
@@ -519,7 +578,7 @@ export default function MergePage({
           {!confirmNormalize && !checking && mergeableGroups.length > 0 && (
             <button
               type="button"
-              disabled={submitting}
+              disabled={submitting || !groupChecked.some(Boolean)}
               onClick={() => void startGroupedMerge()}
               title="参数一致的文件各自无损合并，参数独特的文件将被跳过"
               className="rounded-md bg-signal/90 px-4 py-1.5 text-sm font-medium text-ink transition-colors hover:brightness-110 focus:outline-none focus-visible:ring-2 focus-visible:ring-signal disabled:cursor-not-allowed disabled:opacity-40"

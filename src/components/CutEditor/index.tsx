@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { Camera, Clapperboard, X } from "lucide-react";
 import type { Segment } from "../../types";
 import type { Interval } from "../../utils/removal";
 import { formatTime, realCutStart, realStartDiffers } from "../../utils/time";
@@ -6,6 +6,10 @@ import { formatTime, realCutStart, realStartDiffers } from "../../utils/time";
 interface SegmentListProps {
   segments: Segment[];
   onRemove: (index: number) => void;
+  /** 导出该片段的 GIF（M24，`FR-401` 片段级入口；不传 = 隐藏按钮） */
+  onGif?: (index: number) => void;
+  /** 截取该片段中点帧为 png（M24，`FR-403`；不传 = 隐藏按钮） */
+  onShot?: (index: number) => void;
   /**
    * 无损（copy）路径的关键帧列表（升序）。给了就按**真实落点**（≤入点的最近关键帧）算时长，
    * 因为无损剪切只能从关键帧开始，界面显示的时长必须等于产物时长（NFR-004 / BUG-007）。
@@ -15,7 +19,7 @@ interface SegmentListProps {
 }
 
 /** 已添加的剪切片段列表。 */
-export function SegmentList({ segments, onRemove, keyframes }: SegmentListProps) {
+export function SegmentList({ segments, onRemove, onGif, onShot, keyframes }: SegmentListProps) {
   if (segments.length === 0) return null;
   return (
     <div className="divide-y divide-hairline rounded-md border border-hairline">
@@ -41,6 +45,28 @@ export function SegmentList({ segments, onRemove, keyframes }: SegmentListProps)
             >
               {(s.endSec - effStart).toFixed(1)}s
             </span>
+            {onGif && (
+              <button
+                type="button"
+                onClick={() => onGif(i)}
+                aria-label={`导出片段 ${i + 1} 为 GIF`}
+                title={`把该片段导出为 GIF 动图(fps 15、长边 ≤480、无音轨)${s.endSec - s.startSec > 15 ? ";片段超过 15 秒,GIF 体积可能较大" : ""}`}
+                className="flex h-6 w-6 items-center justify-center rounded text-mute transition-colors hover:bg-signal/10 hover:text-signal focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+              >
+                <Clapperboard className="h-3.5 w-3.5" />
+              </button>
+            )}
+            {onShot && (
+              <button
+                type="button"
+                onClick={() => onShot(i)}
+                aria-label={`截取片段 ${i + 1} 中点帧`}
+                title="截取该片段中点画面为 png,保存到输出目录"
+                className="flex h-6 w-6 items-center justify-center rounded text-mute transition-colors hover:bg-signal/10 hover:text-signal focus:outline-none focus-visible:ring-2 focus-visible:ring-signal"
+              >
+                <Camera className="h-3.5 w-3.5" />
+              </button>
+            )}
             <button
               type="button"
               onClick={() => onRemove(i)}
