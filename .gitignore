@@ -45,3 +45,6 @@ src-tauri/resources/models/
 .zcode/
 # 本地个人脚本（个人素材路径等，绝不入库）
 scripts/local/
+
+# 整屏截图含桌面个人内容（shot-desktop.ps1 产物），永不入库
+scripts/gui-test/desktop.png
