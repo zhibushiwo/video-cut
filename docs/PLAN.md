@@ -308,11 +308,11 @@
 > **关联**：DESIGN §3.12 `FR-405` v2（AC-405-3~4）· UI.md §9.13 · [CANDIDATES.md](./CANDIDATES.md) `CAND-054`（外挂字幕，未立项登记）
 > **范围**：纯前端零后端（截图复用 M24 的 `extract_frame`）；明确不做：播放列表/hover 缩略图/OSD/多音轨/增益（DESIGN §3.12 登记）
 
-- [ ] **M26-1 规格批**：DESIGN `FR-405` v2（AC-405-3~4）+ UI.md §9.13 v2 行 + CANDIDATES `CAND-054` 登记
-- [ ] **M26-2 快捷键与控制**：`VideoPlayerHandle` 扩展（`toggleFullscreen`/`adjustVolume`/`toggleMuted`/`setRate`）+ 播放页接线（↑↓/M/F/S）+ 双击全屏（放大态仍还原缩放）+ 工具行跳转时间输入框
-- [ ] **M26-3 最近播放**：`player-recents` 8 条 + 空态列表与页头下拉 + 首次进页自动恢复最近视频 + 窗口标题随文件名（services 封装 `setWindowTitle`，红线 10）
-- [ ] **M26-4 截图与信息卡**：截图按钮/`S` 键（`extract_frame` 当前帧，输出目录规则+撞名时间戳+页脚通知）+ 可折叠视频信息卡
-- [ ] **M26-5 验证收尾**：§4 完事标准 + CDP 走查 + PLAN/FEATURES/CHANGELOG
+- [x] **M26-1 规格批**　✅ 2026-10-25（提交 957dbbc）：DESIGN `FR-405` v2（AC-405-3~4）+ UI.md §9.13 v2 行 + CANDIDATES `CAND-054` 登记
+- [x] **M26-2 快捷键与控制**　✅ 2026-10-25（提交 1b4627c）：`VideoPlayerHandle` 扩展（`toggleFullscreen`/`adjustVolume`/`toggleMuted`/`setRate`）+ 播放页接线（↑↓/M/F/S）+ 双击全屏（放大态仍还原缩放）+ 工具行跳转时间输入框
+- [x] **M26-3 最近播放**　✅ 2026-10-25（提交 1b4627c）：`player-recents` 8 条 + 空态列表与页头下拉 + 首次进页自动恢复最近视频 + 窗口标题随文件名（services 封装 `setWindowTitle`，红线 10）
+- [x] **M26-4 截图与信息卡**　✅ 2026-10-25（提交 1b4627c）：截图按钮/`S` 键（`extract_frame` 当前帧，输出目录规则+撞名时间戳+页脚通知）+ 可折叠视频信息卡
+- [x] **M26-5 验证收尾**：§4 完事标准 + CDP 走查 + PLAN/FEATURES/CHANGELOG　✅ **2026-10-25 真机 CDP 验证**（`scripts/gui-test/t12-m26.mjs`）：自动恢复最近视频（首跑 recents 空属预期，写入后 reload 再进页自动加载）、窗口标题 `h264_aac_720p.mp4 - video-cut`、音量 ↓↓ 1→0.9/↑ 回 0.95、M 静音/F 全屏/双击全屏、跳转 `00:00:05`→currentTime=5、S 截图 png 3→4、最近下拉点选重看、信息卡含 1280×720/h264。**真机抓出三处修复随本提交**：①capability 漏 `core:window:allow-set-title`（setTitle 被静默拒绝,红线 18）；②`parseTime` 只认三段完整格式——扩两段 mm:ss(.ms) 与纯秒（规格承诺口径,补 4 组单测,vitest 179）；③字母快捷键判断 `e.code==="KeyM"` 对测试驱动注入的 `code:"m"` 不命中——改 `e.key` 小写比较（真键盘两口径均兼容）；vitest 179/cargo test 135+11/check-docs 前四项全绿
 - [x] **M23-2 GIF 后端**：`lib.rs` `VideoTask::Gif` + types 双写（红线 17）+ `command.rs` `gif_args`（参数序列断言，红线 1）+ `cut.rs` `submit_gif`（probe 算 scale 长边≤480 偶数、区间校验、磁盘预检、`_gif.gif` 命名防覆盖）
 - [x] **M23-3 GIF 前端**：剪切页页脚「导出 GIF」（作用于当前选区；title 明示无音轨与 >15s 体积提示；与「合并输出」互不影响）　✅ **2026-10-25 落地**（`startGifExport` = `resolveUniqueTarget` 生成 `<源名>_gif.gif` 目标 + `submitTask` type:gif fps:15；选区 <0.05s 禁用并提示；SECONDARY 样式与「更改目录」并列;tsc/eslint 全绿；手测点：①框选后导出 GIF 产物可循环播放、时长=选区 ②未框选禁用 ③>15s title 提示 ④与合并输出互不影响）
 - [x] **M23-4 临时导出目录推广（FR-402）**：合并页 + 工作台 Footer + 编辑页接字幕页 M19-3 交互（临时目录 + "（本次临时）" + 恢复默认；不持久化）　✅ **2026-10-25 落地**（各页 exportDir state 覆盖 §12 默认规则,提交链路自动生效;合并页无文件/工作台无输出时更改按钮禁用;tsc/eslint/vitest 175/cargo fmt/test 全绿;手测点:①合并/工作台/编辑页改目录后导出落新目录 ②「恢复默认」回 §12 规则 ③(本次临时)标注 ④不写入设置默认输出目录）

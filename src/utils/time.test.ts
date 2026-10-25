@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatTimecode, nextKeyframeAtOrAfter, realCutStart } from "./time";
+import { formatTimecode, nextKeyframeAtOrAfter, parseTime, realCutStart } from "./time";
 
 describe("formatTimecode（总帧数时间码，TIMELINE.md §17.3）", () => {
   it("零点与普通时刻", () => {
@@ -55,5 +55,26 @@ describe("nextKeyframeAtOrAfter（保留段起点向上对齐，FR-326）", () =
   it("与 realCutStart 方向相反：同一 t 一个向上、一个向下（不得混用）", () => {
     expect(realCutStart(3, kf)).toBe(2); // 提取式：宁可多留
     expect(nextKeyframeAtOrAfter(3, kf)).toBe(4); // 删除式：宁多删不残留
+  });
+});
+
+describe("parseTime（M26 播放页跳转口径扩展）", () => {
+  it("三段 h:mm:ss(.ms) 既有口径不变", () => {
+    expect(parseTime("00:00:05")).toBe(5);
+    expect(parseTime("1:02:03.5")).toBe(3723.5);
+    expect(parseTime(" 00:01:00.250 ")).toBe(60.25);
+  });
+  it("两段 mm:ss(.ms)", () => {
+    expect(parseTime("2:30")).toBe(150);
+    expect(parseTime("0:05.250")).toBe(5.25);
+  });
+  it("纯秒", () => {
+    expect(parseTime("5")).toBe(5);
+    expect(parseTime("2.5")).toBe(2.5);
+  });
+  it("非法输入仍 null（TimeField 回退原值语义不变）", () => {
+    expect(parseTime("abc")).toBeNull();
+    expect(parseTime("1:2:3:4")).toBeNull();
+    expect(parseTime("")).toBeNull();
   });
 });

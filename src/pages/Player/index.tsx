@@ -249,11 +249,11 @@ export default function PlayerPage({
       if (e.key === "ArrowUp" || e.key === "ArrowDown") {
         e.preventDefault();
         playerRef.current?.adjustVolume(e.key === "ArrowUp" ? 0.05 : -0.05);
-      } else if (e.code === "KeyM") {
+      } else if (e.key.toLowerCase() === "m") {
         playerRef.current?.toggleMuted();
-      } else if (e.code === "KeyF") {
+      } else if (e.key.toLowerCase() === "f") {
         playerRef.current?.toggleFullscreen();
-      } else if (e.code === "KeyS") {
+      } else if (e.key.toLowerCase() === "s") {
         void shot();
       }
     };

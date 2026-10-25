@@ -56,12 +56,21 @@ export function formatTimecode(sec: number, fps = 30): string {
   );
 }
 
-/** HH:MM:SS.mmm → 秒；非法返回 null */
+/** 时间文本 → 秒；非法返回 null。接受三段 h:mm:ss(.ms)、两段 mm:ss(.ms) 与纯秒（M26 播放页跳转口径） */
 export function parseTime(text: string): number | null {
-  const m = text.trim().match(/^(\d{1,3}):([0-5]?\d):([0-5]?\d)(?:\.(\d{1,3}))?$/);
-  if (!m) return null;
-  const ms = m[4] ? Number(m[4].padEnd(3, "0")) / 1000 : 0;
-  return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]) + ms;
+  const t = text.trim();
+  const full = t.match(/^(\d{1,3}):([0-5]?\d):([0-5]?\d)(?:\.(\d{1,3}))?$/);
+  if (full) {
+    const ms = full[4] ? Number(full[4].padEnd(3, "0")) / 1000 : 0;
+    return Number(full[1]) * 3600 + Number(full[2]) * 60 + Number(full[3]) + ms;
+  }
+  const two = t.match(/^(\d{1,3}):([0-5]?\d)(?:\.(\d{1,3}))?$/);
+  if (two) {
+    const ms = two[3] ? Number(two[3].padEnd(3, "0")) / 1000 : 0;
+    return Number(two[1]) * 60 + Number(two[2]) + ms;
+  }
+  if (/^\d+(?:\.\d+)?$/.test(t)) return Number(t);
+  return null;
 }
 
 /** 字节数 → 人类可读（GB/MB） */
