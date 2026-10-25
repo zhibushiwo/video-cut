@@ -17,6 +17,14 @@ export interface VideoPlayerHandle {
   seek(t: number): void;
   play(): void;
   pause(): void;
+  /** 切换全屏（M26，FR-405 v2 播放页快捷键/双击全屏用） */
+  toggleFullscreen(): void;
+  /** 音量步进（±delta，钳制 0~1；走 useVolumeMemory 会话记忆） */
+  adjustVolume(delta: number): void;
+  /** 静音切换 */
+  toggleMuted(): void;
+  /** 倍速直设（0.2~3；档位表见 PLAYBACK_RATES） */
+  setRate(r: number): void;
 }
 
 /** 播放速度档位（T-020 扩展：0.2~3 直接选择，不再循环点按）；工作台 K/L 走带（M11-8）复用同一档 */
@@ -152,6 +160,22 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       },
       pause() {
         videoRef.current?.pause();
+      },
+      // M26（FR-405 v2）：播放页快捷键需要的外部控制面——全屏/音量/倍速
+      toggleFullscreen() {
+        const el = rootRef.current;
+        if (!el) return;
+        if (document.fullscreenElement) void document.exitFullscreen();
+        else void el.requestFullscreen();
+      },
+      adjustVolume(delta: number) {
+        setVolume(Math.min(1, Math.max(0, vol + delta)));
+      },
+      toggleMuted() {
+        toggleMuted();
+      },
+      setRate(r: number) {
+        setRate(r);
       },
     }));
 
@@ -394,7 +418,11 @@ const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               : `mx-auto ${videoMaxClass ?? "max-h-[44vh]"} w-full bg-black object-contain ${cursorClass}`
           }
           onPointerDown={zoomPointerDown}
-          onDoubleClick={zoomDoubleClick}
+          onDoubleClick={() => {
+            // M26（FR-405 v2）：分态双击——放大态还原缩放（FR-397 语义不变），非放大态切全屏
+            if (zoomed) zoomDoubleClick();
+            else toggleFullscreen();
+          }}
           onClick={onVideoClickInternal}
           onLoadedMetadata={(e) => {
             const d = e.currentTarget.duration;

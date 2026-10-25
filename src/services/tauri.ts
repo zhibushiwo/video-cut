@@ -238,6 +238,11 @@ export function getAppVersion(): Promise<string> {
   return getVersion();
 }
 
+/** 窗口标题（M26 播放页：随当前视频名更新；空串由调用方传回 "video-cut"） */
+export function setWindowTitle(title: string): Promise<void> {
+  return getCurrentWindow().setTitle(title);
+}
+
 /** 缓存占用统计（代理 + 缩略图，M4-8） */
 export function cacheUsage(): Promise<CacheUsage> {
   return invoke("cache_usage");
